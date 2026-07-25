@@ -163,6 +163,10 @@ export default function WindowShell({
     el.style.top = `${y}px`;
   }, []);
 
+  // Self-removing one-shot listener: onDragEnd unregisters itself on
+  // mouseup. Routed through a ref (rather than referencing `onDragEnd`
+  // inside its own useCallback body) so there's no forward self-reference.
+  const onDragEndRef = useRef(null);
   const onDragEnd = useCallback(() => {
     const el = elRef.current;
     if (!dragStateRef.current || !el) return;
@@ -172,9 +176,9 @@ export default function WindowShell({
     });
     dragStateRef.current = null;
     document.removeEventListener("mousemove", onDragMove);
-    document.removeEventListener("mouseup", onDragEnd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    document.removeEventListener("mouseup", onDragEndRef.current);
   }, [onDragMove, windowKey]);
+  onDragEndRef.current = onDragEnd;
 
   const handleTitlebarMouseDown = useCallback(
     (e) => {
@@ -218,6 +222,7 @@ export default function WindowShell({
     el.style.height = `${height}px`;
   }, []);
 
+  const onResizeEndRef = useRef(null);
   const onResizeEnd = useCallback(() => {
     const el = elRef.current;
     if (!resizeStateRef.current || !el) return;
@@ -229,9 +234,9 @@ export default function WindowShell({
     });
     resizeStateRef.current = null;
     document.removeEventListener("mousemove", onResizeMove);
-    document.removeEventListener("mouseup", onResizeEnd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    document.removeEventListener("mouseup", onResizeEndRef.current);
   }, [onResizeMove, windowKey]);
+  onResizeEndRef.current = onResizeEnd;
 
   const startResize = useCallback(
     (e, dir) => {
