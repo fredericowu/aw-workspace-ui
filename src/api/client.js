@@ -1,22 +1,33 @@
 // Thin fetch wrapper for the aw-backend API.
 //
-// Backend target: https://api.aw.tekflox.com — the new `repos/aw-backend`
-// (already confirmed live), NOT the legacy awserv at aw.tekflox.com:9123
-// and NOT repos/aw-backend on :9025 directly (that's local/replica-only).
-// aw-backend ships the same credentialed-CORS + WS-Origin-check setup the
-// legacy awserv has for this frontend's origin (see repos/aw-backend and
-// the legacy src/api/app.py, commit 4248185, for the pattern this mirrors).
+// Backend target: aw-backend (`repos/aw-backend`, public at
+// api.aw.tekflox.com) — NOT the legacy awserv at aw.tekflox.com:9123.
+//
+// Requests go through a RELATIVE path (`/api/...`), not an absolute
+// `https://api.aw.tekflox.com/...` URL. Two different same-origin proxies
+// make that resolve to aw-backend without the browser ever making a
+// cross-origin request:
+//   - dev: Vite's `server.proxy` (vite.config.js) forwards /api and /ws to
+//     api.aw.tekflox.com server-to-server.
+//   - prod (once wired): the Caddy vhost serving this app's static build
+//     needs the same /api reverse-proxy — not yet done, see the Caddy
+//     template work.
+// Going relative on purpose: aw-backend's CORS allowlist
+// (`_cors_allowed_origins()`) is deliberately short (aw.tekflox.com,
+// next.aw.tekflox.com, the ux-proto wildcard) — adding every dev/preview
+// origin this frontend might run on would turn that into an unbounded
+// list. Same-origin sidesteps CORS entirely instead.
 //
 // `credentials: 'include'` is required on every call — auth is a same-site
 // cookie, not a bearer token, matching the credentialed-CORS contract.
 //
-// NOTE: this is plumbing only. Nothing here assumes any specific endpoint
-// (e.g. /api/settings/aw, /api/components, /api/windows/registry — all used
-// by the ux-proto prototype against the legacy backend) already exists on
-// the fresh aw-backend instance. Callers should treat 404s as "not ported
-// yet" rather than a bug in this client.
+// NOTE: nothing here assumes any specific endpoint (e.g. /api/settings/aw,
+// /api/components, /api/windows/registry — all used by the ux-proto
+// prototype against the legacy backend) already exists on aw-backend.
+// Callers should treat 404s as "not ported yet" rather than a bug in this
+// client.
 
-export const API_BASE_URL = "https://api.aw.tekflox.com";
+export const API_BASE_URL = "";
 
 export class ApiError extends Error {
   constructor(message, { status, url } = {}) {
