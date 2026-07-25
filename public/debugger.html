@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #424242; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+::-webkit-scrollbar-corner { background: transparent; }
+body { font-family: 'Segoe UI', -apple-system, sans-serif; background: #111318; color: #cccccc; height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-size: 13px; }
+
+/* Debug toolbar */
+.toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: #1a1d28; border-bottom: 1px solid #252526; flex-shrink: 0; }
+.toolbar .session { font-size: 12px; color: #cccccc; margin-right: 8px; }
+.toolbar .badge { padding: 1px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-stopped { background: #cc6633; color: #fff; }
+.badge-running { background: #388a34; color: #fff; }
+.badge-connected { background: #007acc; color: #fff; }
+.badge-disconnected { background: #555; color: #999; }
+.toolbar .reason-text { font-size: 11px; color: #e8ab53; margin-left: 4px; }
+
+/* Tab bar */
+#tab-bar { display: flex; gap: 4px; padding: 8px 12px; background: #0f172a; border-bottom: 1px solid #1e293b; overflow-x: auto; flex-shrink: 0; }
+.service-tab { padding: 6px 16px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; font-size: 13px; white-space: nowrap; transition: all 0.2s; }
+.service-tab.active { background: #334155; color: #e2e8f0; border-color: #60a5fa; }
+.service-tab.stopped { border-color: #cc6633; color: #e8ab53; }
+.service-tab.stopped.active { border-color: #e8ab53; background: #3d2a1a; }
+.service-tab:hover { background: #283548; }
+
+/* Main layout */
+.main { display: flex; flex: 1; min-height: 0; }
+
+/* Sidebar panels */
+.sidebar { width: 280px; min-width: 150px; max-width: 50vw; background: #161922; border-right: 1px solid #1e1e1e; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; position: relative; }
+.resize-handle-h { width: 4px; cursor: col-resize; position: absolute; right: -2px; top: 0; bottom: 0; z-index: 10; }
+.resize-handle-h:hover, .resize-handle-h.active { background: #007acc; }
+.resize-handle-v { height: 4px; cursor: row-resize; background: transparent; flex-shrink: 0; }
+.resize-handle-v:hover, .resize-handle-v.active { background: #007acc; }
+.panel { display: flex; flex-direction: column; border-bottom: 1px solid #1e1e1e; }
+.panel.flex { flex: 1; min-height: 0; }
+.panel-header { display: flex; align-items: center; padding: 4px 10px; background: #161922; cursor: pointer; user-select: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #bbbbbb; }
+.panel-header:hover { color: #ffffff; }
+.panel-header .arrow { margin-right: 6px; font-size: 9px; transition: transform 0.15s; }
+.panel-header .arrow.open { transform: rotate(90deg); }
+.panel-header .count { margin-left: auto; color: #888; font-weight: 400; font-size: 10px; }
+.panel-body { overflow-y: auto; font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; }
+.panel.collapsed .panel-body { display: none; }
+
+/* Variables */
+.var-row { display: flex; padding: 2px 10px 2px 20px; }
+.var-row:hover { background: #1c2030; }
+.var-name { color: #9cdcfe; min-width: 100px; }
+.var-sep { color: #666; margin: 0 4px; }
+.var-value { color: #ce9178; word-break: break-all; }
+.var-type { color: #4ec9b0; font-size: 10px; margin-left: 6px; }
+
+/* Call stack */
+.frame { padding: 2px 10px 2px 20px; cursor: pointer; }
+.frame:hover { background: #1c2030; }
+.frame.top { color: #e8ab53; }
+.frame .fname { color: #dcdcaa; }
+.frame .floc { color: #666; margin-left: 6px; }
+
+/* Threads */
+.thread-row { padding: 2px 10px 2px 14px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.thread-row:hover { background: #1c2030; }
+.thread-row.stopped { color: #e8ab53; }
+.thread-row.active-thread { background: rgba(232,171,83,0.15); }
+.thread-icon { font-size: 9px; flex-shrink: 0; }
+.thread-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread-loc { color: #888; font-size: 10px; margin-left: auto; white-space: nowrap; }
+
+/* Breakpoints */
+.bp-row { padding: 2px 10px 2px 20px; display: flex; align-items: center; gap: 6px; }
+.bp-dot { width: 8px; height: 8px; border-radius: 50%; background: #e51400; flex-shrink: 0; }
+.bp-file { color: #cccccc; }
+.bp-line { color: #888; }
+
+/* Editor area */
+.editor { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.editor-tab { display: flex; align-items: center; padding: 4px 12px; background: #141720; border-bottom: 1px solid #1e1e1e; font-size: 11px; color: #969696; flex-shrink: 0; }
+.editor-tab .tab-active { color: #ffffff; background: #111318; padding: 2px 10px; border-radius: 3px 3px 0 0; }
+.editor-code { flex: 1; overflow: auto; background: #111318; font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; line-height: 20px; }
+.code-line { display: flex; min-height: 20px; }
+.code-line:hover { background: #1c2030; }
+.code-line.current { background: rgba(232,171,83,0.12); }
+.gutter { width: 60px; text-align: right; padding-right: 16px; color: #858585; user-select: none; flex-shrink: 0; }
+.code-line.current .gutter { color: #c6c6c6; }
+.bp-gutter { width: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.bp-indicator { width: 8px; height: 8px; border-radius: 50%; }
+.code-line.current .bp-indicator { background: #e8ab53; }
+.code-line.breakpoint .bp-indicator { background: #e51400; }
+.code-text { white-space: pre; color: #d4d4d4; padding-right: 20px; }
+.code-line.current .code-text { color: #ffffff; }
+.open-btn { background: none; border: 1px solid #555; color: #aaa; font-size: 10px; padding: 1px 6px; border-radius: 3px; cursor: pointer; margin-left: 6px; }
+.open-btn:hover { color: #fff; border-color: #888; background: #333; }
+.editor-open-btn { position: absolute; top: 4px; right: 12px; z-index: 10; }
+
+/* Debug console — unified: events + eval + output */
+.console { background: #111318; border-top: 1px solid #3c3c3c; flex-shrink: 0; display: flex; flex-direction: column; }
+.console-header { padding: 4px 12px; background: #161922; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #bbbbbb; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+.console-body { height: 180px; overflow-y: auto; font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; padding: 4px 0; }
+.console-entry { padding: 1px 12px; }
+.console-entry:hover { background: #1c2030; }
+.ce-time { color: #666; margin-right: 8px; }
+.ce-type { color: #569cd6; }
+.ce-type.ce-stopped { color: #e8ab53; }
+.ce-type.ce-eval { color: #4ec9b0; }
+.ce-type.ce-system { color: #888; }
+.ce-type.ce-output { color: #d4d4d4; }
+.ce-type.ce-expr { color: #569cd6; }
+.ce-type.ce-result { color: #ce9178; }
+.ce-type.ce-error { color: #f44747; }
+.ce-text { color: #cccccc; }
+.ce-text.ce-result-text { color: #ce9178; white-space: pre-wrap; word-break: break-all; }
+.ce-text.ce-error-text { color: #f44747; }
+.console-input-row { display: flex; align-items: center; padding: 4px 8px; background: #1a1d28; border-top: 1px solid #252526; flex-shrink: 0; }
+.console-input-row .prompt { color: #569cd6; font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; margin-right: 6px; flex-shrink: 0; }
+.console-input { flex: 1; background: transparent; border: none; outline: none; color: #d4d4d4; font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; }
+
+.empty { color: #555; font-style: italic; padding: 8px 20px; }
+#waiting { display: flex; align-items: center; justify-content: center; flex: 1; color: #555; font-size: 14px; text-align: center; padding: 20px; }
+.dbg-btn { background: none; border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; cursor: pointer; opacity: 0.7; display: flex; align-items: center; }
+.dbg-btn:hover { opacity: 1; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.1); }
+.dbg-btn:active { opacity: 1; background: rgba(255,255,255,0.15); }
+</style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <span class="session" id="session-name">debugger</span>
+  <span class="badge badge-connected" id="status-badge">connecting</span>
+  <span class="reason-text" id="reason"></span>
+  <div style="margin-left:auto; display:flex; gap:2px" id="debug-controls">
+    <button class="dbg-btn" onclick="sendCmd('continue')" title="Continue (F5)">
+      <svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 2l10 6-10 6V2z" fill="#4ade80"/></svg>
+    </button>
+    <button class="dbg-btn" onclick="sendCmd('next')" title="Step Over (F10)">
+      <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="11" r="2" fill="none" stroke="#6cf" stroke-width="1.5"/><path d="M3 5h5M8 2l3 3-3 3" fill="none" stroke="#6cf" stroke-width="1.5"/></svg>
+    </button>
+    <button class="dbg-btn" onclick="sendCmd('step_in')" title="Step Into (F11)">
+      <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="13" r="2" fill="none" stroke="#6cf" stroke-width="1.5"/><path d="M8 2v7M5 6l3 3 3-3" fill="none" stroke="#6cf" stroke-width="1.5"/></svg>
+    </button>
+    <button class="dbg-btn" onclick="sendCmd('step_out')" title="Step Out (Shift+F11)">
+      <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="13" r="2" fill="none" stroke="#6cf" stroke-width="1.5"/><path d="M8 9V2M5 5l3-3 3 3" fill="none" stroke="#6cf" stroke-width="1.5"/></svg>
+    </button>
+    <button class="dbg-btn" onclick="sendCmd('pause')" title="Pause (F6)">
+      <svg width="16" height="16" viewBox="0 0 16 16"><rect x="4" y="3" width="3" height="10" rx="1" fill="#e8ab53"/><rect x="9" y="3" width="3" height="10" rx="1" fill="#e8ab53"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div id="tab-bar"></div>
+
+<!-- Waiting state -->
+<div id="waiting">No debug sessions. Connect to a service via the DAP server or MCP debugger.</div>
+
+<!-- Main area -->
+<div class="main" id="main" style="display:none">
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="resize-handle-h" id="sidebar-resize"></div>
+    <div class="panel" id="panel-threads">
+      <div class="panel-header" onclick="togglePanel('panel-threads')">
+        <span class="arrow open">&#9654;</span> Threads <span class="count" id="threads-count"></span>
+      </div>
+      <div class="panel-body" id="threads" style="max-height:180px"></div>
+    </div>
+
+    <div class="panel" id="panel-vars">
+      <div class="panel-header" onclick="togglePanel('panel-vars')">
+        <span class="arrow open">&#9654;</span> Variables <span class="count" id="vars-count"></span>
+      </div>
+      <div class="panel-body" id="locals" style="max-height:200px"></div>
+    </div>
+
+    <div class="panel" id="panel-stack">
+      <div class="panel-header" onclick="togglePanel('panel-stack')">
+        <span class="arrow open">&#9654;</span> Call Stack <span class="count" id="stack-count"></span>
+      </div>
+      <div class="panel-body" id="stack" style="max-height:180px"></div>
+    </div>
+
+    <div class="panel" id="panel-bp">
+      <div class="panel-header" onclick="togglePanel('panel-bp')">
+        <span class="arrow open">&#9654;</span> Breakpoints <span class="count" id="bp-count"></span>
+      </div>
+      <div class="panel-body" id="breakpoints" style="max-height:100px"></div>
+    </div>
+  </div>
+
+  <!-- Editor -->
+  <div class="editor" style="position:relative">
+    <div class="editor-tab">
+      <span class="tab-active" id="editor-filename">No file</span>
+    </div>
+    <button class="open-btn editor-open-btn" id="editor-open-btn" style="display:none" onclick="openCurrentFileInEditor()">open</button>
+    <div class="editor-code" id="editor"></div>
+  </div>
+</div>
+
+<!-- Debug Console -->
+<div class="resize-handle-v" id="console-resize"></div>
+<div class="console" id="console-panel">
+  <div class="console-header" onclick="toggleConsole()">
+    <span class="arrow open" id="console-arrow">&#9654;</span> Debug Console
+  </div>
+  <div class="console-body" id="events"></div>
+  <div class="console-input-row">
+    <span class="prompt">&gt;</span>
+    <input class="console-input" id="eval-input" type="text" placeholder="expression..." spellcheck="false" autocomplete="off">
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// DAP Server WebSocket connection (direct, no awserv relay)
+// ---------------------------------------------------------------------------
+
+const DAP_SERVER = 'ws://127.0.0.1:15050';
+const DAP_HTTP   = 'http://127.0.0.1:15050';
+
+// Also support awserv relay as fallback (when embedded in aw UI)
+const params = new URLSearchParams(location.search);
+const forceawserv = params.get('awserv') === '1';
+const apiKey = params.get('api-key') || window.__AW_API_KEY__ || localStorage.getItem('aw-api-key') || '';
+
+function getWsUrl() {
+  if (forceawserv) {
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return wsProto + '//' + location.host + '/ws/debug' + (apiKey ? '?api-key=' + apiKey : '');
+  }
+  return DAP_SERVER + '/ws/events';
+}
+
+let ws, events = [];
+
+// ---------------------------------------------------------------------------
+// File cache — keyed by absolute path, loaded once via WS get_file
+// ---------------------------------------------------------------------------
+
+const fileCache = {};         // path → { lines: [{num, text}], loading: false }
+const filePending = {};       // path → [callback, callback, ...]
+
+function getFile(path, callback) {
+  // Already cached
+  if (fileCache[path]) {
+    callback(fileCache[path]);
+    return;
+  }
+  // Already loading — queue the callback
+  if (filePending[path]) {
+    filePending[path].push(callback);
+    return;
+  }
+  // Request from DAP server over WS
+  filePending[path] = [callback];
+  const reqId = 'f-' + Math.random().toString(36).slice(2, 10);
+  fileRequestMap[reqId] = path;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'get_file', path, request_id: reqId }));
+  }
+}
+
+const fileRequestMap = {};  // request_id → path
+
+function handleFileContent(data) {
+  const path = data.path;
+  if (data.lines && data.lines.length > 0) {
+    fileCache[path] = { lines: data.lines };
+  }
+  // Fire pending callbacks
+  const cbs = filePending[path] || [];
+  delete filePending[path];
+  const cached = fileCache[path] || { lines: [] };
+  cbs.forEach(cb => cb(cached));
+}
+
+// ---------------------------------------------------------------------------
+// Per-service state
+// ---------------------------------------------------------------------------
+
+const serviceTabs = {};  // name → { stack, locals, breakpoints, status, reason, port, currentFile, currentLine }
+let activeTab = null;
+
+function statusIcon(status) {
+  if (status === 'stopped') return '\u{1F534}';
+  if (status === 'running') return '\u{1F7E2}';
+  return '\u26AA';
+}
+
+function ensureTab(name, port, status) {
+  if (!serviceTabs[name]) {
+    serviceTabs[name] = {
+      stack: [], locals: [], breakpoints: {}, threads: [],
+      status: status || 'connected', reason: '',
+      port: port || null,
+      currentFile: null, currentLine: null,
+      activeThreadId: null,
+    };
+  } else {
+    if (status !== undefined) serviceTabs[name].status = status;
+    if (port !== undefined && port !== null) serviceTabs[name].port = port;
+  }
+  renderTabBar();
+  if (!activeTab) switchTab(name);
+}
+
+function removeTab(name) {
+  delete serviceTabs[name];
+  renderTabBar();
+  if (activeTab === name) {
+    const remaining = Object.keys(serviceTabs);
+    if (remaining.length > 0) switchTab(remaining[0]);
+    else { activeTab = null; showWaiting(); }
+  }
+}
+
+function renderTabBar() {
+  const bar = document.getElementById('tab-bar');
+  const names = Object.keys(serviceTabs);
+  if (names.length === 0) { bar.innerHTML = ''; return; }
+  // Sort: stopped services first
+  const sorted = [...names].sort((a, b) => {
+    const sa = serviceTabs[a].status === 'stopped' ? 0 : 1;
+    const sb = serviceTabs[b].status === 'stopped' ? 0 : 1;
+    return sa - sb;
+  });
+  bar.innerHTML = sorted.map(name => {
+    const tab = serviceTabs[name];
+    const icon = statusIcon(tab.status);
+    const isActive = name === activeTab;
+    return "<button class='service-tab" + (isActive ? ' active' : '') + (tab.status === 'stopped' ? ' stopped' : '') + "' onclick='switchTab(" + JSON.stringify(name) + ")'>" +
+      icon + ' ' + escH(name) + '</button>';
+  }).join('');
+}
+
+function switchTab(name) {
+  if (!serviceTabs[name]) return;
+  activeTab = name;
+  renderTabBar();
+  const tab = serviceTabs[name];
+
+  const portSuffix = tab.port ? ' :' + tab.port : '';
+  document.getElementById('session-name').textContent = name + portSuffix;
+  setBadge(tab.status);
+  setReason(tab.reason || '');
+  showMain();
+
+  // Always fetch fresh threads
+  fetchThreads(name);
+  renderThreads(name);
+
+  // If stopped and no stack loaded yet, fetch from first stopped thread
+  if (tab.status === 'stopped' && (!tab.stack || !tab.stack.length)) {
+    fetchStoppedState(name);
+  }
+
+  if (tab.stack && tab.stack.length) renderStack(tab.stack);
+  else {
+    document.getElementById('stack-count').textContent = '';
+    document.getElementById('stack').innerHTML = tab.status === 'stopped'
+      ? '<div class="empty">Loading stack...</div>'
+      : '<div class="empty">No stack frames</div>';
+  }
+
+  if (tab.locals && tab.locals.length) renderLocals(tab.locals);
+  else { document.getElementById('vars-count').textContent = ''; document.getElementById('locals').innerHTML = ''; }
+
+  renderBreakpoints(tab.breakpoints);
+
+  if (tab.currentFile) {
+    showFileAtLine(tab.currentFile, tab.currentLine, tab.breakpoints);
+  } else if (tab.status === 'running') {
+    document.getElementById('editor-filename').textContent = 'No file';
+    document.getElementById('editor').innerHTML = '<div class="empty">Running...</div>';
+  } else if (tab.status === 'stopped') {
+    document.getElementById('editor-filename').textContent = 'Loading...';
+    document.getElementById('editor').innerHTML = '<div class="empty">Loading source...</div>';
+  } else {
+    document.getElementById('editor-filename').textContent = 'No file';
+    document.getElementById('editor').innerHTML = '<div class="empty">No source</div>';
+  }
+}
+
+let _currentEditorFile = null;
+let _currentEditorLine = null;
+
+function openInEditor(filePath, line) {
+  fetch('/open-in-editor', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: filePath, line: line || 1})
+  }).catch(() => {});
+}
+
+function openCurrentFileInEditor() {
+  if (_currentEditorFile) openInEditor(_currentEditorFile, _currentEditorLine || 1);
+}
+
+function showFileAtLine(filePath, currentLine, breakpoints) {
+  _currentEditorFile = filePath;
+  _currentEditorLine = currentLine;
+  const btn = document.getElementById('editor-open-btn');
+  btn.style.display = filePath ? '' : 'none';
+  getFile(filePath, (cached) => {
+    const fname = filePath.split('/').pop();
+    document.getElementById('editor-filename').textContent = fname + (currentLine ? ':' + currentLine : '');
+    renderFileLines(cached.lines, currentLine, filePath, breakpoints);
+  });
+}
+
+function renderFileLines(lines, currentLine, filePath, breakpoints) {
+  const bps = breakpoints || (activeTab && serviceTabs[activeTab] ? serviceTabs[activeTab].breakpoints : {});
+  const bpLines = new Set(bps[filePath] || []);
+  const editor = document.getElementById('editor');
+  editor.innerHTML = lines.map(l => {
+    let cls = 'code-line';
+    if (l.num === currentLine) cls += ' current';
+    if (bpLines.has(l.num)) cls += ' breakpoint';
+    return '<div class="' + cls + '" id="line-' + l.num + '">' +
+      '<div class="bp-gutter"><div class="bp-indicator"></div></div>' +
+      '<div class="gutter">' + l.num + '</div>' +
+      '<div class="code-text">' + escH(l.text) + '</div></div>';
+  }).join('');
+  if (currentLine) {
+    const el = document.getElementById('line-' + currentLine);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
+function fetchStoppedState(svcName) {
+  // Fetch stack trace, locals, and source for a stopped service
+  const tab = serviceTabs[svcName];
+  if (!tab) return;
+
+  fetch(DAP_HTTP + '/stack/' + encodeURIComponent(svcName))
+    .then(r => r.json())
+    .then(data => {
+      const frames = data.body?.stackFrames ?? [];
+      if (!frames.length) return;
+
+      tab.stack = frames.map(f => ({
+        id: f.id, name: f.name,
+        path: f.source?.path || '', line: f.line,
+      }));
+      const top = frames[0];
+      tab.currentFile = top.source?.path || null;
+      tab.currentLine = top.line || null;
+
+      // Fetch locals from top frame
+      if (top.id !== undefined) {
+        fetch(DAP_HTTP + '/scopes/' + encodeURIComponent(svcName) + '/' + top.id)
+          .then(r => r.json())
+          .then(scopeData => {
+            const scopes = scopeData.body?.scopes ?? [];
+            const localScope = scopes.find(s => s.name === 'Locals');
+            if (localScope) {
+              fetch(DAP_HTTP + '/variables/' + encodeURIComponent(svcName) + '/' + localScope.variablesReference)
+                .then(r => r.json())
+                .then(varData => {
+                  tab.locals = (varData.body?.variables ?? []).map(v => ({
+                    name: v.name, value: (v.value || '').substring(0, 200), type: v.type || '',
+                  }));
+                  if (activeTab === svcName) switchTab(svcName);
+                }).catch(() => {});
+            }
+          }).catch(() => {});
+      }
+
+      // Re-render with stack data
+      if (activeTab === svcName) switchTab(svcName);
+    }).catch(() => {});
+}
+
+function showMain() {
+  document.getElementById('waiting').style.display = 'none';
+  document.getElementById('main').style.display = 'flex';
+}
+
+function showWaiting() {
+  document.getElementById('waiting').style.display = 'flex';
+  document.getElementById('main').style.display = 'none';
+  document.getElementById('session-name').textContent = 'debugger';
+  setBadge('connected');
+  setReason('');
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket connection
+// ---------------------------------------------------------------------------
+
+function connect() {
+  const url = getWsUrl();
+  ws = new WebSocket(url);
+  ws.onopen = () => addEvent('system', 'Connected to DAP server');
+  ws.onclose = () => {
+    addEvent('system', 'DAP server disconnected, reconnecting...');
+    // Clear all service states — no debugging when DAP is down
+    Object.keys(serviceTabs).forEach(name => {
+      serviceTabs[name].status = 'disconnected';
+      serviceTabs[name].stack = [];
+      serviceTabs[name].locals = [];
+    });
+    renderTabBar();
+    setBadge('disconnected');
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+}
+
+function handleMessage(data) {
+  const type = data.type;
+  if (type !== 'ping') console.log('[WS MSG]', type, data.request_id || data.service || '');
+
+  // --- File content response ---
+  if (type === 'file_content') {
+    handleFileContent(data);
+    return;
+  }
+
+  // --- Command result ---
+  if (type === 'command_result') {
+    addEvent('cmd', data.command + ' → ' + (data.success ? 'ok' : 'failed'));
+    return;
+  }
+
+  // --- Evaluate result ---
+  if (type === 'evaluate_result') {
+    const reqId = data.request_id || '';
+    delete evalPending[reqId];
+    const body = data.body || {};
+    const result = body.result ?? data.result ?? '';
+    const errorMsg = data.error || data.message || '';
+    const isError = data.success === false;
+    addEvent(isError ? 'error' : 'result', isError ? (errorMsg || 'evaluation failed') : (result || '(void)'));
+    return;
+  }
+
+  // --- Output events (print statements, logging) ---
+  if (type === 'output') {
+    const body = data.body || {};
+    const text = body.output || data.output || '';
+    if (text) addEvent('output', text.replace(/\n$/, ''));
+    return;
+  }
+
+  // --- Ping/pong ---
+  if (type === 'ping') {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pong' }));
+    return;
+  }
+  if (type === 'pong') return;
+
+  // --- Init (DAP server sends service list on connect) ---
+  if (type === 'init') {
+    // Reset all existing tabs to disconnected, then rebuild from fresh data
+    Object.keys(serviceTabs).forEach(name => {
+      serviceTabs[name].status = 'disconnected';
+      serviceTabs[name].stack = [];
+      serviceTabs[name].locals = [];
+    });
+    (data.services || []).forEach(svc => {
+      if (svc.connected) {
+        ensureTab(svc.name, svc.port, svc.stopped ? 'stopped' : 'running');
+        const tab = serviceTabs[svc.name];
+        if (svc.breakpoints) tab.breakpoints = svc.breakpoints;
+        if (svc.stopped) fetchStoppedState(svc.name);
+      } else {
+        // Registered but not connected — show as registered with pending breakpoints
+        ensureTab(svc.name, svc.port, 'disconnected');
+        const tab = serviceTabs[svc.name];
+        if (svc.breakpoints) tab.breakpoints = svc.breakpoints;
+      }
+    });
+    renderTabBar();
+    // Update badge based on whether any service is stopped
+    const anyStop = Object.values(serviceTabs).some(t => t.status === 'stopped');
+    setBadge(anyStop ? 'stopped' : (Object.values(serviceTabs).some(t => t.status === 'running') ? 'running' : 'disconnected'));
+    // Apply breakpoints from top-level map (merged across agents)
+    if (data.breakpoints) {
+      Object.entries(data.breakpoints).forEach(([svcName, files]) => {
+        if (serviceTabs[svcName]) {
+          serviceTabs[svcName].breakpoints = files;
+        }
+      });
+    }
+    if (activeTab) renderBreakpoints(serviceTabs[activeTab]?.breakpoints || {});
+    // Also handle awserv-style init
+    (data.sessions || []).forEach(s => renderSession(s));
+    return;
+  }
+
+  // --- awserv compatibility ---
+  if (type === 'session_update') { renderSession(data.session); return; }
+  if (type === 'session_removed') { removeTab(data.name); return; }
+
+  // --- DAP server events ---
+  const svcName = data.service || data.session || '';
+
+  if (type === 'stopped') {
+    if (!svcName) return;
+    ensureTab(svcName, null, 'stopped');
+    const tab = serviceTabs[svcName];
+    tab.status = 'stopped';
+    tab.reason = data.reason || 'breakpoint';
+
+    // Extract file/line from stack or source
+    const topFrame = (data.stack || [])[0];
+    if (topFrame) {
+      tab.currentFile = topFrame.path || topFrame.source?.path || null;
+      tab.currentLine = topFrame.line || null;
+      tab.stack = data.stack || [];
+    }
+    if (data.locals) tab.locals = data.locals;
+
+    // If we got source with the event, cache it
+    if (data.source && data.source.path && data.source.lines) {
+      fileCache[data.source.path] = { lines: data.source.lines };
+    }
+
+    // Refresh threads for this service
+    fetchThreads(svcName);
+    renderTabBar();
+    // Only auto-switch if no tab is active or current tab is running
+    const currentTab = activeTab && serviceTabs[activeTab];
+    if (!activeTab || !currentTab || currentTab.status !== 'stopped') {
+      switchTab(svcName);
+    } else if (activeTab === svcName) {
+      // Same tab stopped again — refresh
+      switchTab(svcName);
+    }
+    addEvent('stopped', '[' + svcName + '] ' + (data.reason || 'breakpoint') + ' at ' + (topFrame?.name || '?'));
+
+  } else if (type === 'continued' || (type === 'debug_event' && data.event === 'continued')) {
+    if (svcName && serviceTabs[svcName]) {
+      const tab = serviceTabs[svcName];
+      tab.status = 'running';
+      tab.reason = '';
+      tab.stack = [];
+      tab.locals = [];
+      tab.currentLine = null;
+      tab.activeThreadId = null;
+      renderTabBar();
+      if (activeTab === svcName) {
+        setBadge('running');
+        setReason('');
+        if (tab.currentFile) showFileAtLine(tab.currentFile, null, tab.breakpoints);
+        document.getElementById('locals').innerHTML = '';
+        document.getElementById('vars-count').textContent = '';
+        document.getElementById('stack').innerHTML = '<div class="empty">Running...</div>';
+        document.getElementById('stack-count').textContent = '';
+        fetchThreads(svcName);
+      }
+    }
+    addEvent('continued', 'Execution resumed');
+
+  } else if (type === 'reconnected') {
+    // Service reconnected to DAP server
+    if (svcName) {
+      ensureTab(svcName, null, 'running');
+      renderTabBar();
+      if (activeTab === svcName) switchTab(svcName);
+      addEvent('system', svcName + ' reconnected');
+    }
+
+  } else if (type === 'disconnected') {
+    // Service disconnected from DAP server
+    if (svcName && serviceTabs[svcName]) {
+      serviceTabs[svcName].status = 'disconnected';
+      serviceTabs[svcName].stack = [];
+      serviceTabs[svcName].locals = [];
+      serviceTabs[svcName].threads = [];
+      serviceTabs[svcName].currentFile = null;
+      serviceTabs[svcName].currentLine = null;
+      serviceTabs[svcName].reason = '';
+      renderTabBar();
+      if (activeTab === svcName) switchTab(svcName);
+      addEvent('system', svcName + ' disconnected');
+    }
+
+  } else if (type === 'breakpoint_set') {
+    if (svcName && serviceTabs[svcName]) {
+      const tab = serviceTabs[svcName];
+      tab.breakpoints[data.file] = data.lines || [];
+      if (activeTab === svcName) renderBreakpoints(tab.breakpoints);
+      addEvent('bp', svcName + ' bp set ' + (data.file || '').split('/').pop() + ':' + (data.lines || []).join(','));
+    }
+
+  } else if (type === 'breakpoint_removed') {
+    if (svcName && serviceTabs[svcName]) {
+      const tab = serviceTabs[svcName];
+      delete tab.breakpoints[data.file];
+      if (activeTab === svcName) renderBreakpoints(tab.breakpoints);
+      addEvent('bp', svcName + ' bp removed ' + (data.file || '').split('/').pop());
+    }
+
+  } else if (type === 'breakpoints_cleared') {
+    if (svcName && serviceTabs[svcName]) {
+      const tab = serviceTabs[svcName];
+      tab.breakpoints = {};
+      if (activeTab === svcName) renderBreakpoints(tab.breakpoints);
+      addEvent('bp', svcName + ' all breakpoints cleared');
+    }
+
+  } else if (type === 'debug_event') {
+    // awserv-style events
+    handleawservEvent(data);
+  }
+}
+
+// awserv compatibility for events relayed through /ws/debug
+function handleawservEvent(data) {
+  const svcName = data.session || '';
+  if (data.event === 'stopped') {
+    if (svcName) {
+      ensureTab(svcName, null, 'stopped');
+      const tab = serviceTabs[svcName];
+      tab.status = 'stopped';
+      tab.reason = data.reason || 'breakpoint';
+      if (data.stack) tab.stack = data.stack;
+      if (data.locals) tab.locals = data.locals;
+      if (data.source && data.source.path) {
+        fileCache[data.source.path] = { lines: data.source.lines || [] };
+        tab.currentFile = data.source.path;
+        tab.currentLine = data.source.current_line || null;
+      }
+      renderTabBar();
+      switchTab(svcName);
+    }
+    addEvent('stopped', (data.reason || 'breakpoint') + ' at ' + (data.stack?.[0]?.name || '?'));
+  } else if (data.event === 'continued') {
+    if (svcName && serviceTabs[svcName]) {
+      const tab = serviceTabs[svcName];
+      tab.status = 'running';
+      tab.reason = '';
+      tab.stack = [];
+      tab.locals = [];
+      tab.currentLine = null;
+      renderTabBar();
+      if (activeTab === svcName) switchTab(svcName);
+    }
+    addEvent('continued', 'Execution resumed');
+  } else if (data.event === 'disconnected') {
+    if (svcName && serviceTabs[svcName]) {
+      serviceTabs[svcName].status = 'disconnected';
+      serviceTabs[svcName].stack = [];
+      serviceTabs[svcName].locals = [];
+      serviceTabs[svcName].threads = [];
+      serviceTabs[svcName].currentFile = null;
+      serviceTabs[svcName].currentLine = null;
+      serviceTabs[svcName].reason = '';
+      renderTabBar();
+      if (activeTab === svcName) switchTab(svcName);
+    }
+    addEvent('system', 'Session disconnected: ' + svcName);
+  } else if (data.event === 'breakpoint_set') {
+    if (svcName && serviceTabs[svcName]) {
+      serviceTabs[svcName].breakpoints[data.path] = data.lines || [];
+      if (activeTab === svcName) renderBreakpoints(serviceTabs[svcName].breakpoints);
+    }
+  }
+}
+
+function renderSession(s) {
+  ensureTab(s.name, s.port, s.status || 'connected');
+  const tab = serviceTabs[s.name];
+  if (s.stack?.length) tab.stack = s.stack;
+  if (s.locals?.length) tab.locals = s.locals;
+  if (s.reason) tab.reason = s.reason;
+  if (activeTab === s.name) switchTab(s.name);
+}
+
+// ---------------------------------------------------------------------------
+// Render helpers
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Threads panel — shows all threads per service with running/stopped state
+// ---------------------------------------------------------------------------
+
+function fetchThreads(svcName) {
+  fetch(DAP_HTTP + '/threads/' + encodeURIComponent(svcName))
+    .then(r => r.json())
+    .then(data => {
+      const threads = data.body?.threads ?? [];
+      const tab = serviceTabs[svcName];
+      if (!tab) return;
+      tab.threads = threads;
+      if (activeTab === svcName) renderThreads(svcName);
+    }).catch(() => {});
+}
+
+function renderThreads(svcName) {
+  const tab = serviceTabs[svcName];
+  if (!tab) return;
+  const threads = tab.threads || [];
+  const el = document.getElementById('threads');
+  const stoppedCount = threads.filter(t => t.stopped).length;
+  const countText = stoppedCount > 0 ? stoppedCount + ' stopped / ' + threads.length : threads.length;
+  document.getElementById('threads-count').textContent = countText;
+
+  // Group: stopped threads first, then running
+  const stopped = threads.filter(t => t.stopped);
+  const running = threads.filter(t => !t.stopped);
+  const sorted = [...stopped, ...running];
+
+  el.innerHTML = sorted.map(t => {
+    const isStopped = t.stopped;
+    const isActive = tab.activeThreadId === t.id;
+    const icon = isStopped ? '\u{1F534}' : '\u{1F7E2}';
+    const cls = 'thread-row' + (isStopped ? ' stopped' : '') + (isActive ? ' active-thread' : '');
+    return '<div class="' + cls + '" onclick="selectThread(' + JSON.stringify(svcName) + ',' + t.id + ',' + isStopped + ')" title="Thread ' + t.id + '">' +
+      '<span class="thread-icon">' + icon + '</span>' +
+      '<span class="thread-name">' + escH(t.name) + '</span>' +
+      '</div>';
+  }).join('') || '<div class="empty">No threads</div>';
+}
+
+function selectThread(svcName, threadId, isStopped) {
+  const tab = serviceTabs[svcName];
+  if (!tab) return;
+  tab.activeThreadId = threadId;
+
+  // If stopped, fetch stack/locals for this specific thread
+  if (isStopped) {
+    fetch(DAP_HTTP + '/stack/' + encodeURIComponent(svcName) + '?thread_id=' + threadId)
+      .then(r => r.json())
+      .then(data => {
+        const frames = data.body?.stackFrames ?? [];
+        if (!frames.length) return;
+        tab.stack = frames.map(f => ({
+          id: f.id, name: f.name,
+          path: f.source?.path || '', line: f.line,
+        }));
+        const top = frames[0];
+        tab.currentFile = top.source?.path || null;
+        tab.currentLine = top.line || null;
+
+        // Fetch locals from top frame
+        if (top.id !== undefined) {
+          fetch(DAP_HTTP + '/scopes/' + encodeURIComponent(svcName) + '/' + top.id)
+            .then(r => r.json())
+            .then(scopeData => {
+              const localScope = (scopeData.body?.scopes ?? []).find(s => s.name === 'Locals');
+              if (localScope) {
+                fetch(DAP_HTTP + '/variables/' + encodeURIComponent(svcName) + '/' + localScope.variablesReference)
+                  .then(r => r.json())
+                  .then(varData => {
+                    tab.locals = (varData.body?.variables ?? []).map(v => ({
+                      name: v.name, value: (v.value || '').substring(0, 200), type: v.type || '',
+                    }));
+                    if (activeTab === svcName) {
+                      renderLocals(tab.locals);
+                      renderStack(tab.stack);
+                      showFileAtLine(tab.currentFile, tab.currentLine, tab.breakpoints);
+                    }
+                  }).catch(() => {});
+              }
+            }).catch(() => {});
+        }
+        if (activeTab === svcName) {
+          renderStack(tab.stack);
+          showFileAtLine(tab.currentFile, tab.currentLine, tab.breakpoints);
+        }
+      }).catch(() => {});
+  }
+  renderThreads(svcName);
+}
+
+function renderStack(frames) {
+  document.getElementById('stack-count').textContent = frames.length;
+  document.getElementById('stack').innerHTML = frames.map((f, i) => {
+    const esc = (f.path || '').replace(/'/g, "\\'");
+    return '<div class="frame' + (i === 0 ? ' top' : '') + '" title="' + escH(f.path || '') + ':' + f.line + '"' +
+    ' style="cursor:pointer" onclick="openInEditor(\'' + esc + '\',' + (f.line || 1) + ')">' +
+    '<span class="fname">' + escH(f.name) + '</span>' +
+    '<span class="floc">' + (f.path ? f.path.split('/').pop() : '?') + ':' + f.line + '</span></div>';
+  }).join('');
+}
+
+function renderLocals(vars) {
+  document.getElementById('vars-count').textContent = vars.length;
+  document.getElementById('locals').innerHTML = vars.map(v =>
+    '<div class="var-row">' +
+    '<span class="var-name">' + escH(v.name) + '</span>' +
+    '<span class="var-sep">=</span>' +
+    '<span class="var-value">' + escH((v.value || '').substring(0, 150)) + '</span>' +
+    (v.type ? '<span class="var-type">' + v.type + '</span>' : '') +
+    '</div>'
+  ).join('');
+}
+
+function renderBreakpoints(bps) {
+  const breakpoints = bps || {};
+  const el = document.getElementById('breakpoints');
+  const all = [];
+  for (const [path, lines] of Object.entries(breakpoints)) {
+    const file = path.split('/').pop();
+    lines.forEach(l => all.push({ file, line: l, path }));
+  }
+  document.getElementById('bp-count').textContent = all.length || '';
+  el.innerHTML = all.length ? all.map(b => {
+    const esc = b.path.replace(/'/g, "\\'");
+    const bpRef = activeTab ? "serviceTabs['" + activeTab + "'].breakpoints" : '{}';
+    return '<div class="bp-row" style="cursor:pointer; display:flex; align-items:center">' +
+      '<div style="flex:1" onclick="showFileAtLine(\'' + esc + '\', ' + b.line + ', ' + bpRef + ')">' +
+      '<div class="bp-dot" style="display:inline-block"></div>' +
+      '<span class="bp-file">' + b.file + '</span>' +
+      '<span class="bp-line">:' + b.line + '</span></div>' +
+      '<button class="open-btn" onclick="event.stopPropagation();openInEditor(\'' + esc + '\',' + b.line + ')">open</button>' +
+      '<button class="open-btn" style="color:#e55;padding:2px 4px" onclick="event.stopPropagation();removeBreakpoint(\'' + esc + '\')" title="Remove breakpoint">' +
+      '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2h3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1h3a1 1 0 0 1 1 1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118z"/></svg>' +
+      '</button></div>';
+  }).join('') : '';
+}
+
+function removeBreakpoint(filePath) {
+  if (!activeTab) return;
+  const svc = activeTab;
+  fetch('/breakpoints', {
+    method: 'DELETE',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ service: svc, file: filePath, agent_id: '*' })
+  }).then(() => {
+    const tab = serviceTabs[svc];
+    if (tab) {
+      delete tab.breakpoints[filePath];
+      renderBreakpoints(tab.breakpoints);
+      if (tab.currentFile) showFileAtLine(tab.currentFile, tab.currentLine, tab.breakpoints);
+    }
+  }).catch(e => addEvent('error', 'Failed to remove breakpoint: ' + e));
+}
+
+function togglePanel(id) {
+  const panel = document.getElementById(id);
+  panel.classList.toggle('collapsed');
+  panel.querySelector('.arrow').classList.toggle('open');
+}
+
+function toggleConsole() {
+  const body = document.getElementById('events');
+  const input = document.querySelector('.console-input-row');
+  const arrow = document.getElementById('console-arrow');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    if (input) input.style.display = 'flex';
+    arrow.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    if (input) input.style.display = 'none';
+    arrow.classList.remove('open');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Eval REPL
+// ---------------------------------------------------------------------------
+
+let evalHistory = [];
+let evalHistoryIdx = -1;
+
+function evalExpression(expr) {
+  if (!expr.trim()) return;
+  const session = activeTab || '';
+  if (!session) { addEvent('error', 'No active session'); return; }
+
+  evalHistory.unshift(expr);
+  if (evalHistory.length > 50) evalHistory.length = 50;
+  evalHistoryIdx = -1;
+
+  // Show expression in console
+  addEvent('expr', '> ' + expr);
+
+  // Send via WS
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const reqId = 'eval-' + Math.random().toString(36).slice(2, 8);
+    evalPending[reqId] = expr;
+    ws.send(JSON.stringify({
+      type: 'evaluate',
+      service: session,
+      expression: expr,
+      request_id: reqId,
+    }));
+  } else {
+    // Fallback to HTTP
+    fetch(DAP_HTTP + '/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service: session, expression: expr }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      const result = data.body?.result ?? data.result ?? '';
+      const isError = data.success === false;
+      addEvent(isError ? 'error' : 'result', isError ? (data.error || 'failed') : (result || '(void)'));
+    })
+    .catch(e => addEvent('error', e.message));
+  }
+}
+
+const evalPending = {}; // request_id → expression
+
+// Input handling — set up directly (DOM is ready since script is at end of body)
+(function() {
+  const input = document.getElementById('eval-input');
+  if (!input) return;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      evalExpression(input.value);
+      input.value = '';
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (evalHistoryIdx < evalHistory.length - 1) {
+        evalHistoryIdx++;
+        input.value = evalHistory[evalHistoryIdx];
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (evalHistoryIdx > 0) {
+        evalHistoryIdx--;
+        input.value = evalHistory[evalHistoryIdx];
+      } else {
+        evalHistoryIdx = -1;
+        input.value = '';
+      }
+    }
+  });
+})();
+
+function setBadge(status) {
+  const el = document.getElementById('status-badge');
+  el.textContent = status;
+  el.className = 'badge badge-' + status;
+}
+
+function setReason(text) { document.getElementById('reason').textContent = text; }
+
+function addEvent(type, text) {
+  events.push({ type, text, time: new Date().toLocaleTimeString() });
+  if (events.length > 200) events.splice(0, events.length - 200);
+  const el = document.getElementById('events');
+  // Append only the new entry (avoid full re-render)
+  const e = events[events.length - 1];
+  const div = document.createElement('div');
+  div.className = 'console-entry';
+  if (type === 'expr') {
+    div.innerHTML = '<span class="ce-text" style="color:#569cd6">' + escH(e.text) + '</span>';
+  } else if (type === 'result') {
+    div.innerHTML = '<span class="ce-text ce-result-text">' + escH(e.text) + '</span>';
+  } else if (type === 'error') {
+    div.innerHTML = '<span class="ce-text ce-error-text">' + escH(e.text) + '</span>';
+  } else if (type === 'output') {
+    div.innerHTML = '<span class="ce-text" style="color:#d4d4d4">' + escH(e.text) + '</span>';
+  } else {
+    div.innerHTML =
+      '<span class="ce-time">' + e.time + '</span>' +
+      '<span class="ce-type ce-' + e.type + '">[' + e.type + ']</span> ' +
+      '<span class="ce-text">' + escH(e.text) + '</span>';
+  }
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function sendCmd(command) {
+  const session = activeTab || '';
+  const tab = serviceTabs[session];
+  const threadId = tab?.activeThreadId || undefined;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'command', command, service: session, session, thread_id: threadId }));
+    const label = command + (session ? ' \u2192 ' + session : '') + (threadId ? ' [thread ' + threadId + ']' : '');
+    addEvent('cmd', label);
+  }
+}
+
+function escH(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ---------------------------------------------------------------------------
+// Resize handles
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Resize handles with localStorage persistence
+// ---------------------------------------------------------------------------
+
+(function() {
+  const LS_KEY = 'aw-debugger-layout';
+  const sidebar = document.getElementById('sidebar');
+  const sidebarHandle = document.getElementById('sidebar-resize');
+  const consolePanel = document.getElementById('console-panel');
+  const consoleHandle = document.getElementById('console-resize');
+  const consoleBody = consolePanel.querySelector('.console-body');
+
+  // Restore saved layout
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+    if (saved.sidebarWidth) sidebar.style.width = saved.sidebarWidth + 'px';
+    if (saved.consoleHeight) consoleBody.style.height = saved.consoleHeight + 'px';
+  } catch {}
+
+  function saveLayout() {
+    try {
+      const layout = {};
+      const sw = parseInt(sidebar.style.width);
+      if (sw) layout.sidebarWidth = sw;
+      const ch = parseInt(consoleBody.style.height);
+      if (ch) layout.consoleHeight = ch;
+      localStorage.setItem(LS_KEY, JSON.stringify(layout));
+    } catch {}
+  }
+
+  let dragging = null;
+
+  sidebarHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = 'sidebar';
+    sidebarHandle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  consoleHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = 'console';
+    consoleHandle.classList.add('active');
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (dragging === 'sidebar') {
+      const w = Math.max(150, Math.min(e.clientX, window.innerWidth * 0.5));
+      sidebar.style.width = w + 'px';
+    } else if (dragging === 'console') {
+      const bottomY = window.innerHeight - e.clientY;
+      const h = Math.max(40, Math.min(bottomY - 30, window.innerHeight * 0.6));
+      consoleBody.style.height = h + 'px';
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (dragging) {
+      saveLayout();
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      sidebarHandle.classList.remove('active');
+      consoleHandle.classList.remove('active');
+      dragging = null;
+    }
+  });
+})();
+
+connect();
+</script>
+</body>
+</html>

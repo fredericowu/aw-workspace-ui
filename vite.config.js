@@ -1,10 +1,12 @@
 import { defineConfig } from "vite";
+import { resolve } from "path";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 const PORT = Number(process.env.AW_APP_PORT) || 10011;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     host: "0.0.0.0",
     port: PORT,
@@ -27,11 +29,21 @@ export default defineConfig({
       "/ws": { target: "wss://api.aw.tekflox.com", ws: true, changeOrigin: true, secure: true },
     },
   },
-  build: { outDir: "dist", emptyOutDir: true },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    rolldownOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        terminal: resolve(__dirname, "terminal.html"),
+        androidViewer: resolve(__dirname, "android-viewer.html"),
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: ["./src/test/setup.js"],
+    setupFiles: ["./src/__tests__/setup.js"],
     include: ["src/**/*.test.{js,jsx}"],
     exclude: ["tests/**", "node_modules/**"],
   },

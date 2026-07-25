@@ -1,18 +1,114 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AW — Agentic Workspace</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
-    rel="stylesheet"
-  />
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="/src/main.jsx"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta id="aw-viewport" name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>AW</title>
+
+    <!-- ─── Desktop-on-phone viewport swap ──────────────────────────────
+         When the URL hash forces #desktop on a physically small device
+         (iPhone mirrored to a TV, or just "use the desktop layout on my
+         phone"), `width=device-width` cramps the desktop UI into ~390
+         CSS px — and Safari refuses to pinch-zoom *below* 1.0 from that
+         starting point, so there's no escape hatch.
+
+         The fix: lay out the page as if the viewport were 1280 px wide
+         and let Safari auto-fit to the device.  The desktop layout
+         renders at proper desktop sizes; the user sees the whole UI
+         scaled down, and `minimum-scale=0.1` lets them pinch out
+         further for overview or pinch in to 3× for detail.
+
+         Mobile mode (`#mobile`) keeps `width=device-width` untouched.
+
+         Runs inline (before React mounts) to avoid a layout flash, and
+         re-runs on hashchange when the user toggles between layouts. -->
+    <script>
+      (function () {
+        var meta = document.getElementById('aw-viewport');
+        // Sticky desktop-intent flag.  The app navigates the URL hash
+        // freely after auth (e.g. #desktop → #home when WorkspaceNav
+        // mounts), so we can't decide viewport off the *current* hash
+        // — it stops being `#desktop` within one frame.  Instead, once
+        // we ever see `#desktop` we persist that intent for the
+        // session, and only clear it when the user explicitly goes
+        // back to `#mobile`.
+        // Shared with App.jsx — same key + same store so the React
+        // layout decision and the viewport meta stay in lockstep across
+        // reloads.  localStorage (not sessionStorage) so closing and
+        // reopening the tab also remembers — "refresh keeps view".
+        var KEY = 'aw_layout_intent';
+        function read() {
+          try { return localStorage.getItem(KEY); } catch (e) { return null; }
+        }
+        function write(v) {
+          try {
+            if (v) localStorage.setItem(KEY, v);
+            else localStorage.removeItem(KEY);
+          } catch (e) {}
+        }
+        function apply() {
+          var hash = window.location.hash;
+          // Update the sticky intent only on explicit toggles.
+          if (hash === '#desktop') write('desktop');
+          else if (hash === '#mobile') write('mobile');
+
+          var intent = read();
+          var phoneSized = Math.min(window.screen.width, window.screen.height) < 768;
+          if (intent === 'desktop' && phoneSized) {
+            // Read width from localStorage (same key the React picker
+            // writes to), default 1600.  Special value 'device' means
+            // fall through to mobile defaults.
+            var w = '1600';
+            try { var stored = localStorage.getItem('aw_desktop_width'); if (stored) w = stored; } catch (e) {}
+            if (w === 'device') {
+              meta.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
+            } else {
+              meta.setAttribute(
+                'content',
+                'width=' + w + ', minimum-scale=0.1, maximum-scale=3, user-scalable=yes, viewport-fit=cover'
+              );
+            }
+          } else {
+            meta.setAttribute(
+              'content',
+              'width=device-width, initial-scale=1.0, viewport-fit=cover'
+            );
+          }
+        }
+        apply();
+        window.addEventListener('hashchange', apply);
+      })();
+    </script>
+
+    <!-- Favicon (browser tab) -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- ─── Progressive Web App ───────────────────────────────────────
+         When the user taps "Add to Home Screen" (iOS) or accepts the
+         Chrome install prompt (Android/desktop), the manifest below
+         tells the OS how to launch AW as a standalone app — no
+         browser chrome, custom icon, theme color matching the dark
+         shell.  See public/manifest.webmanifest for the full spec.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0a0f" />
+
+    <!-- iOS-specific PWA meta (Safari ignores the manifest's `display`
+         field and uses these older tags instead).  `black-translucent`
+         lets the app draw under the status bar; pair with
+         viewport-fit=cover + safe-area-inset CSS so content doesn't
+         hide behind the notch. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AW" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-180.png" />
+
+    <!-- Microsoft tile (covers Windows Start menu pin) -->
+    <meta name="msapplication-TileColor" content="#0a0a0f" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

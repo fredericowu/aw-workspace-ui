@@ -1,10 +1,67 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import App from "./App.jsx";
-import "./styles/global.css";
+// Earliest-possible error capture so the desktop-on-iPhone blank-screen
+// issue leaves a breadcrumb in localStorage that survives reloads.
+// Temporary — remove with the rest of the devctl/viewdbg plumbing.
+;(function () {
+  try {
+    const buf = [];
+    const save = () => { try { localStorage.setItem('aw_console_errs', JSON.stringify(buf.slice(-50))); } catch {} };
+    const orig = console.error.bind(console);
+    console.error = (...args) => {
+      try {
+        buf.push({ t: Date.now(), kind: 'console.error', msg: args.map(a => (a && a.stack) ? a.stack : (typeof a === 'object' ? (() => { try { return JSON.stringify(a).slice(0, 800); } catch { return String(a); } })() : String(a))).join(' ') });
+        save();
+      } catch {}
+      orig(...args);
+    };
+    window.addEventListener('error', (e) => {
+      buf.push({ t: Date.now(), kind: 'window.error', msg: e.message, src: e.filename, line: e.lineno, col: e.colno, stack: e.error && e.error.stack });
+      save();
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      buf.push({ t: Date.now(), kind: 'unhandledrejection', reason: String((e.reason && e.reason.stack) || e.reason) });
+      save();
+    });
+  } catch {}
+})()
 
-createRoot(document.getElementById("root")).render(
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import { initApiKey } from './auth'
+import App from './App.jsx'
+import { startViewdbg } from './lib/viewdbgClient'
+import { startDevctl } from './lib/devctlClient'
+import { installKbdModeSweep } from './lib/keyboardMode'
+import { initOtel } from './otel.js'
+import { initLaunchDarkly } from './launchdarkly.js'
+
+// Browser tracing → SigNoz via the awserv OTLP proxy (/api/otlp/v1/traces).
+initOtel()
+
+// LaunchDarkly — feature flags + session replay + observability
+// VITE_LAUNCHDARKLY_CLIENT_KEY is injected at build time from GHA var LAUNCHDARKLY_CLIENT_KEY.
+const _ldClientKey = import.meta.env.VITE_LAUNCHDARKLY_CLIENT_KEY
+initLaunchDarkly(_ldClientKey)
+
+// Read api-key from URL params, save to localStorage, strip from URL
+initApiKey()
+
+// Temporary: iPhone Safari pinch-zoom-out viewport telemetry.
+// Activates on `?viewdbg=1`.  Remove once the bug is diagnosed.
+startViewdbg()
+
+// Temporary: remote JS eval channel for live device debugging.
+// Activates on `?devctl=1`.  Remove with viewdbg once done.
+startDevctl()
+
+// Apply "suppress on-screen keyboard" state (if enabled) to all xterm
+// helper textareas, and watch for new terminals via MutationObserver.
+// The top-bar toggle in App.jsx writes to localStorage and dispatches
+// the change event this sweep listens to.
+installKbdModeSweep()
+
+createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
-  </StrictMode>
-);
+  </StrictMode>,
+)

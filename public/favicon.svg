@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="#0a0a0f"/>
+  <!-- Gradient underline -->
+  <rect x="2" y="27" width="28" height="1.5" rx="0.75" fill="url(#g)" opacity="0.6"/>
+  <!-- Shadow AW -->
+  <text x="2" y="24" font-family="monospace" font-size="17" font-weight="900" fill="#4338ca" letter-spacing="-1.5">AW</text>
+  <!-- Main AW -->
+  <text x="1" y="23" font-family="monospace" font-size="17" font-weight="900" fill="#f0f6fc" letter-spacing="-1.5">AW</text>
+  <!-- Trailing prompt -->
+  <text x="22" y="24" font-family="monospace" font-size="17" font-weight="700" fill="#4338ca">&gt;</text>
+</svg>
