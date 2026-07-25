@@ -23,13 +23,14 @@ controles granular por componente).
    independente compondo o `WindowShell` compartilhado (chrome: título,
    ícones, drag/resize/foco/z-order) — decisão do Architect (run `2fa7f8d5`,
    target `aw-microfrontend-architecture`): composição, não herança.
-3. **Aponta pro backend de produção por enquanto.** `aw.tekflox.com` (porta
-   9123, o awserv legado) já tem CORS credentialed + WS Origin check
-   liberado para este frontend (ver `src/api/app.py` no repo principal,
-   commit `4248185`). O novo `repos/aw-backend` (porta 9025) ainda roda só
-   como replica em paralelo — quando ele for promovido a leader, este
-   frontend re-aponta pra lá. Não migrar essa URL sem checar esse status
-   primeiro.
+3. **Aponta direto pro `aw-backend` novo, não pro awserv legado.**
+   `https://api.aw.tekflox.com` (`repos/aw-backend`, porta 9025) já está no
+   ar e com o mesmo CORS credenciado + WS Origin check que o awserv legado
+   tinha (`_cors_allowed_origins()` em `repos/aw-backend/src/api/app.py`,
+   que já libera `next.{AW_DOMAIN}` — possível domínio reservado pro shell
+   novo). `aw.tekflox.com` (awserv legado, porta 9123) não é mais o alvo
+   deste frontend — assim que saímos do protótipo pro app real, já vamos
+   direto pro backend novo, por decisão do Frederico.
 4. **Testes vivem aqui.** BDD (Gherkin, via `aw-architecture` MCP) +
    Playwright de front ficam neste repo, não mais só como requisitos
    externos — parte do CI deste projeto daqui pra frente.
@@ -38,8 +39,8 @@ controles granular por componente).
 
 | | aw-frontend | ux-proto (protótipo) |
 |---|---|---|
-| onde roda | a definir (dev: Vite local; prod: a decidir — Docker custom app ou hospedagem própria) | `src/custom_apps/ux-proto`, container `aw-custom-ux-proto` |
-| backend | `aw.tekflox.com` (produção, direto) | idem, direto |
+| onde roda | dev: `aw-frontend.app.aw.tekflox.com` (container dev-mode via aw-app-builder); prod: `www.aw.tekflox.com` (build estático servido direto pelo Caddy) | `src/custom_apps/ux-proto`, container `aw-custom-ux-proto` |
+| backend | `api.aw.tekflox.com` (`repos/aw-backend`, direto) | `aw.tekflox.com` (awserv legado, direto) |
 | build step | Vite + JSX real | nenhum (ESM via esm.sh, `createElement` manual) |
 | propósito | implementação real | espaço de exploração/validação rápida |
 
