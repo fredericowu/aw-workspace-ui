@@ -164,9 +164,10 @@ export default function WindowShell({
   }, []);
 
   // Self-removing one-shot listener: onDragEnd unregisters itself on
-  // mouseup. Routed through a ref (rather than referencing `onDragEnd`
-  // inside its own useCallback body) so there's no forward self-reference.
-  const onDragEndRef = useRef(null);
+  // mouseup (same pattern the prototype's vanilla mountWindowFrame() used).
+  // The self-reference below is safe: by the time this fires (a later
+  // mouseup event), the const is already initialized — it's not a
+  // render-time read.
   const onDragEnd = useCallback(() => {
     const el = elRef.current;
     if (!dragStateRef.current || !el) return;
@@ -176,9 +177,9 @@ export default function WindowShell({
     });
     dragStateRef.current = null;
     document.removeEventListener("mousemove", onDragMove);
-    document.removeEventListener("mouseup", onDragEndRef.current);
+    // eslint-disable-next-line react-hooks/immutability -- intentional self-reference, see above
+    document.removeEventListener("mouseup", onDragEnd);
   }, [onDragMove, windowKey]);
-  onDragEndRef.current = onDragEnd;
 
   const handleTitlebarMouseDown = useCallback(
     (e) => {
@@ -222,7 +223,7 @@ export default function WindowShell({
     el.style.height = `${height}px`;
   }, []);
 
-  const onResizeEndRef = useRef(null);
+  // Same intentional self-removing-listener pattern as onDragEnd above.
   const onResizeEnd = useCallback(() => {
     const el = elRef.current;
     if (!resizeStateRef.current || !el) return;
@@ -234,9 +235,9 @@ export default function WindowShell({
     });
     resizeStateRef.current = null;
     document.removeEventListener("mousemove", onResizeMove);
-    document.removeEventListener("mouseup", onResizeEndRef.current);
+    // eslint-disable-next-line react-hooks/immutability -- intentional self-reference, see onDragEnd above
+    document.removeEventListener("mouseup", onResizeEnd);
   }, [onResizeMove, windowKey]);
-  onResizeEndRef.current = onResizeEnd;
 
   const startResize = useCallback(
     (e, dir) => {
