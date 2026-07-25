@@ -105,7 +105,7 @@ export default function PromptNotifications({ terminals }) {
             onMouseLeave={() => setHoveredId(null)}
             style={{
               background: 'var(--color-bg-header, #1a1b2e)',
-              border: '1px solid var(--color-accent, #6366f1)',
+              border: '1px solid var(--color-accent, #f5a623)',
               borderRadius: '10px',
               padding: '10px 14px',
               boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
@@ -121,7 +121,7 @@ export default function PromptNotifications({ terminals }) {
                 <span style={{ fontSize: '14px' }}>💬</span>
                 <span style={{
                   fontSize: '11px',
-                  color: 'var(--color-accent, #6366f1)',
+                  color: 'var(--color-accent, #f5a623)',
                   fontWeight: 600,
                   whiteSpace: 'nowrap',
                 }}>{n.terminal_name || n.session_id}</span>
@@ -168,7 +168,7 @@ export default function PromptNotifications({ terminals }) {
                           dismiss(n.id);
                         }}
                         style={{
-                          background: 'var(--color-accent, #6366f1)',
+                          background: 'var(--color-accent, #f5a623)',
                           color: '#fff',
                           border: 'none',
                           borderRadius: '6px',

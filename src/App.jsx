@@ -1433,12 +1433,11 @@ function AuthenticatedApp() {
           9998/9999 notification + modal overlays. */}
       <div className="relative z-[9990] flex items-center px-3 py-1.5 bg-[var(--color-bg-header)] border-b border-[var(--color-border)] shrink-0">
         <div className="flex items-center gap-4 shrink-0">
-          {/* Logo */}
+          {/* Logo — "❯ aw" wordmark (Direção B: Signal Amber identity). */}
           <div className="flex items-center gap-1 shrink-0">
-            <svg width="90" height="20" viewBox="0 0 155 28" className="shrink-0" style={{ marginTop: 3 }}>
-              <text x="4" y="24" fontFamily="monospace" fontSize="28" fontWeight="900" fill="#4338ca" letterSpacing="5">AW</text>
-              <text x="2" y="22" fontFamily="monospace" fontSize="28" fontWeight="900" fill="#e2e8f0" letterSpacing="5">AW</text>
-              <text x="50" y="22" fontFamily="monospace" fontSize="26" fill="#4338ca" fontWeight="700">&gt;</text>
+            <svg width="72" height="21" viewBox="0 0 240 70" className="shrink-0" style={{ marginTop: 3 }}>
+              <text x="0" y="50" fontFamily="ui-monospace, Menlo, monospace" fontSize="46" fontWeight="700" fill="var(--color-accent)">&#10095;</text>
+              <text x="44" y="50" fontFamily="Inter" fontSize="46" fontWeight="800" fill="var(--color-text-primary)" letterSpacing="-1">aw</text>
             </svg>
           </div>
 

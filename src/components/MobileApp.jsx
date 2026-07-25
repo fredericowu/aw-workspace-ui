@@ -1209,19 +1209,14 @@ export default function MobileApp() {
           </>
         ) : (
           <>
-            {/* Logo — same inline SVG mark as the desktop top bar
-                in App.jsx (terminal-prompt-style ">AW" with blinking
-                cursor).  Keeping the two surfaces visually identical
-                so the brand reads the same whether the user is on a
-                phone or a laptop. */}
+            {/* Logo — same "❯ aw" wordmark as the desktop top bar in
+                App.jsx (Direção B: Signal Amber identity). Keeping the
+                two surfaces visually identical so the brand reads the
+                same whether the user is on a phone or a laptop. */}
             <div className="flex items-center shrink-0">
-              <svg width="78" height="18" viewBox="0 0 155 28" className="shrink-0">
-                <text x="2" y="22" fontFamily="monospace" fontSize="20" fill="#22c55e" fontWeight="700">&gt;</text>
-                <text x="20" y="24" fontFamily="monospace" fontSize="28" fontWeight="900" fill="#4338ca" letterSpacing="5">AW</text>
-                <text x="18" y="22" fontFamily="monospace" fontSize="28" fontWeight="900" fill="#e2e8f0" letterSpacing="5">AW</text>
-                <rect x="69" y="4" width="3" height="18" fill="#22c55e">
-                  <animate attributeName="opacity" values="1;1;0;0" dur="1s" repeatCount="indefinite" />
-                </rect>
+              <svg width="62" height="18" viewBox="0 0 240 70" className="shrink-0">
+                <text x="0" y="50" fontFamily="ui-monospace, Menlo, monospace" fontSize="46" fontWeight="700" fill="var(--color-accent)">&#10095;</text>
+                <text x="44" y="50" fontFamily="Inter" fontSize="46" fontWeight="800" fill="var(--color-text-primary)" letterSpacing="-1">aw</text>
               </svg>
             </div>
             <div className="flex items-center gap-2">

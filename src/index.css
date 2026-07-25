@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -8,8 +9,8 @@
   --color-bg-header: #16161e;
   --color-border: #2a2a3d;
   --color-border-active: #3b3b5c;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
+  --color-accent: #f5a623;
+  --color-accent-hover: #d9900f;
   --color-text-primary: #e2e8f0;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
@@ -18,6 +19,12 @@
   --color-status-running: #22c55e;
   --color-danger: #ef4444;
   --color-danger-hover: #f87171;
+  /* App Launcher ("Mission Control") tiles stay Signal Amber-branded
+     regardless of the active workspace theme (light/dracula/nord/...) —
+     matches the UX-Proto aw-redesign reference, which keeps these as
+     their own tokens rather than reusing the theme-switchable accent. */
+  --color-launcher-amber: #f5a623;
+  --color-launcher-amber-glow: rgba(245, 166, 35, .6);
 }
 
 [data-theme="light"] {
@@ -100,7 +107,7 @@ body {
     env(safe-area-inset-left);
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
   /* Use dynamic viewport units so the page fills the visible area
    * exactly (iOS adjusts 100dvh as the URL bar / home indicator come
@@ -222,11 +229,11 @@ mark.search-hit-active {
 .kb-preview h3 { font-size: 1.1em; font-weight: 600; color: #e2e8f0; margin: 1em 0 0.3em; }
 .kb-preview h4, .kb-preview h5, .kb-preview h6 { font-weight: 600; color: #94a3b8; margin: 0.8em 0 0.2em; }
 .kb-preview p { margin: 0.6em 0; }
-.kb-preview a { color: #6366f1; text-decoration: underline; }
+.kb-preview a { color: var(--color-accent); text-decoration: underline; }
 .kb-preview code { background: #1e1e2e; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.85em; color: #c084fc; }
 .kb-preview pre { background: #0a0a0f; border: 1px solid #1e1e2e; border-radius: 6px; padding: 1em; overflow-x: auto; margin: 0.8em 0; }
 .kb-preview pre code { background: none; padding: 0; color: #e2e8f0; }
-.kb-preview blockquote { border-left: 3px solid #6366f1; padding-left: 1em; margin: 0.8em 0; color: #94a3b8; }
+.kb-preview blockquote { border-left: 3px solid var(--color-accent); padding-left: 1em; margin: 0.8em 0; color: #94a3b8; }
 .kb-preview ul, .kb-preview ol { padding-left: 1.5em; margin: 0.5em 0; }
 .kb-preview li { margin: 0.2em 0; }
 .kb-preview table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
@@ -304,3 +311,238 @@ button, [role="button"] { cursor: pointer; }
 .mobile-terminal-view .xterm-viewport {
   -webkit-overflow-scrolling: touch;
 }
+
+/* ---------------- App Launcher ("Mission Control" grid) ----------------- */
+/* applt-* classes come from src/components/AppLauncher.jsx — ported from the
+   UX-Proto aw-redesign prototype's AppLauncher.js (Direção B: Signal Amber
+   pass). Per-app `--tile` colors are a local, decorative-only wash; every
+   chrome element (title accent, hover glow, sheen, LIVE badge, close
+   button) stays on the shared --color-launcher-amber tokens so the launcher
+   reads as one app, not differently-branded tiles. */
+
+.applt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 9, .78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  padding: 32px;
+  animation: applt-fade-in .15s ease;
+}
+
+@keyframes applt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.applt-stage {
+  width: min(1200px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  box-shadow: 0 28px 72px rgba(0,0,0,.6);
+  padding: 26px 30px 34px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.applt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.applt-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+  letter-spacing: -.01em;
+}
+
+.applt-title-accent {
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: var(--color-launcher-amber);
+  box-shadow: 0 0 10px 2px var(--color-launcher-amber-glow);
+}
+
+.applt-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.applt-close {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: background .12s, color .12s;
+}
+.applt-close:hover { background: rgba(245,166,35,.15); color: var(--color-launcher-amber); }
+
+.applt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+  gap: 16px 14px;
+}
+
+.applt-empty {
+  padding: 40px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.applt-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  overflow: hidden;
+  text-align: left;
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
+  animation: applt-card-in .2s ease both;
+}
+@keyframes applt-card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.applt-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--color-launcher-amber);
+  box-shadow: 0 10px 26px rgba(245,166,35,.18);
+}
+.applt-card:active { transform: translateY(-1px) scale(.99); }
+.applt-card.is-stopped { opacity: .72; }
+.applt-card.is-stopped:hover { opacity: 1; }
+.applt-card:disabled { cursor: default; }
+
+.applt-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+  flex-shrink: 0;
+}
+
+.applt-chrome {
+  position: absolute;
+  top: 8px; left: 10px;
+  display: flex;
+  gap: 5px;
+  z-index: 2;
+}
+.applt-dot { width: 7px; height: 7px; border-radius: 999px; background: rgba(255,255,255,.18); }
+
+.applt-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, var(--tile, var(--color-launcher-amber)) 0%, transparent 70%);
+  opacity: .28;
+}
+
+.applt-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-primary);
+  opacity: .35;
+}
+.applt-glyph-plus {
+  font-size: 34px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.applt-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(245,166,35,.22) 48%, transparent 66%);
+  background-size: 200% 100%;
+  animation: applt-sheen-sweep 3.2s ease-in-out infinite;
+}
+@keyframes applt-sheen-sweep { 0% { background-position: 120% 0; } 55%, 100% { background-position: -60% 0; } }
+
+.applt-live {
+  position: absolute;
+  right: 8px; bottom: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  background: var(--color-launcher-amber);
+  color: #151a10;
+}
+
+.applt-live-pulse {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: #151a10;
+  animation: applt-pulse 1.6s ease-in-out infinite;
+}
+@keyframes applt-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(21,26,16,.5); }
+  70% { box-shadow: 0 0 0 5px rgba(21,26,16,0); }
+  100% { box-shadow: 0 0 0 0 rgba(21,26,16,0); }
+}
+
+.applt-paused {
+  position: absolute;
+  right: 8px; bottom: 8px;
+  z-index: 2;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  background: rgba(255,255,255,.08);
+  color: var(--color-text-muted);
+}
+
+.applt-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 12px;
+}
+
+.applt-icon {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+  color: rgba(255,255,255,.92);
+}
+
+.applt-icon-fallback {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.applt-meta-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.applt-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.applt-state { font-size: 11px; color: var(--color-text-muted); }

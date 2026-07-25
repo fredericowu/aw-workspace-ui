@@ -7,7 +7,7 @@ const THEMES = [
     colors: {
       bg: '#0a0a0f',
       header: '#16161e',
-      accent: '#6366f1',
+      accent: '#f5a623',
       text: '#e2e8f0',
       border: '#2a2a3d',
     },
