@@ -46,13 +46,20 @@ test.describe("AppWindow / WindowShell", () => {
   test("resizing from the SE (corner) and E (edge) handles changes width/height", async ({ page }) => {
     const { win } = await openFirstAppWindow(page);
 
-    // Corner handle (SE): grows both width and height.
+    // Handles extend a few px outside the window box and the window itself
+    // clips overflow, so only the sliver inside the box is actually
+    // clickable — same as a real user grabbing the edge. Start the drag
+    // from just inside the window's own edge/corner rather than the
+    // handle's (partly clipped) bounding box.
     const before = await win.boundingBox();
-    const se = win.locator(".rz-se");
-    const seBox = await se.boundingBox();
-    await page.mouse.move(seBox.x + seBox.width / 2, seBox.y + seBox.height / 2);
+    // 5px in from the corner: close enough to the corner to hit the 12x12
+    // .rz-se handle, far enough that the window's 10px border-radius
+    // doesn't round it out of the hit-testable area (verified empirically —
+    // 1-2px in misses the element entirely under border-radius clipping).
+    const seStart = { x: before.x + before.width - 5, y: before.y + before.height - 5 };
+    await page.mouse.move(seStart.x, seStart.y);
     await page.mouse.down();
-    await page.mouse.move(seBox.x + 100, seBox.y + 80, { steps: 10 });
+    await page.mouse.move(seStart.x + 100, seStart.y + 80, { steps: 10 });
     await page.mouse.up();
     const afterSe = await win.boundingBox();
     expect(afterSe.width).toBeGreaterThan(before.width + 50);
@@ -60,11 +67,10 @@ test.describe("AppWindow / WindowShell", () => {
 
     // Edge handle (E): grows width only, height unchanged.
     const beforeE = await win.boundingBox();
-    const e = win.locator(".rz-e");
-    const eBox = await e.boundingBox();
-    await page.mouse.move(eBox.x + eBox.width / 2, eBox.y + eBox.height / 2);
+    const eStart = { x: beforeE.x + beforeE.width - 2, y: beforeE.y + beforeE.height / 2 };
+    await page.mouse.move(eStart.x, eStart.y);
     await page.mouse.down();
-    await page.mouse.move(eBox.x + 80, eBox.y, { steps: 10 });
+    await page.mouse.move(eStart.x + 80, eStart.y, { steps: 10 });
     await page.mouse.up();
     const afterE = await win.boundingBox();
     expect(afterE.width).toBeGreaterThan(beforeE.width + 40);
