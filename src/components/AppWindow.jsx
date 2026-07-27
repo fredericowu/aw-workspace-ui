@@ -8,7 +8,35 @@
 // Kept self-contained (no App.jsx / WindowManager coupling) so it doesn't
 // collide with the in-flight top-bar work; it renders a spec object it's
 // handed and calls fetch() (rewritten to the BYOD api host by apiBase.js).
-import { useState } from 'react';
+//
+// Widget vocabulary (windows/*.json "regions[].widgets[]"):
+//   markdown  { value }                     — rendered via `marked`.
+//   list      { title?, items: [] }
+//   iframe    { title?, src }
+//   button    { label, action: { call } }   — call is "METHOD /path"; on
+//             click, fetches it once and shows the JSON body.
+//
+//   button + auto-poll — a button's `action` can carry an optional `poll`
+//   block to turn a two-step "click, then click again to check status"
+//   flow (e.g. an OAuth device-flow login) into one auto-polling click:
+//     action: {
+//       call: "POST /api/apps/<slug>/device/start",
+//       poll: {
+//         call: "POST /api/apps/<slug>/device/poll",   // polled endpoint
+//         interval_ms: 3000,                            // default 3000
+//         timeout_ms: 900000,                           // default 300000
+//         done_field: "status",                         // default "status"
+//         done_values: ["success", "expired_token", "access_denied", "error"],
+//         pending_text: "Waiting for authorization…",   // shown while polling
+//         timeout_text: "Timed out — try again.",       // shown on timeout
+//       },
+//     }
+//   Once the initial `call` succeeds, the widget calls `poll.call` every
+//   `interval_ms` and shows `poll.pending_text` until the JSON response's
+//   `done_field` matches one of `done_values` (terminal state) or
+//   `timeout_ms` elapses (shows `poll.timeout_text`) — no second widget or
+//   manual "check status" click needed.
+import { useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
 
 // Parse a declarative action "GET /api/apps/hello/" into { method, path }.
@@ -21,6 +49,10 @@ function parseCall(call) {
 function Widget({ widget }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [polling, setPolling] = useState(false);
+  const pollState = useRef({ timer: null, deadline: 0 });
+
+  useEffect(() => () => clearTimeout(pollState.current.timer), []);
 
   switch (widget.type) {
     case 'markdown':
@@ -45,6 +77,39 @@ function Widget({ widget }) {
 
     case 'button': {
       const call = parseCall(widget.action && widget.action.call);
+      const pollCfg = widget.action && widget.action.poll;
+      const pollCall = pollCfg && parseCall(pollCfg.call);
+
+      const stopPolling = () => {
+        clearTimeout(pollState.current.timer);
+        pollState.current.timer = null;
+        setPolling(false);
+      };
+
+      const runPoll = async () => {
+        if (Date.now() > pollState.current.deadline) {
+          setResult({ ok: false, timedOut: true, body: { message: pollCfg.timeout_text || 'Timed out' } });
+          stopPolling();
+          return;
+        }
+        const doneField = pollCfg.done_field || 'status';
+        const doneValues = pollCfg.done_values || [];
+        try {
+          const res = await fetch(pollCall.path, { method: pollCall.method });
+          const body = await res.json().catch(() => ({}));
+          setResult({ ok: res.ok, status: res.status, body });
+          if (doneValues.includes(body[doneField])) {
+            stopPolling();
+            return;
+          }
+        } catch (e) {
+          setResult({ ok: false, error: String(e) });
+          stopPolling();
+          return;
+        }
+        pollState.current.timer = setTimeout(runPoll, pollCfg.interval_ms || 3000);
+      };
+
       const onClick = async () => {
         if (!call) return;
         setBusy(true);
@@ -52,6 +117,11 @@ function Widget({ widget }) {
           const res = await fetch(call.path, { method: call.method });
           const body = await res.json().catch(() => ({}));
           setResult({ ok: res.ok, status: res.status, body });
+          if (res.ok && pollCall) {
+            pollState.current.deadline = Date.now() + (pollCfg.timeout_ms || 300000);
+            setPolling(true);
+            pollState.current.timer = setTimeout(runPoll, pollCfg.interval_ms || 3000);
+          }
         } catch (e) {
           setResult({ ok: false, error: String(e) });
         } finally {
@@ -60,9 +130,14 @@ function Widget({ widget }) {
       };
       return (
         <div className="appwin-button">
-          <button type="button" onClick={onClick} disabled={busy || !call}>
+          <button type="button" onClick={onClick} disabled={busy || polling || !call}>
             {busy ? '…' : widget.label || 'Run'}
           </button>
+          {polling && pollCfg.pending_text && (
+            <p className="appwin-poll-pending" data-testid="appwin-poll-pending">
+              {pollCfg.pending_text}
+            </p>
+          )}
           {result && (
             <pre className="appwin-result" data-testid="appwin-result">
               {JSON.stringify(result.body ?? result, null, 2)}
