@@ -231,6 +231,9 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
             >
               Marketplace
             </button>
+            {/* "Install My Apps" (account-registry reconcile) hidden 2026-07-27 per
+                Frederico — it errors and isn't a priority. Revisit via the Kanban
+                card (feature:install-my-apps-fix). Re-enable by uncommenting.
             <button
               type="button"
               className="applt-btn"
@@ -239,7 +242,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
               title="Reinstall the apps from your account registry into this workspace"
             >
               {reconciling ? 'Installing…' : 'Install My Apps'}
-            </button>
+            </button> */}
             <button type="button" className="applt-close" onClick={onClose} aria-label="Close">
               ✕
             </button>
