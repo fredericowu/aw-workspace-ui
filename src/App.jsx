@@ -1693,17 +1693,6 @@ function AuthenticatedApp() {
             </svg>
           </button>
           )}
-          {/* Log out */}
-          <button
-            onClick={async () => {
-              await logout();
-              window.location.reload();
-            }}
-            className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors"
-            title="Sign out"
-          >
-            Log Out
-          </button>
           {/* Mic button — push-to-talk for Claude */}
           {view === 'home' && (
             <button
@@ -1802,7 +1791,7 @@ function AuthenticatedApp() {
                 return !p;
               });
             }}
-            className={`relative min-w-[44px] min-h-[44px] flex items-center justify-center rounded transition-colors hover:bg-white/10 cursor-pointer ${profileDrawerOpen ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
+            className={`relative p-1.5 rounded transition-colors hover:bg-white/10 cursor-pointer before:content-[''] before:absolute before:inset-[-8px] ${profileDrawerOpen ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
             title="Profile"
             aria-label={notifUnreadCount > 0 ? `Profile — ${notifUnreadCount} unread notification${notifUnreadCount === 1 ? '' : 's'}` : 'Profile'}
           >
@@ -1915,6 +1904,20 @@ function AuthenticatedApp() {
               <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
             </svg>
             Settings
+          </button>
+          <button
+            onClick={async () => {
+              setProfileDrawerOpen(false);
+              await logout();
+              window.location.reload();
+            }}
+            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-white/10 transition-colors text-left"
+            aria-label="Log out"
+          >
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>
+            </svg>
+            Log Out
           </button>
         </div>
 
