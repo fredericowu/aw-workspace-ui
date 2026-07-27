@@ -19,6 +19,7 @@ import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
 import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keyboardMode';
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
 import { isDevctlEnabled, enableDevctl, disableDevctl, onDevctlStateChange, getDevctlConnectionState } from './lib/devctlClient';
+import { isWorkspaceSpa, consoleLoginUrl } from './apiBase';
 import { isVirtualKeyboardTrackpadOpen, toggleVirtualKeyboardTrackpad } from './lib/virtualKeyboardTrackpad';
 const API_BASE = '';
 
@@ -152,6 +153,15 @@ export default function App() {
   }
 
   if (authState === 'unauthenticated') {
+    // Three-plane split: the cloud workspace SPA (<slug>.workspace.<domain>)
+    // has no login of its own — identity is owned by the console. Bounce an
+    // unauthenticated visit to the console login, which redirects back here
+    // after auth. The legacy password/"root account" AuthScreen is only for
+    // the single-tenant dashboard host (aw.tekflox.com), which is NOT a
+    // workspace SPA (deriveBases → api:'').
+    if (isWorkspaceSpa()) {
+      return <WorkspaceLoginRedirect />;
+    }
     return <AuthScreen onAuthenticated={() => setAuthState('authenticated')} />;
   }
 
@@ -160,6 +170,24 @@ export default function App() {
   }
 
   return <AuthenticatedApp />;
+}
+
+// Unauthenticated landing on the cloud workspace SPA host — no password
+// screen (identity is owned by the console). Show a brief message and
+// redirect to the console login, which returns here after auth.
+function WorkspaceLoginRedirect() {
+  useEffect(() => {
+    const url = consoleLoginUrl();
+    if (url) window.location.replace(url);
+  }, []);
+  return (
+    <div className="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
+      <div className="w-80 text-center">
+        <span className="text-2xl font-bold tracking-wide text-[var(--color-accent)]">AW</span>
+        <p className="text-sm text-[var(--color-text-muted)] mt-3">Sign in to continue…</p>
+      </div>
+    </div>
+  );
 }
 
 // Detect "Add to Home Screen" PWA mode on iOS / Android.  When running

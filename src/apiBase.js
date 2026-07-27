@@ -31,6 +31,7 @@ function deriveBases() {
     const proto = window.location.protocol; // https:
     return {
       api: `${proto}//api.${slug}.workspace.${apex}`, // BYOD workspace API
+      apex, // aw.tekflox.com — used to derive the console login host
     };
   } catch {
     return { api: '' };
@@ -42,6 +43,18 @@ const BASES = deriveBases();
 /** True when this SPA is running as a cloud workspace SPA (has a remote API). */
 export function isWorkspaceSpa() {
   return !!BASES.api;
+}
+
+/** Console login URL (`https://console.<apex>/login?return=<here>`) for the
+ *  current workspace SPA host, or `null` on a non-workspace host. Identity is
+ *  owned by the console (three-plane split) — the workspace SPA has no login
+ *  of its own, so an unauthenticated visit bounces here and the console
+ *  redirects back after auth (safe-return-url guarded, subdomains of the apex
+ *  only). */
+export function consoleLoginUrl() {
+  if (!BASES.api || !BASES.apex) return null;
+  const ret = encodeURIComponent(window.location.href);
+  return `${window.location.protocol}//console.${BASES.apex}/login?return=${ret}`;
 }
 
 /** Absolute URL for a same-origin `/api/*` or `/ws/*` path, routed to the
