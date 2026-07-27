@@ -220,7 +220,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
               Apps
             </h2>
             <p className="applt-sub">
-              {apps.length ? `${runningCount} running · ${apps.length} available` : 'Loading apps…'}
+              {apps.length ? `${runningCount} running · ${apps.length} available` : 'Install apps from the Marketplace'}
             </p>
           </div>
           <div className="applt-head-actions">
