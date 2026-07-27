@@ -352,8 +352,37 @@ function AuthenticatedApp() {
   });
   const [maxLines, setMaxLines] = useState(1000);
   const [layout, setLayout] = useState(null);
-  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [notifHistory, setNotifHistory] = useState([]);
+  const [notifUnreadCount, setNotifUnreadCount] = useState(0);
+
+  // Keep the profile icon's badge live: seed from pending (new/delivered)
+  // notifications on mount, then track the same /ws/notifications feed
+  // TopNotifications consumes so the count updates without a poll.
+  useEffect(() => {
+    apiFetch(`${API_BASE}/api/notify/pending`).then(r => r.json())
+      .then(d => setNotifUnreadCount((d.notifications || []).length))
+      .catch(() => {});
+    let closed = false;
+    let ws;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(wsUrl('/ws/notifications'));
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'ninja_notification') {
+            const supersededCount = (msg.superseded_ids || []).length;
+            setNotifUnreadCount((n) => Math.max(0, n - supersededCount) + 1);
+          }
+        } catch { /* ignore malformed */ }
+      };
+      ws.onclose = () => { if (!closed) setTimeout(connect, 5000); };
+      ws.onerror = () => { try { ws.close(); } catch {} };
+    };
+    connect();
+    return () => { closed = true; if (ws) { try { ws.close(); } catch {} } };
+  }, []);
   const [view, setView] = useState('home');
   const [terminals, setTerminals] = useState([]);
   const [presentations, setPresentations] = useState([]);
@@ -1757,27 +1786,37 @@ function AuthenticatedApp() {
             <VpnNav />
           </ErrorBoundary>
 
-          {/* Notifications — bell icon only, no label. Kept last so the
-              slide-in panel anchored to the right edge sits naturally
-              under it. */}
+          {/* Profile — top-right icon opening the account drawer (Console,
+              Settings, Notifications). Replaces the standalone bell; the
+              unread badge now lives here. Kept last so the slide-in panel
+              anchored to the right edge sits naturally under it. */}
           <button
             onClick={() => {
-              setNotifPanelOpen((p) => {
+              setProfileDrawerOpen((p) => {
                 if (!p) {
-                  // Fetch history when opening
                   apiFetch(`${API_BASE}/api/notify/recent?limit=100`).then(r => r.json()).then(d => {
                     setNotifHistory(d.notifications || []);
                   }).catch(() => {});
+                  setNotifUnreadCount(0);
                 }
                 return !p;
               });
             }}
-            className={`p-1 rounded transition-colors hover:bg-white/10 cursor-pointer ${notifPanelOpen ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
-            title="Notifications"
+            className={`relative min-w-[44px] min-h-[44px] flex items-center justify-center rounded transition-colors hover:bg-white/10 cursor-pointer ${profileDrawerOpen ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
+            title="Profile"
+            aria-label={notifUnreadCount > 0 ? `Profile — ${notifUnreadCount} unread notification${notifUnreadCount === 1 ? '' : 's'}` : 'Profile'}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+              <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
             </svg>
+            {notifUnreadCount > 0 && (
+              <span
+                className="absolute top-1 right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-[var(--color-danger)] text-white text-[9px] font-bold leading-[14px] text-center"
+                aria-hidden="true"
+              >
+                {notifUnreadCount > 9 ? '9+' : notifUnreadCount}
+              </span>
+            )}
           </button>
 
         </div>
@@ -1831,22 +1870,60 @@ function AuthenticatedApp() {
         </div>
       </div>
 
-      {/* Notification history panel — slides in from right */}
+      {/* Profile drawer — slides in from right. Console + Settings actions
+          on top, Notifications (moved from the old standalone bell) below. */}
       <div
         className="fixed top-0 right-0 bottom-0 w-96 bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)] z-[9998] flex flex-col shadow-2xl transition-transform duration-300"
-        style={{ transform: notifPanelOpen ? 'translateX(0)' : 'translateX(100%)' }}
+        style={{ transform: profileDrawerOpen ? 'translateX(0)' : 'translateX(100%)' }}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+              <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
             </svg>
-            <span className="text-sm font-bold text-[var(--color-text-primary)]">Notifications</span>
-            <span className="text-[10px] text-[var(--color-text-muted)]">{notifHistory.length}</span>
+            <span className="text-sm font-bold text-[var(--color-text-primary)]">Profile</span>
           </div>
-          <button onClick={() => setNotifPanelOpen(false)} className="p-1 rounded hover:bg-white/10">
+          <button
+            onClick={() => setProfileDrawerOpen(false)}
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-white/10"
+            title="Close"
+            aria-label="Close profile drawer"
+          >
             <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
           </button>
+        </div>
+
+        <div className="flex flex-col gap-2 px-4 py-3 border-b border-[var(--color-border)]">
+          <a
+            href="https://console.aw.tekflox.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors"
+            aria-label="Open Console (account admin) in a new tab"
+          >
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+            </svg>
+            Console
+          </a>
+          <button
+            onClick={() => { openSettingsPanel(); setProfileDrawerOpen(false); }}
+            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors text-left"
+            aria-label="Open Settings"
+          >
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+            Settings
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)]">
+          <svg className="w-4 h-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+          </svg>
+          <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Notifications</span>
+          <span className="text-[10px] text-[var(--color-text-muted)]">{notifHistory.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto">
           {notifHistory.length === 0 && (
@@ -1894,7 +1971,7 @@ function AuthenticatedApp() {
         </div>
       </div>
       {/* Backdrop */}
-      {notifPanelOpen && <div className="fixed inset-0 z-[9997]" onClick={() => setNotifPanelOpen(false)} />}
+      {profileDrawerOpen && <div className="fixed inset-0 z-[9997]" onClick={() => setProfileDrawerOpen(false)} />}
     </div>
   );
 }
