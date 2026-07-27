@@ -1,0 +1,47 @@
+// Apps-framework HTTP surface the Apps view consumes. Thin wrappers over the
+// aw-workspace endpoints (F1–F5); relative `/api/*` is rewritten to the BYOD
+// workspace API by the apiBase.js global shim.
+import { apiFetch } from '../auth';
+
+async function json(res) {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = body?.error || `${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+  return body;
+}
+
+// GET /api/apps — installed apps (with has_config / config_schema / frontend).
+export function listInstalledApps() {
+  return apiFetch('/api/apps').then(json);
+}
+
+// GET /api/apps/-/catalog — marketplace catalog (available apps).
+export function fetchCatalog(refresh = false) {
+  return apiFetch(`/api/apps/-/catalog${refresh ? '?refresh=true' : ''}`).then(json);
+}
+
+// GET /api/apps/-/contributions — frontend contributions (declarative + code).
+export function fetchContributions() {
+  return apiFetch('/api/apps/-/contributions').then(json);
+}
+
+// POST /api/apps/install — install a catalog app by repo/ref (F3 flow).
+export function installApp({ repo, ref, app_id, granted_permissions, signed, config }) {
+  return apiFetch('/api/apps/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, ref, app_id, granted_permissions, signed, config }),
+  }).then(json);
+}
+
+// DELETE /api/apps/{slug} — hot-uninstall (drain + journal reverse-replay).
+export function uninstallApp(slug) {
+  return apiFetch(`/api/apps/${encodeURIComponent(slug)}`, { method: 'DELETE' }).then(json);
+}
+
+// POST /api/apps/install-my-apps — reconcile the user's registry into this ws.
+export function installMyApps() {
+  return apiFetch('/api/apps/install-my-apps', { method: 'POST' }).then(json);
+}

@@ -539,3 +539,137 @@ button, [role="button"] { cursor: pointer; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .applt-state { font-size: 11px; color: var(--color-text-muted); }
+
+/* ── F5 Apps view: framework installed section + Marketplace + config ─────── */
+.applt-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.applt-btn {
+  padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  color: var(--color-text-primary); background: rgba(255,255,255,.06);
+  border: 1px solid var(--color-border); cursor: pointer; transition: background .12s;
+}
+.applt-btn:hover { background: rgba(255,255,255,.12); }
+.applt-btn:disabled { opacity: .5; cursor: default; }
+.applt-btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: #1a1205; }
+.applt-btn-primary:hover { background: var(--color-accent-hover); }
+
+.applt-section { margin-bottom: 26px; }
+.applt-section-title {
+  margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--color-text-muted);
+}
+.applt-installed-empty, .applt-installed-error {
+  font-size: 13px; color: var(--color-text-muted); font-style: italic; padding: 8px 0;
+}
+.applt-installed-error { color: #f87171; font-style: normal; }
+.applt-installed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.applt-installed-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 10px;
+}
+.applt-installed-icon {
+  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; background: rgba(255,255,255,.05); flex-shrink: 0;
+}
+.applt-installed-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.applt-installed-name {
+  font-size: 14px; font-weight: 600; color: var(--color-text-primary);
+  display: flex; align-items: center; gap: 6px;
+}
+.applt-installed-meta {
+  font-size: 11px; color: var(--color-text-muted); font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.applt-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; text-transform: uppercase; }
+.applt-tag-dev { background: rgba(245,166,35,.18); color: var(--color-accent); }
+.applt-installed-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.applt-gear, .applt-uninstall {
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 15px; color: var(--color-text-muted);
+  background: transparent; border: 1px solid transparent; cursor: pointer; transition: background .12s, color .12s;
+}
+.applt-gear:hover { background: rgba(255,255,255,.08); color: var(--color-text-primary); }
+.applt-uninstall:hover { background: rgba(248,113,113,.14); color: #f87171; }
+.applt-uninstall:disabled { opacity: .5; cursor: default; }
+
+/* Marketplace + config-window overlays (float above the launcher stage). */
+.appmkt-overlay, .appcfg-overlay {
+  position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(3,5,9,.7); backdrop-filter: blur(6px); animation: applt-fade-in .12s ease;
+}
+.appmkt-panel, .appcfg-panel {
+  width: min(560px, 96vw); max-height: 86vh; overflow-y: auto;
+  background: var(--color-bg-secondary); border: 1px solid var(--color-border);
+  border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.6); padding: 22px 24px 26px;
+}
+.appmkt-head, .appcfg-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.appmkt-title, .appcfg-title { margin: 0; font-size: 17px; font-weight: 800; color: var(--color-text-primary); }
+.appmkt-sub, .appcfg-sub { margin: 3px 0 0; font-size: 12px; color: var(--color-text-muted); }
+.appmkt-close, .appcfg-close {
+  width: 30px; height: 30px; border-radius: 999px; color: var(--color-text-muted); font-size: 13px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.appmkt-close:hover, .appcfg-close:hover { background: rgba(245,166,35,.15); color: var(--color-accent); }
+.appmkt-error, .appmkt-empty { font-size: 13px; color: #f87171; padding: 8px 0; }
+.appmkt-empty { color: var(--color-text-muted); font-style: italic; }
+.appmkt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.appmkt-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 10px;
+}
+.appmkt-icon {
+  width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; background: rgba(255,255,255,.05); flex-shrink: 0;
+}
+.appmkt-item-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.appmkt-item-name {
+  font-size: 14px; font-weight: 600; color: var(--color-text-primary); display: flex; align-items: center; gap: 6px;
+}
+.appmkt-badge {
+  font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px; text-transform: uppercase;
+  background: rgba(255,255,255,.08); color: var(--color-text-muted);
+}
+.appmkt-item-desc { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
+.appmkt-install {
+  padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; flex-shrink: 0; cursor: pointer;
+  background: var(--color-accent); color: #1a1205; border: 1px solid var(--color-accent);
+}
+.appmkt-install:hover { background: var(--color-accent-hover); }
+.appmkt-install:disabled { opacity: .6; cursor: default; }
+.appmkt-installed { font-size: 12px; font-weight: 600; color: var(--color-text-muted); flex-shrink: 0; padding: 0 6px; }
+
+.appcfg-empty { font-size: 13px; color: var(--color-text-muted); font-style: italic; }
+.appcfg-form { display: flex; flex-direction: column; gap: 16px; }
+.appcfg-field { display: flex; flex-direction: column; gap: 5px; }
+.appcfg-label { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.appcfg-desc { margin: 0; font-size: 11px; color: var(--color-text-muted); line-height: 1.4; }
+.appcfg-input {
+  width: 100%; padding: 9px 11px; border-radius: 8px; font-size: 13px;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border); color: var(--color-text-primary);
+}
+.appcfg-input:focus { outline: none; border-color: var(--color-accent); }
+.appcfg-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 4px; }
+.appcfg-msg { font-size: 12px; }
+.appcfg-msg.is-ok { color: #4ade80; }
+.appcfg-msg.is-err { color: #f87171; }
+.appcfg-save {
+  padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+  background: var(--color-accent); color: #1a1205; border: 1px solid var(--color-accent);
+}
+.appcfg-save:hover { background: var(--color-accent-hover); }
+.appcfg-save:disabled { opacity: .6; cursor: default; }
+
+/* Per-contribution ErrorBoundary inline card (slot / window body crash). */
+.app-contrib-error {
+  display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 8px;
+  background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.3); margin: 6px 0;
+}
+.app-contrib-error-title { font-size: 12px; font-weight: 700; color: #f87171; }
+.app-contrib-error-detail { font-size: 11px; color: var(--color-text-muted); font-family: ui-monospace, monospace; }
+
+@media (max-width: 640px) {
+  .applt-head { flex-direction: column; gap: 12px; }
+  .applt-head-actions { width: 100%; }
+  .applt-btn { flex: 1; text-align: center; }
+  .appmkt-item { flex-wrap: wrap; }
+  .appmkt-install, .appmkt-installed { width: 100%; text-align: center; }
+}

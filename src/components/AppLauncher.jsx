@@ -1,5 +1,9 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import AppIcon from './AppIcon';
+import InstalledApps from './InstalledApps';
+import AppsMarketplace from './AppsMarketplace';
+import AppConfigWindow from './AppConfigWindow';
+import { listInstalledApps, uninstallApp, installMyApps } from '../apps/appsApi';
 
 /**
  * Full-screen "Mission Control" App Launcher — replaces the old Apps
@@ -107,14 +111,87 @@ function StartBuildingCard({ index, starting, onStart }) {
 }
 
 export default function AppLauncher({ workspaceApps, components, starting, onOpenApp, onStartBuilding, onClose }) {
+  // Framework (decoupled-apps) installed set — separate from the legacy
+  // aw.json workspace_apps grid below. Null while first loading.
+  const [installed, setInstalled] = useState(null);
+  const [installedError, setInstalledError] = useState(null);
+  const [rowBusy, setRowBusy] = useState({});
+  const [showMarketplace, setShowMarketplace] = useState(false);
+  const [configApp, setConfigApp] = useState(null);
+  const [reconciling, setReconciling] = useState(false);
+
+  const refreshInstalled = useCallback(async () => {
+    try {
+      const apps = await listInstalledApps();
+      setInstalled(apps);
+      setInstalledError(null);
+    } catch (e) {
+      // A workspace without the apps framework (older backend) just shows the
+      // legacy grid — don't surface a scary error, but keep it for diagnostics.
+      setInstalled([]);
+      setInstalledError(String(e.message || e));
+    }
+  }, []);
+
+  // Fetch on mount. setState lands inside the async .then/.catch (past the
+  // await boundary), so it's never a synchronous cascading render.
+  useEffect(() => {
+    let alive = true;
+    listInstalledApps()
+      .then((apps) => { if (alive) { setInstalled(apps); setInstalledError(null); } })
+      .catch((e) => { if (alive) { setInstalled([]); setInstalledError(String(e.message || e)); } });
+    return () => { alive = false; };
+  }, []);
+
   const handleKeyDown = useCallback((e) => {
-    if (e.key === 'Escape') onClose();
-  }, [onClose]);
+    // Esc closes the topmost overlay first, then the launcher.
+    if (e.key !== 'Escape') return;
+    if (configApp) setConfigApp(null);
+    else if (showMarketplace) setShowMarketplace(false);
+    else onClose();
+  }, [onClose, configApp, showMarketplace]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // Install succeeded in the Marketplace panel → refresh installed set and, for
+  // a has_config app, pop its config window so the user can finish setup.
+  const onInstalled = useCallback(async (catalogApp) => {
+    await refreshInstalled();
+    if (catalogApp?.has_config) {
+      const apps = await listInstalledApps().catch(() => []);
+      const fresh = apps.find((a) => a.slug === catalogApp.id);
+      if (fresh) { setShowMarketplace(false); setConfigApp(fresh); }
+    }
+  }, [refreshInstalled]);
+
+  const onUninstall = useCallback(async (app) => {
+    if (rowBusy[app.slug]) return;
+    setRowBusy((b) => ({ ...b, [app.slug]: true }));
+    try {
+      await uninstallApp(app.slug);
+      await refreshInstalled();
+    } catch (e) {
+      setInstalledError(`Uninstall of ${app.name} failed: ${String(e.message || e)}`);
+    } finally {
+      setRowBusy((b) => ({ ...b, [app.slug]: false }));
+    }
+  }, [rowBusy, refreshInstalled]);
+
+  const onInstallMyApps = useCallback(async () => {
+    if (reconciling) return;
+    setReconciling(true);
+    try {
+      await installMyApps();
+      await refreshInstalled();
+    } catch (e) {
+      setInstalledError(`Install My Apps failed: ${String(e.message || e)}`);
+    } finally {
+      setReconciling(false);
+    }
+  }, [reconciling, refreshInstalled]);
 
   const apps = (workspaceApps || [])
     .filter((a) => a.menu === 'apps')
@@ -134,6 +211,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   const runningCount = apps.filter((a) => a.hasStatus && a.running).length;
 
   return (
+    <>
     <div className="applt-overlay" onClick={onClose}>
       <div className="applt-stage" onClick={(e) => e.stopPropagation()}>
         <header className="applt-head">
@@ -145,22 +223,74 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
               {apps.length ? `${runningCount} running · ${apps.length} available` : 'Loading apps…'}
             </p>
           </div>
-          <button type="button" className="applt-close" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <div className="applt-head-actions">
+            <button
+              type="button"
+              className="applt-btn applt-btn-primary"
+              onClick={() => setShowMarketplace(true)}
+            >
+              Marketplace
+            </button>
+            <button
+              type="button"
+              className="applt-btn"
+              onClick={onInstallMyApps}
+              disabled={reconciling}
+              title="Reinstall the apps from your account registry into this workspace"
+            >
+              {reconciling ? 'Installing…' : 'Install My Apps'}
+            </button>
+            <button type="button" className="applt-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </header>
 
-        {apps.length === 0 ? (
-          <p className="applt-empty">No apps registered yet.</p>
-        ) : (
-          <div className="applt-grid">
-            {apps.map((app, i) => (
-              <AppCard key={app.id} app={app} index={i} onOpen={() => onOpenApp(app.id)} />
-            ))}
-            <StartBuildingCard index={apps.length} starting={!!starting} onStart={onStartBuilding} />
-          </div>
-        )}
+        {/* Framework (decoupled-apps) installed section — F5. */}
+        <section className="applt-section">
+          <h3 className="applt-section-title">Installed</h3>
+          {installedError && (
+            <p className="applt-installed-error" data-testid="installed-error">{installedError}</p>
+          )}
+          <InstalledApps
+            apps={installed}
+            busy={rowBusy}
+            onConfig={setConfigApp}
+            onUninstall={onUninstall}
+          />
+        </section>
+
+        {/* Legacy aw.json workspace_apps live-tile grid. */}
+        <section className="applt-section">
+          <h3 className="applt-section-title">Workspace apps</h3>
+          {apps.length === 0 ? (
+            <p className="applt-empty">No apps registered yet.</p>
+          ) : (
+            <div className="applt-grid">
+              {apps.map((app, i) => (
+                <AppCard key={app.id} app={app} index={i} onOpen={() => onOpenApp(app.id)} />
+              ))}
+              <StartBuildingCard index={apps.length} starting={!!starting} onStart={onStartBuilding} />
+            </div>
+          )}
+        </section>
       </div>
     </div>
+
+      {showMarketplace && (
+        <AppsMarketplace
+          installedSlugs={(installed || []).map((a) => a.slug)}
+          onInstalled={onInstalled}
+          onClose={() => setShowMarketplace(false)}
+        />
+      )}
+      {configApp && (
+        <AppConfigWindow
+          app={configApp}
+          onClose={() => setConfigApp(null)}
+          onSaved={() => { /* keep the window open so the user sees the "Saved" state */ }}
+        />
+      )}
+    </>
   );
 }
