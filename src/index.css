@@ -609,6 +609,12 @@ button, [role="button"] { cursor: pointer; }
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .appmkt-close:hover, .appcfg-close:hover { background: rgba(245,166,35,.15); color: var(--color-accent); }
+.appmkt-search {
+  width: 100%; box-sizing: border-box; margin-bottom: 12px; padding: 8px 12px; font-size: 13px;
+  border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+.appmkt-search:focus { outline: none; border-color: var(--color-accent); }
 .appmkt-error, .appmkt-empty { font-size: 13px; color: #f87171; padding: 8px 0; }
 .appmkt-empty { color: var(--color-text-muted); font-style: italic; }
 .appmkt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }

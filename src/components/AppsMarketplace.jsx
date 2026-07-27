@@ -12,6 +12,7 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
   const [catalog, setCatalog] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState({}); // slug -> true while installing
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -37,7 +38,14 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
     }
   };
 
-  const apps = catalog?.apps || [];
+  const allApps = catalog?.apps || [];
+  const q = query.trim().toLowerCase();
+  const apps = q
+    ? allApps.filter((app) => {
+        const haystack = [app.name, app.description, ...(app.tags || [])].join(' ').toLowerCase();
+        return haystack.includes(q);
+      })
+    : allApps;
 
   return (
     <div className="appmkt-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Marketplace">
@@ -46,17 +54,30 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
           <div>
             <h3 className="appmkt-title">Marketplace</h3>
             <p className="appmkt-sub">
-              {catalog ? `${apps.length} apps available` : 'Loading catalog…'}
+              {catalog ? `${allApps.length} apps available` : 'Loading catalog…'}
               {catalog?.stale ? ' · showing cached' : ''}
             </p>
           </div>
           <button type="button" className="appmkt-close" onClick={onClose} aria-label="Close">✕</button>
         </header>
 
+        {catalog && allApps.length > 0 && (
+          <input
+            type="search"
+            className="appmkt-search"
+            placeholder="Search apps by name, description, or tag…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search apps"
+          />
+        )}
+
         {error && <p className="appmkt-error" data-testid="appmkt-error">{error}</p>}
 
-        {catalog && apps.length === 0 ? (
+        {catalog && allApps.length === 0 ? (
           <p className="appmkt-empty">No apps in the catalog.</p>
+        ) : catalog && apps.length === 0 ? (
+          <p className="appmkt-empty">nenhum app encontrado</p>
         ) : (
           <ul className="appmkt-list">
             {apps.map((app) => {

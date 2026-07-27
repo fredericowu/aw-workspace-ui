@@ -10,8 +10,8 @@ import AppsMarketplace from '../components/AppsMarketplace';
 
 const CATALOG = {
   apps: [
-    { id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch', repo: 'tekflox/aw-app-git', ref: 'master', has_config: true },
-    { id: 'essentials', name: 'Essentials', description: 'cli tools', icon: 'terminal', repo: 'tekflox/aw-app-essentials', ref: 'master', has_config: false },
+    { id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch', repo: 'tekflox/aw-app-git', ref: 'master', has_config: true, tags: ['git', 'github'] },
+    { id: 'essentials', name: 'Essentials', description: 'cli tools', icon: 'terminal', repo: 'tekflox/aw-app-essentials', ref: 'master', has_config: false, tags: ['cli', 'networking'] },
   ],
 };
 
@@ -46,5 +46,37 @@ describe('AppsMarketplace', () => {
     const installButtons = await screen.findAllByRole('button', { name: 'Install' });
     fireEvent.click(installButtons[0]);
     expect(await screen.findByTestId('appmkt-error')).toHaveTextContent('clone failed');
+  });
+
+  it('filters apps by name, description, and tag as the user types', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedSlugs={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('Git + GitHub CLI');
+
+    const search = screen.getByLabelText('Search apps');
+
+    // match by name
+    fireEvent.change(search, { target: { value: 'github' } });
+    expect(screen.getByText('Git + GitHub CLI')).toBeInTheDocument();
+    expect(screen.queryByText('Essentials')).not.toBeInTheDocument();
+
+    // match by description (case-insensitive, partial)
+    fireEvent.change(search, { target: { value: 'CLI TOOLS' } });
+    expect(screen.getByText('Essentials')).toBeInTheDocument();
+    expect(screen.queryByText('Git + GitHub CLI')).not.toBeInTheDocument();
+
+    // match by tag
+    fireEvent.change(search, { target: { value: 'networking' } });
+    expect(screen.getByText('Essentials')).toBeInTheDocument();
+    expect(screen.queryByText('Git + GitHub CLI')).not.toBeInTheDocument();
+
+    // no match -> empty state
+    fireEvent.change(search, { target: { value: 'nonexistent-xyz' } });
+    expect(screen.getByText('nenhum app encontrado')).toBeInTheDocument();
+
+    // clearing restores the full list
+    fireEvent.change(search, { target: { value: '' } });
+    expect(screen.getByText('Git + GitHub CLI')).toBeInTheDocument();
+    expect(screen.getByText('Essentials')).toBeInTheDocument();
   });
 });
