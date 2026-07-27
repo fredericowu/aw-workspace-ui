@@ -365,13 +365,6 @@ button, [role="button"] { cursor: pointer; }
   letter-spacing: -.01em;
 }
 
-.applt-title-accent {
-  width: 8px; height: 8px;
-  border-radius: 999px;
-  background: var(--color-launcher-amber);
-  box-shadow: 0 0 10px 2px var(--color-launcher-amber-glow);
-}
-
 .applt-sub {
   margin: 4px 0 0;
   font-size: 13px;

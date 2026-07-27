@@ -140,7 +140,6 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
           <div className="applt-head-text">
             <h2 className="applt-title">
               Apps
-              <span className="applt-title-accent" />
             </h2>
             <p className="applt-sub">
               {apps.length ? `${runningCount} running · ${apps.length} available` : 'Loading apps…'}
