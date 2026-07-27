@@ -7,6 +7,7 @@ vi.mock('../apps/appsApi', () => ({
   installMyApps: vi.fn(),
   fetchCatalog: vi.fn(),
   installApp: vi.fn(),
+  getInstallStatus: vi.fn().mockRejectedValue(new Error('no such job')),
 }));
 import {
   listInstalledApps, uninstallApp, installMyApps, fetchCatalog,

@@ -4,25 +4,73 @@
 // framework install flow (POST /api/apps/install with the catalog app's
 // repo/ref). On success the parent refreshes the installed list and, for a
 // has_config app, opens its config window.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
-import { fetchCatalog, installApp } from '../apps/appsApi';
+import { fetchCatalog, installApp, getInstallStatus } from '../apps/appsApi';
+
+const POLL_INTERVAL_MS = 2000;
+
+// Poll GET /api/apps/{slug}/install-status until the background install
+// (kicked off by installApp) lands on installed or failed. `alive` is a ref
+// so a closed panel / unmounted component stops polling instead of leaking.
+function pollInstallStatus(appId, alive) {
+  return new Promise((resolve, reject) => {
+    const tick = async () => {
+      if (!alive.current) return;
+      try {
+        const status = await getInstallStatus(appId);
+        if (!alive.current) return;
+        if (status.status === 'installed') { resolve(status); return; }
+        if (status.status === 'failed') { reject(new Error(status.error || 'install failed')); return; }
+        setTimeout(tick, POLL_INTERVAL_MS);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    tick();
+  });
+}
 
 export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }) {
   const [catalog, setCatalog] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState({}); // slug -> true while installing
   const [query, setQuery] = useState('');
+  const alive = useRef(true);
+
+  useEffect(() => () => { alive.current = false; }, []);
 
   useEffect(() => {
-    let alive = true;
+    let mounted = true;
     fetchCatalog()
-      .then((data) => { if (alive) setCatalog(data); })
-      .catch((e) => { if (alive) setError(String(e.message || e)); });
-    return () => { alive = false; };
+      .then((data) => { if (mounted) setCatalog(data); })
+      .catch((e) => { if (mounted) setError(String(e.message || e)); });
+    return () => { mounted = false; };
   }, []);
 
   const installed = new Set(installedSlugs || []);
+
+  // Reload mid-install: a background install kicked off before a refresh
+  // still runs on the workspace, so on mount check every not-yet-installed
+  // catalog app's status and resume watching any that's still "installing"
+  // instead of showing a bare Install button as if nothing had happened.
+  useEffect(() => {
+    if (!catalog) return;
+    const pending = (catalog.apps || []).filter((app) => !installed.has(app.id));
+    pending.forEach((app) => {
+      getInstallStatus(app.id)
+        .then((status) => {
+          if (!alive.current || status.status !== 'installing') return;
+          setBusy((b) => ({ ...b, [app.id]: true }));
+          pollInstallStatus(app.id, alive)
+            .then(() => { if (alive.current) onInstalled?.(app); })
+            .catch((e) => { if (alive.current) setError(`Install of ${app.name} failed: ${String(e.message || e)}`); })
+            .finally(() => { if (alive.current) setBusy((b) => ({ ...b, [app.id]: false })); });
+        })
+        .catch(() => { /* no job / never installed — nothing to resume */ });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog]);
 
   const doInstall = async (app) => {
     if (busy[app.id]) return;
@@ -30,11 +78,12 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
     setError(null);
     try {
       await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
-      onInstalled?.(app);
+      await pollInstallStatus(app.id, alive);
+      if (alive.current) onInstalled?.(app);
     } catch (e) {
-      setError(`Install of ${app.name} failed: ${String(e.message || e)}`);
+      if (alive.current) setError(`Install of ${app.name} failed: ${String(e.message || e)}`);
     } finally {
-      setBusy((b) => ({ ...b, [app.id]: false }));
+      if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
     }
   };
 

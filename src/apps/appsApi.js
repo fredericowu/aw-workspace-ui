@@ -27,13 +27,23 @@ export function fetchContributions() {
   return apiFetch('/api/apps/-/contributions').then(json);
 }
 
-// POST /api/apps/install — install a catalog app by repo/ref (F3 flow).
+// POST /api/apps/install — kicks off a catalog app install (repo/ref, F3
+// flow) in the BACKGROUND; returns immediately with {app_id, status:
+// "installing"} (202) instead of blocking on the fetch + apt install, which
+// takes long enough for the BYOD tunnel to drop the request. Poll
+// getInstallStatus() for progress.
 export function installApp({ repo, ref, app_id, granted_permissions, signed, config }) {
   return apiFetch('/api/apps/install', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repo, ref, app_id, granted_permissions, signed, config }),
   }).then(json);
+}
+
+// GET /api/apps/{slug}/install-status — poll a background install kicked off
+// by installApp(). status is "installing" | "installed" | "failed" (+ error).
+export function getInstallStatus(slug) {
+  return apiFetch(`/api/apps/${encodeURIComponent(slug)}/install-status`).then(json);
 }
 
 // DELETE /api/apps/{slug} — hot-uninstall (drain + journal reverse-replay).
