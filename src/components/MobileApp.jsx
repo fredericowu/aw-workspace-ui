@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useComponentStatus, getAwConfig, startComponent } from '../hooks/useComponentStatus';
+import { asArray } from '../lib/asArray';
 import { apiFetch, wsUrl } from '../auth';
 import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
@@ -255,7 +256,7 @@ export default function MobileApp() {
   }, []);
 
   const applyTerminalUpdate = useCallback((data) => {
-    const alive = data.filter(t => t.alive);
+    const alive = asArray(data).filter(t => t.alive);
     // Any terminal whose type matches a configured agent CLI counts as
     // an agent session — Claude, Copilot, Codex, or whatever else the
     // user has configured in aw.config.  Everything else is a "regular

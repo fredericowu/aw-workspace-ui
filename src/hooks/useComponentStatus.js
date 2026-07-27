@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch, wsUrl } from '../auth';
+import { asArray } from '../lib/asArray';
 
 const API_BASE = '';
 
@@ -22,7 +23,7 @@ export function useComponentStatus() {
       const data = JSON.parse(event.data);
 
       if (data.type === 'init') {
-        setComponents(data.components);
+        setComponents(asArray(data.components));
         setLoading(false);
         // Backend now sends the full terminal list in the init message so
         // every new tab/browser gets an immediate snapshot without needing
@@ -92,7 +93,7 @@ export function useComponentStatus() {
         // forward-reference dance for no real win.
         apiFetch(`${API_BASE}/api/components`)
           .then((r) => r.json())
-          .then((d) => setComponents(d))
+          .then((d) => setComponents(asArray(d)))
           .catch(() => {});
       } else if (data.type === 'notification') {
         // Server-pushed toast — e.g. a backend logger.error bridged by
@@ -138,7 +139,7 @@ export function useComponentStatus() {
     try {
       const res = await apiFetch(`${API_BASE}/api/components`);
       const data = await res.json();
-      setComponents(data);
+      setComponents(asArray(data));
     } catch {  }
   }, []);
 

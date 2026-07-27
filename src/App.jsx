@@ -11,6 +11,8 @@ import AuthScreen from './components/AuthScreen';
 import MobileApp from './components/MobileApp';
 import PromptNotifications from './components/PromptNotifications';
 import TopNotifications from './components/TopNotifications';
+import ErrorBoundary from './components/ErrorBoundary';
+import { asArray } from './lib/asArray';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
 // import NinjaBuddy from './components/NinjaBuddy';
 import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
@@ -781,7 +783,7 @@ function AuthenticatedApp() {
   const [agentSessionsMap, setAgentSessionsMap] = useState({});
 
   const applyTerminalUpdate = useCallback((data) => {
-    const alive = data.filter((t) => t.alive);
+    const alive = asArray(data).filter((t) => t.alive);
     // type='terminal' = plain terminals; type='stubborn' = stubborn; everything else = AI agent
     const agentOnes = alive.filter((t) => t.type !== 'terminal' && t.type !== 'stubborn');
     const stubbornOnes = alive.filter((t) => t.type === 'stubborn');
@@ -1422,9 +1424,13 @@ function AuthenticatedApp() {
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
       {/* Claude prompt notifications — floating top-right */}
-      <PromptNotifications terminals={terminals} />
+      <ErrorBoundary label="Notifications" silent>
+        <PromptNotifications terminals={terminals} />
+      </ErrorBoundary>
       {/* Generic notification stack (task completions, GitHub PR events, etc.) */}
-      <TopNotifications />
+      <ErrorBoundary label="Notifications" silent>
+        <TopNotifications />
+      </ErrorBoundary>
 
       {/* Top bar */}
       {/* relative z-[9990]: keeps the top bar and its dropdown menus (Workspace,
@@ -1451,6 +1457,7 @@ function AuthenticatedApp() {
             >
               Home
             </button>
+            <ErrorBoundary label="Agents">
             <AgentsNav
               aiAgents={aiAgents}
               agentSessions={agentSessions}
@@ -1466,6 +1473,8 @@ function AuthenticatedApp() {
               onToggleTerminal={toggleTerminal}
               onCloseTerminal={deleteTerminal}
             />
+            </ErrorBoundary>
+            <ErrorBoundary label="Presentations">
             <PresentationNav
               presentations={presentations}
               onSelectPresentation={(id) => {
@@ -1474,6 +1483,8 @@ function AuthenticatedApp() {
               }}
               onDeletePresentation={deletePresentation}
             />
+            </ErrorBoundary>
+            <ErrorBoundary label="Workspace">
             <WorkspaceNav
               setView={setView}
               components={components}
@@ -1493,13 +1504,16 @@ function AuthenticatedApp() {
               workspaceApps={enabledApps}
               onOpenApp={openApp}
             />
+            </ErrorBoundary>
             {/* Apps menu — popover next to Workspace. Lists every
                 workspace_apps entry whose `menu` is "apps". */}
+            <ErrorBoundary label="Apps">
             <AppsNav
               workspaceApps={enabledApps}
               components={components}
               onOpenApp={openApp}
             />
+            </ErrorBoundary>
             {/* Legacy: dynamic top-bar buttons for workspace_apps with menu: "top".
                 Kept for back-compat with configs that still use the old slot — new
                 apps should set menu: "apps" and live inside the Apps popover. */}
@@ -1711,7 +1725,9 @@ function AuthenticatedApp() {
           )}
 
           {/* VPN — shield icon, hover for status / connect / disconnect */}
-          <VpnNav />
+          <ErrorBoundary label="VPN">
+            <VpnNav />
+          </ErrorBoundary>
 
           {/* Notifications — bell icon only, no label. Kept last so the
               slide-in panel anchored to the right edge sits naturally
