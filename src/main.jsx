@@ -30,10 +30,6 @@ import './index.css'
 import { installApiBaseShims } from './apiBase'
 import { initApiKey } from './auth'
 
-// Three-plane split: when served as the cloud SPA at <ws>.workspace.<domain>,
-// route same-origin /api and /ws calls to the BYOD workspace API. No-op on the
-// single-tenant dashboard. Installed BEFORE any fetch/WS is issued below.
-installApiBaseShims()
 import App from './App.jsx'
 import { startViewdbg } from './lib/viewdbgClient'
 import { startDevctl } from './lib/devctlClient'
@@ -65,6 +61,16 @@ startDevctl()
 // The top-bar toggle in App.jsx writes to localStorage and dispatches
 // the change event this sweep listens to.
 installKbdModeSweep()
+
+// Three-plane split: when served as the cloud SPA at <ws>.workspace.<domain>,
+// route same-origin /api and /ws calls to the BYOD workspace API (no-op on the
+// single-tenant dashboard). Installed LAST, AFTER initOtel()/initLaunchDarkly():
+// OpenTelemetry's fetch instrumentation and LaunchDarkly Observability each
+// replace window.fetch capturing the *native* fetch, so a shim installed before
+// them gets bypassed. Installing last makes our rewrite the outermost wrapper —
+// it rewrites the URL first, then delegates to the observability chain. Still
+// before createRoot(), i.e. before the app issues its first /api/auth/status.
+installApiBaseShims()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
