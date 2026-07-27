@@ -19,8 +19,15 @@ export function initOtel() {
   // Guard: only instrument in production-like contexts (not unit tests).
   if (typeof window === "undefined") return;
 
+  // Off by default (2026-07-27): a BYOD workspace has no OTLP collector, so
+  // posting traces to /api/otlp/v1/traces just 405-spams the console. The
+  // observability app (aw-app-otel-collector) sets window.__AW_OTEL_ENABLED and
+  // window.__AW_OTLP_URL when installed, which turns this on and points it at
+  // the collector. Docstring already documented this guard; it was never wired.
+  if (!window.__AW_OTEL_ENABLED) return;
+
   const exporter = new OTLPTraceExporter({
-    url: "/api/otlp/v1/traces",
+    url: window.__AW_OTLP_URL || "/api/otlp/v1/traces",
   });
 
   const provider = new WebTracerProvider({
