@@ -27,7 +27,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { installApiBaseShims } from './apiBase'
 import { initApiKey } from './auth'
+
+// Three-plane split: when served as the cloud SPA at <ws>.workspace.<domain>,
+// route same-origin /api and /ws calls to the BYOD workspace API. No-op on the
+// single-tenant dashboard. Installed BEFORE any fetch/WS is issued below.
+installApiBaseShims()
 import App from './App.jsx'
 import { startViewdbg } from './lib/viewdbgClient'
 import { startDevctl } from './lib/devctlClient'
