@@ -30,7 +30,16 @@ function deriveBases() {
     const apex = m[2]; // aw.tekflox.com
     const proto = window.location.protocol; // https:
     return {
-      api: `${proto}//api.${slug}.workspace.${apex}`, // BYOD workspace API
+      api: `${proto}//api.${slug}.workspace.${apex}`, // BYOD workspace API (via /link tunnel)
+      // LAN fast-path (case a): same-apex `local.<slug>.workspace` name that
+      // resolves — via a public route53 A record — to the workspace machine's
+      // LAN IP when the browser is on that LAN, served by aw-remote-host's
+      // local TLS terminator on :8443 with the same per-workspace wildcard
+      // cert. Off-LAN the name still resolves to the (unreachable) LAN IP, so
+      // the probe below fails fast and we stay on the tunnel API. Same origin
+      // family / same cert / same cookie scope → no mixed content, no new
+      // CORS. See docs/architecture/aw-workspace-lan-fastpath.md.
+      local: `${proto}//local.${slug}.workspace.${apex}:${LAN_FASTPATH_PORT}`,
       apex, // aw.tekflox.com — used to derive the console login host
     };
   } catch {
@@ -38,7 +47,55 @@ function deriveBases() {
   }
 }
 
+// High (non-privileged) port the workspace's local TLS terminator binds —
+// mirrors aw-remote-host's lanfastpath.DefaultPort (macbook-fred's `aw` user
+// has no root, so :443 isn't an option).
+const LAN_FASTPATH_PORT = 8443;
+
 const BASES = deriveBases();
+
+// The API origin the shims currently route to. Starts on the tunnel API and
+// is swapped to the LAN origin by probeLanFastPath() when it's reachable —
+// mutated in place so the already-installed fetch/WebSocket shims pick up the
+// change without reinstalling.
+let activeApi = BASES.api;
+
+/** True when the LAN fast-path is currently active (local origin reachable).
+ *  Drives the "on LAN / unmetered" UI badge and the tunnel-metering exclusion. */
+export function isLanFastPath() {
+  return !!BASES.local && activeApi === BASES.local;
+}
+
+/** Probe the LAN fast-path health endpoint and switch the active API origin
+ *  to it when reachable, or back to the tunnel API when not. Credentialed +
+ *  same cert as the tunnel path, so a success means the browser can reach the
+ *  workspace directly on the LAN. Short timeout so an off-LAN visit (name
+ *  resolves to an unreachable private IP) falls back fast. Safe to call
+ *  repeatedly — wire it to network-change events to re-evaluate. */
+export async function probeLanFastPath() {
+  if (!BASES.api || !BASES.local) return false;
+  const prev = activeApi;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    const resp = await fetch(`${BASES.local}/api/health`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    activeApi = resp.ok ? BASES.local : BASES.api;
+  } catch {
+    activeApi = BASES.api; // unreachable / cert / CORS failure → stay on tunnel
+  }
+  if (activeApi !== prev) {
+    try {
+      window.dispatchEvent(new CustomEvent('aw:lan-fastpath', { detail: { active: isLanFastPath() } }));
+    } catch { /* no-op */ }
+  }
+  return isLanFastPath();
+}
 
 /** True when this SPA is running as a cloud workspace SPA (has a remote API). */
 export function isWorkspaceSpa() {
@@ -63,13 +120,13 @@ export function consoleLoginUrl() {
 export function apiUrl(path) {
   if (!BASES.api) return path;
   if (typeof path !== 'string' || !path.startsWith('/')) return path;
-  if (path.startsWith('/api/') || path.startsWith('/ws/')) return BASES.api + path;
+  if (path.startsWith('/api/') || path.startsWith('/ws/')) return activeApi + path;
   return path;
 }
 
 /** ws(s):// URL for a `/ws/*` (or `/api/*`) path on the workspace API. */
 export function wsBaseUrl(path) {
-  const base = BASES.api || `${window.location.protocol}//${window.location.host}`;
+  const base = activeApi || `${window.location.protocol}//${window.location.host}`;
   const abs = base.startsWith('http') ? base.replace(/^http/, 'ws') : base;
   return abs + path;
 }
@@ -109,4 +166,11 @@ export function installApiBaseShims() {
   PatchedWS.CLOSING = OrigWS.CLOSING;
   PatchedWS.CLOSED = OrigWS.CLOSED;
   window.WebSocket = PatchedWS;
+
+  // Kick off the LAN fast-path probe (non-blocking — the tunnel API works
+  // regardless) and re-evaluate whenever the network changes, so moving on/off
+  // the workspace LAN switches the active origin without a reload.
+  probeLanFastPath();
+  window.addEventListener('online', probeLanFastPath);
+  window.addEventListener('focus', probeLanFastPath);
 }
