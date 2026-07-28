@@ -234,9 +234,14 @@ function WidgetBody({ widget }) {
             </div>
           )}
           {polling && pollCfg.pending_text && (
-            <p className="appwin-poll-pending" data-testid="appwin-poll-pending">
-              {pollCfg.pending_text}
-            </p>
+            <p
+              className="appwin-poll-pending"
+              data-testid="appwin-poll-pending"
+              // pending_text supports inline markdown (e.g. a `[label](url)`
+              // link to the verification page) — parseInline avoids wrapping
+              // it in a <p>, since we already render our own.
+              dangerouslySetInnerHTML={{ __html: marked.parseInline(pollCfg.pending_text) }}
+            />
           )}
           {result && (
             <pre className="appwin-result" data-testid="appwin-result">
