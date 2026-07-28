@@ -12,33 +12,41 @@ const POLL_INTERVAL_MS = 2000;
 
 const RESOURCE_LABEL = { low: 'Low', medium: 'Med', high: 'High' };
 
-// Small colored dot per resource dimension (low=green, medium=amber, high=red).
+// CPU is the ONLY traffic-light dimension (green=low, amber=medium, red=high).
+// Memory and disk are free-form *server-usage* estimates — a size string like
+// "~200 MB", or "–" for something that never stays resident (e.g. the git CLI
+// just installs; nothing runs in memory). Memory = server RAM (matters for
+// heavy apps like aw-browser).
 function ResourceBadges({ estimate }) {
   if (!estimate) return null;
+  const cpu = estimate.cpu || 'low';
+  const fmt = (v) => { const s = (v ?? '-').toString().trim(); return !s || s === '-' ? '–' : s; };
   return (
     <span className="appmkt-resources" aria-label="Resource estimate">
-      {['cpu', 'memory', 'disk'].map((dim) => (
-        <span key={dim} className={`appmkt-res appmkt-res-${estimate[dim] || 'low'}`}
-          title={`${dim}: ${RESOURCE_LABEL[estimate[dim]] || 'Low'}`}>
-          <span className="appmkt-res-dot" aria-hidden="true" />
-          {dim === 'cpu' ? 'CPU' : dim === 'memory' ? 'Mem' : 'Disk'}
-        </span>
-      ))}
+      <span className={`appmkt-res appmkt-res-${cpu}`} title={`CPU: ${RESOURCE_LABEL[cpu] || 'Low'}`}>
+        <span className="appmkt-res-dot" aria-hidden="true" />
+        CPU
+      </span>
+      <span className="appmkt-res appmkt-res-estimate" title={`Memory (server RAM): ${fmt(estimate.memory)}`}>
+        <span className="appmkt-res-k">Mem</span> {fmt(estimate.memory)}
+      </span>
+      <span className="appmkt-res appmkt-res-estimate" title={`Disk: ${fmt(estimate.disk)}`}>
+        <span className="appmkt-res-k">Disk</span> {fmt(estimate.disk)}
+      </span>
     </span>
   );
 }
 
+// Renders nothing when the section is empty — an app with no MCP tools simply
+// omits that section rather than announcing "None".
 function WhatYouGetList({ title, items }) {
+  if (!items || items.length === 0) return null;
   return (
     <div className="appmkt-wyg-group">
       <h4 className="appmkt-wyg-title">{title}</h4>
-      {items && items.length > 0 ? (
-        <ul className="appmkt-wyg-list">
-          {items.map((item) => <li key={item}>{item}</li>)}
-        </ul>
-      ) : (
-        <p className="appmkt-wyg-empty">None</p>
-      )}
+      <ul className="appmkt-wyg-list">
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
     </div>
   );
 }
@@ -176,12 +184,16 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
               </div>
               <p className="appmkt-item-desc">{detailApp.description}</p>
 
-              <div className="appmkt-wyg">
-                <h4 className="appmkt-wyg-heading">What you get</h4>
-                <WhatYouGetList title="MCP Tools" items={detailApp.what_you_get?.mcp_tools} />
-                <WhatYouGetList title="UI Screens" items={detailApp.what_you_get?.ui_screens} />
-                <WhatYouGetList title="Runnable commands" items={detailApp.what_you_get?.commands} />
-              </div>
+              {(detailApp.what_you_get?.mcp_tools?.length
+                || detailApp.what_you_get?.ui_screens?.length
+                || detailApp.what_you_get?.commands?.length) ? (
+                <div className="appmkt-wyg">
+                  <h4 className="appmkt-wyg-heading">What you get</h4>
+                  <WhatYouGetList title="MCP Tools" items={detailApp.what_you_get?.mcp_tools} />
+                  <WhatYouGetList title="UI Screens" items={detailApp.what_you_get?.ui_screens} />
+                  <WhatYouGetList title="Runnable commands" items={detailApp.what_you_get?.commands} />
+                </div>
+              ) : null}
 
               <div className="appmkt-detail-actions">{installButton(detailApp)}</div>
             </div>

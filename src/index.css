@@ -644,6 +644,9 @@ button, [role="button"] { cursor: pointer; }
 .appmkt-res-low .appmkt-res-dot { background: #4ade80; }
 .appmkt-res-medium .appmkt-res-dot { background: #facc15; }
 .appmkt-res-high .appmkt-res-dot { background: #f87171; }
+/* Memory/disk estimate badge: no dot, value shown as normal-case text. */
+.appmkt-res-estimate { text-transform: none; color: var(--color-text); }
+.appmkt-res-k { color: var(--color-text-muted); text-transform: uppercase; }
 .appmkt-back {
   background: none; border: none; padding: 0; margin-bottom: 6px; cursor: pointer;
   font-size: 12px; font-weight: 600; color: var(--color-text-muted);
