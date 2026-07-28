@@ -14,6 +14,7 @@ import * as ReactDOM from 'react-dom';
 
 import { slotRegistry as defaultRegistry } from './slotRegistry';
 import { makeSdk, PLUGIN_API_VERSION } from './sdk';
+import { wsBaseUrl } from '../apiBase';
 
 // Default fetch used by the SDK — relative `/api/*` is rewritten to the BYOD
 // workspace API by the apiBase.js global shim, so a plain fetch is correct.
@@ -23,11 +24,11 @@ function defaultApiFetch(path, init) {
 
 // Build (idempotently) and install the global host. Safe to call repeatedly;
 // returns the existing global if already installed.
-export function installPluginHost({ registry = defaultRegistry, apiFetch = defaultApiFetch } = {}) {
+export function installPluginHost({ registry = defaultRegistry, apiFetch = defaultApiFetch, wsUrl = wsBaseUrl } = {}) {
   if (typeof window !== 'undefined' && window.__AW_PLUGIN_HOST__) {
     return window.__AW_PLUGIN_HOST__;
   }
-  const sdk = makeSdk({ React, ReactDOM, apiFetch });
+  const sdk = makeSdk({ React, ReactDOM, apiFetch, wsUrl });
   const host = {
     version: PLUGIN_API_VERSION,
     React,

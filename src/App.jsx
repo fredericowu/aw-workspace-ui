@@ -13,6 +13,11 @@ import PromptNotifications from './components/PromptNotifications';
 import TopNotifications from './components/TopNotifications';
 import ErrorBoundary from './components/ErrorBoundary';
 import { asArray } from './lib/asArray';
+import AppSlot from './apps/AppSlot';
+import AppWindow from './components/AppWindow';
+import { installPluginHost } from './apps/pluginHost';
+import { fetchContributions } from './apps/appsApi';
+import { wireContributions, findWindowSpec } from './apps/wireContributions';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
 // import NinjaBuddy from './components/NinjaBuddy';
 import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
@@ -384,6 +389,8 @@ function AuthenticatedApp() {
     return () => { closed = true; if (ws) { try { ws.close(); } catch {} } };
   }, []);
   const [view, setView] = useState('home');
+  // Decoupled-apps (F6 Cap 2): declarative window opened from an app nav entry.
+  const [openedAppWindow, setOpenedAppWindow] = useState(null); // { title, spec }
   const [terminals, setTerminals] = useState([]);
   const [presentations, setPresentations] = useState([]);
   const [diffs, setDiffs] = useState({});
@@ -675,6 +682,50 @@ function AuthenticatedApp() {
       return next;
     });
     setView('home');
+  }, []);
+
+  // ---- Decoupled-apps plugin host (F6 Cap 2) --------------------------------
+  // F5 shipped the frontend plugin runtime as an unwired library; this boots it:
+  // install the host, fetch the workspace's contributions, register declarative
+  // nav into the core.nav / core.nav.workspace slots, and load component-mode
+  // bundles. Re-runs on app install/uninstall + window refocus. Zero contributing
+  // apps ⇒ zero visual change (safe).
+  const contributionsRef = useRef(null);
+  useEffect(() => {
+    installPluginHost();
+    let disposed = false;
+    let dispose = null;
+
+    const openWindowById = (windowId) => {
+      const found = findWindowSpec(contributionsRef.current, windowId);
+      if (found && found.spec) setOpenedAppWindow(found);
+    };
+
+    const load = async () => {
+      let contributions;
+      try {
+        contributions = await fetchContributions();
+      } catch {
+        return; // no workspace API / not reachable — leave the shell unchanged
+      }
+      if (disposed) return;
+      contributionsRef.current = contributions;
+      if (dispose) { try { dispose(); } catch {} dispose = null; }
+      dispose = await wireContributions(contributions, window.__AW_PLUGIN_HOST__, {
+        onOpenWindow: openWindowById,
+      });
+    };
+
+    load();
+    const onChanged = () => load();
+    window.addEventListener('aw-apps-changed', onChanged);
+    window.addEventListener('focus', onChanged);
+    return () => {
+      disposed = true;
+      window.removeEventListener('aw-apps-changed', onChanged);
+      window.removeEventListener('focus', onChanged);
+      if (dispose) { try { dispose(); } catch {} }
+    };
   }, []);
 
   const toggleWindow = useCallback((key) => {
@@ -1571,6 +1622,12 @@ function AuthenticatedApp() {
               onOpenApp={openApp}
             />
             </ErrorBoundary>
+            {/* Decoupled-apps (F6 Cap 2): nav entries registered by installed
+                apps into the core.nav slot render here. Empty until an app
+                contributes → no visual change. */}
+            <ErrorBoundary label="AppNav" silent>
+              <AppSlot slot="core.nav" />
+            </ErrorBoundary>
             {/* Legacy: dynamic top-bar buttons for workspace_apps with menu: "top".
                 Kept for back-compat with configs that still use the old slot — new
                 apps should set menu: "apps" and live inside the Apps popover. */}
@@ -1975,6 +2032,26 @@ function AuthenticatedApp() {
       </div>
       {/* Backdrop */}
       {profileDrawerOpen && <div className="fixed inset-0 z-[9997]" onClick={() => setProfileDrawerOpen(false)} />}
+
+      {/* Decoupled-apps (F6 Cap 2): a declarative app window opened from an app
+          nav entry — rendered via the generic AppWindow spec renderer. This is
+          what makes aw-app-git's "Sign in with GitHub" window reachable. */}
+      {openedAppWindow && (
+        <div className="fixed inset-0 z-[9996] flex items-center justify-center bg-black/50"
+             onClick={() => setOpenedAppWindow(null)}>
+          <div className="relative max-h-[85vh] w-[min(640px,92vw)] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 shadow-xl"
+               onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setOpenedAppWindow(null)}
+              aria-label="Close"
+              className="absolute right-3 top-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
+            >✕</button>
+            <ErrorBoundary label={openedAppWindow.title || 'App'}>
+              <AppWindow spec={openedAppWindow.spec} />
+            </ErrorBoundary>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

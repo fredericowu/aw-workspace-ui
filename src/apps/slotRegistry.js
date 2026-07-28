@@ -13,7 +13,8 @@
 // calls), so tearing an app down empties every slot it filled — no residue.
 
 export const CORE_SLOTS = Object.freeze([
-  'core.nav',
+  'core.nav',            // top-bar nav entries (default section)
+  'core.nav.workspace',  // entries inside the Workspace flyout (F6 Cap 2)
   'core.menu.main',
   'core.settings.panels',
   'core.toolbar',

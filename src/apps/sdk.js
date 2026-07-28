@@ -15,8 +15,10 @@
 export const PLUGIN_API_VERSION = 1;
 
 // Build the SHARED SDK object exposed on the host global. `deps` carries the
-// host's React + fetch so plugins never import their own copy.
-export function makeSdk({ React, ReactDOM, apiFetch }) {
+// host's React + fetch + wsUrl builder so plugins never import their own copy
+// nor hand-build a WebSocket URL (that class of bug caused the BYOD WS tunnel
+// breakage — see project_byod_ws_tunnel_fix).
+export function makeSdk({ React, ReactDOM, apiFetch, wsUrl }) {
   return {
     version: PLUGIN_API_VERSION,
     React,
@@ -27,6 +29,11 @@ export function makeSdk({ React, ReactDOM, apiFetch }) {
     // to the BYOD workspace API by the global fetch shim (apiBase.js).
     api: {
       fetch: (path, init) => apiFetch(path, init),
+      // Base-aware ws(s):// URL for an app WS route (`/api/apps/<slug>/ws`),
+      // pointed at the same workspace API origin the fetch shim rewrites to
+      // (BYOD `api.<ws>.workspace`). The apex `aw_id_jwt` cookie authorizes the
+      // handshake, so plugins never build the URL — or append the token — by hand.
+      wsUrl: (path) => (typeof wsUrl === 'function' ? wsUrl(path) : path),
     },
   };
 }

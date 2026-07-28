@@ -3,6 +3,7 @@ import StatusDot from './StatusDot';
 import SidebarPreview from './SidebarPreview';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
 import { apiFetch, wsUrl } from '../auth';
+import AppSlot from '../apps/AppSlot';
 
 /**
  * Top-bar nav entry for "Workspace". A hover popover that consolidates
@@ -496,6 +497,11 @@ export default function WorkspaceNav({
             <GearIcon />
             <span className="text-[13px] text-[var(--color-text-primary)]">Settings</span>
           </button>
+
+          {/* Decoupled-apps (F6 Cap 2): nav entries an installed app registers
+              into core.nav.workspace render here (e.g. the Repos migration's
+              signed RepoNav contribution). Empty until an app contributes. */}
+          <AppSlot slot="core.nav.workspace" />
 
           {/* Repos */}
           <div className="relative" onMouseEnter={enterSub('repos')}>
