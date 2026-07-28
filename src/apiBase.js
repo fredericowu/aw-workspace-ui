@@ -40,6 +40,7 @@ function deriveBases() {
       // family / same cert / same cookie scope → no mixed content, no new
       // CORS. See docs/architecture/aw-workspace-lan-fastpath.md.
       local: `${proto}//local.${slug}.workspace.${apex}:${LAN_FASTPATH_PORT}`,
+      slug, // e.g. fredericowu — used to derive per-app subdomains
       apex, // aw.tekflox.com — used to derive the console login host
     };
   } catch {
@@ -100,6 +101,22 @@ export async function probeLanFastPath() {
 /** True when this SPA is running as a cloud workspace SPA (has a remote API). */
 export function isWorkspaceSpa() {
   return !!BASES.api;
+}
+
+/** Absolute external URL for a workspace app's own subdomain
+ *  (`<appId>.app.<slug>.workspace.<apex>`), the Caddy-routed host every
+ *  container/Tier-2 app answers on directly (`*.app.<slug>.workspace.{domain}`
+ *  — see workspace_caddy_template.py). Derives `<slug>`/`<apex>` from
+ *  window.location the same way deriveBases() does — never hardcode a slug.
+ *  Returns null on a non-workspace host (nothing to derive it from).
+ *
+ *  TODO(fast-lane): no per-app LAN terminator exists yet (only the API
+ *  fast-path on `local.<slug>.workspace...:8443` does) — this always returns
+ *  the external/tunnel subdomain today, fast-path or not. See
+ *  docs/architecture/aw-workspace-lan-fastpath.md. */
+export function appSubdomainUrl(appId) {
+  if (!BASES.apex || !BASES.slug) return null;
+  return `${window.location.protocol}//${appId}.app.${BASES.slug}.workspace.${BASES.apex}`;
 }
 
 /** Console login URL (`https://console.<apex>/login?return=<here>`) for the

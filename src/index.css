@@ -566,6 +566,8 @@ button, [role="button"] { cursor: pointer; }
   display: flex; align-items: center; gap: 12px; padding: 10px 12px;
   background: var(--color-bg-primary); border: 1px solid var(--color-border); border-radius: 10px;
 }
+.applt-installed-row-openable { cursor: pointer; }
+.applt-installed-row-openable:hover { border-color: var(--color-accent); }
 .applt-installed-icon {
   width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
   border-radius: 8px; background: rgba(255,255,255,.05); flex-shrink: 0;

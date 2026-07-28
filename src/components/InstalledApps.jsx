@@ -6,7 +6,7 @@
 // (AppLauncher) so there's one source of truth for the installed set.
 import AppIcon from './AppIcon';
 
-export default function InstalledApps({ apps, busy, onConfig, onUninstall }) {
+export default function InstalledApps({ apps, busy, onOpen, onConfig, onUninstall }) {
   if (!apps) {
     return <p className="applt-installed-empty">Loading installed apps…</p>;
   }
@@ -20,7 +20,14 @@ export default function InstalledApps({ apps, busy, onConfig, onUninstall }) {
   return (
     <ul className="applt-installed" data-testid="installed-list">
       {apps.map((app) => (
-        <li className="applt-installed-row" key={app.slug}>
+        <li
+          className={`applt-installed-row${onOpen ? ' applt-installed-row-openable' : ''}`}
+          key={app.slug}
+          onClick={onOpen ? () => onOpen(app.slug) : undefined}
+          role={onOpen ? 'button' : undefined}
+          tabIndex={onOpen ? 0 : undefined}
+          onKeyDown={onOpen ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(app.slug); } } : undefined}
+        >
           <span className="applt-installed-icon"><AppIcon icon={app.icon} label={app.name} size={20} /></span>
           <div className="applt-installed-text">
             <span className="applt-installed-name">
@@ -32,7 +39,7 @@ export default function InstalledApps({ apps, busy, onConfig, onUninstall }) {
               {app.frontend?.mode ? ` · ${app.frontend.mode}` : ''}
             </span>
           </div>
-          <div className="applt-installed-actions">
+          <div className="applt-installed-actions" onClick={(e) => e.stopPropagation()}>
             {app.has_config && (
               <button
                 type="button"

@@ -70,3 +70,13 @@ export function findWindowSpec(contributions, windowId) {
   if (!win) return null;
   return { title: win.title || win.id, spec: win.body?.spec_data || null };
 }
+
+// Look up an app's DEFAULT window (its first declared `contributes.windows[]`
+// entry — each window carries `app: <slug>` per AppRuntime.contributions()).
+// Used to open a framework-installed app straight from its Apps-view card,
+// where there's no nav entry (and therefore no window id) to click through.
+export function findAppDefaultWindow(contributions, appId) {
+  const win = (contributions?.windows || []).find((w) => w.app === appId);
+  if (!win) return null;
+  return { title: win.title || win.id, spec: win.body?.spec_data || null };
+}

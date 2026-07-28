@@ -12,7 +12,17 @@
 // Widget vocabulary (windows/*.json "regions[].widgets[]"):
 //   markdown  { value }                     — rendered via `marked`.
 //   list      { title?, items: [] }
-//   iframe    { title?, src }
+//   iframe    { title?, src }               — src is a same-origin `/api/*`
+//             path, rewritten to the BYOD api host by apiUrl().
+//   app_iframe { title?, app_id, path? }    — src is the app's OWN external
+//             subdomain (`<app_id>.app.<slug>.workspace.<apex>`, derived from
+//             window.location via appSubdomainUrl()) + optional `path`
+//             (leading-slash path+query on that host), not `/api/apps/<slug>/*`
+//             — for an app that's reachable directly under its own Caddy-routed
+//             host rather than proxied through this workspace's api origin
+//             (e.g. the AW Browser container's noVNC screen). No-ops (renders
+//             nothing) on a non-workspace host, where there's no slug to
+//             derive the subdomain from.
 //   button    { label, action: { call } }   — call is "METHOD /path"; on
 //             click, fetches it once and shows the JSON body.
 //
@@ -67,7 +77,7 @@
 //   re-fetches `bind` on success.
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
-import { apiUrl } from '../apiBase';
+import { apiUrl, appSubdomainUrl } from '../apiBase';
 
 // Parse a declarative action "GET /api/apps/hello/" into { method, path }.
 function parseCall(call) {
@@ -279,6 +289,19 @@ function WidgetBody({ widget }) {
           sandbox="allow-scripts allow-forms allow-same-origin"
         />
       );
+
+    case 'app_iframe': {
+      const base = appSubdomainUrl(widget.app_id);
+      if (!base) return null; // non-workspace host — no slug to derive the subdomain from
+      return (
+        <iframe
+          className="appwin-iframe"
+          title={widget.title || 'app'}
+          src={widget.path ? `${base}${widget.path}` : base}
+          sandbox="allow-scripts allow-forms allow-same-origin"
+        />
+      );
+    }
 
     case 'collapsible':
       return (

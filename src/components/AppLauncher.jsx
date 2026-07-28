@@ -4,6 +4,7 @@ import InstalledApps from './InstalledApps';
 import AppsMarketplace from './AppsMarketplace';
 import AppConfigWindow from './AppConfigWindow';
 import { listInstalledApps, uninstallApp, installMyApps } from '../apps/appsApi';
+import { markUiRefreshNeeded } from '../apps/uiRefresh';
 
 /**
  * Full-screen "Mission Control" App Launcher — replaces the old Apps
@@ -110,7 +111,7 @@ function StartBuildingCard({ index, starting, onStart }) {
   );
 }
 
-export default function AppLauncher({ workspaceApps, components, starting, onOpenApp, onStartBuilding, onClose }) {
+export default function AppLauncher({ workspaceApps, components, starting, onOpenApp, onOpenInstalledApp, onStartBuilding, onClose }) {
   // Framework (decoupled-apps) installed set — separate from the legacy
   // aw.json workspace_apps grid below. Null while first loading.
   const [installed, setInstalled] = useState(null);
@@ -158,12 +159,17 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
 
   // Install succeeded in the Marketplace panel → refresh installed set and, for
   // a has_config app, pop its config window so the user can finish setup.
+  // Also flags a pending full-page reload (see ../apps/uiRefresh) when the
+  // freshly-(re)installed app's manifest declares requires_ui_refresh — e.g.
+  // it just contributed a new top-nav entry the SPA won't mount live.
   const onInstalled = useCallback(async (catalogApp) => {
     await refreshInstalled();
-    if (catalogApp?.has_config) {
-      const apps = await listInstalledApps().catch(() => []);
-      const fresh = apps.find((a) => a.slug === catalogApp.id);
-      if (fresh) { setShowMarketplace(false); setConfigApp(fresh); }
+    const apps = await listInstalledApps().catch(() => []);
+    const fresh = apps.find((a) => a.slug === catalogApp?.id);
+    if (fresh?.requires_ui_refresh) markUiRefreshNeeded();
+    if (catalogApp?.has_config && fresh) {
+      setShowMarketplace(false);
+      setConfigApp(fresh);
     }
   }, [refreshInstalled]);
 
@@ -258,6 +264,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
           <InstalledApps
             apps={installed}
             busy={rowBusy}
+            onOpen={onOpenInstalledApp}
             onConfig={setConfigApp}
             onUninstall={onUninstall}
           />
@@ -291,7 +298,12 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
         <AppConfigWindow
           app={configApp}
           onClose={() => setConfigApp(null)}
-          onSaved={() => { /* keep the window open so the user sees the "Saved" state */ }}
+          onSaved={() => {
+            // Keep the window open so the user sees the "Saved" state — but
+            // flag a pending reload if this app's settings can change nav/slot
+            // contributions (see ../apps/uiRefresh), same as a fresh install.
+            if (configApp?.requires_ui_refresh) markUiRefreshNeeded();
+          }}
         />
       )}
     </>

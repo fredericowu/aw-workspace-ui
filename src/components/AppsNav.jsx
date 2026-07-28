@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { apiFetch } from '../auth';
 import AppLauncher from './AppLauncher';
+import { consumeUiRefreshNeeded, reloadForUiRefresh } from '../apps/uiRefresh';
 
 /**
  * Top-bar nav entry for "Apps". Click opens the full-screen "Mission
@@ -16,9 +17,20 @@ import AppLauncher from './AppLauncher';
  * Clicking a tile calls `onOpenApp(app.id)` which opens the floating
  * AppProxyWindow, same as before.
  */
-export default function AppsNav({ workspaceApps, components, onOpenApp }) {
+export default function AppsNav({ workspaceApps, components, onOpenApp, onOpenInstalledApp }) {
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+
+  // Closing the Apps panel is the one place every install/config-save path
+  // funnels through (Marketplace and the config gear both live inside
+  // AppLauncher, which this mounts/unmounts). If anything marked a pending
+  // UI refresh (an app whose manifest declares requires_ui_refresh — see
+  // ../apps/uiRefresh), do a real navigation reload instead of just
+  // unmounting, so a newly-contributed nav entry/slot actually shows up.
+  const closeLauncher = useCallback(() => {
+    if (consumeUiRefreshNeeded()) { reloadForUiRefresh(); return; }
+    setOpen(false);
+  }, []);
 
   // "Start building" launches the App Builder claude session. We POST to
   // /api/app-builder/start which reads aw.json.app_builder.command_template
@@ -96,8 +108,12 @@ export default function AppsNav({ workspaceApps, components, onOpenApp }) {
             onOpenApp?.(appId);
             setOpen(false);
           }}
+          onOpenInstalledApp={(appId) => {
+            onOpenInstalledApp?.(appId);
+            setOpen(false);
+          }}
           onStartBuilding={handleStartBuilding}
-          onClose={() => setOpen(false)}
+          onClose={closeLauncher}
         />
       )}
     </div>

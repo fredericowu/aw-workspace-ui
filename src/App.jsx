@@ -17,7 +17,7 @@ import AppSlot from './apps/AppSlot';
 import AppWindow from './components/AppWindow';
 import { installPluginHost } from './apps/pluginHost';
 import { fetchContributions } from './apps/appsApi';
-import { wireContributions, findWindowSpec } from './apps/wireContributions';
+import { wireContributions, findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
 // import NinjaBuddy from './components/NinjaBuddy';
 import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
@@ -726,6 +726,13 @@ function AuthenticatedApp() {
       window.removeEventListener('focus', onChanged);
       if (dispose) { try { dispose(); } catch {} }
     };
+  }, []);
+
+  // Open a framework-installed app's default window from its Apps-view card
+  // (InstalledApps has no nav entry to click through — see AppLauncher).
+  const openInstalledApp = useCallback((appId) => {
+    const found = findAppDefaultWindow(contributionsRef.current, appId);
+    if (found && found.spec) setOpenedAppWindow(found);
   }, []);
 
   const toggleWindow = useCallback((key) => {
@@ -1620,6 +1627,7 @@ function AuthenticatedApp() {
               workspaceApps={enabledApps}
               components={components}
               onOpenApp={openApp}
+              onOpenInstalledApp={openInstalledApp}
             />
             </ErrorBoundary>
             {/* Decoupled-apps (F6 Cap 2): nav entries registered by installed
