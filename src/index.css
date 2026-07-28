@@ -670,6 +670,10 @@ button, [role="button"] { cursor: pointer; }
 .appmkt-install:hover { background: var(--color-accent-hover); }
 .appmkt-install:disabled { opacity: .6; cursor: default; }
 .appmkt-installed { font-size: 12px; font-weight: 600; color: var(--color-text-muted); flex-shrink: 0; padding: 0 6px; }
+/* Update available — blue instead of the default accent (amber, same as
+   Install), so it reads as a distinct "action needed" state at a glance. */
+.appmkt-update { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.appmkt-update:hover { background: #2563eb; }
 
 .appcfg-empty { font-size: 13px; color: var(--color-text-muted); font-style: italic; }
 .appcfg-loading {

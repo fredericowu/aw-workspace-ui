@@ -67,6 +67,7 @@
 //   re-fetches `bind` on success.
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
+import { apiUrl } from '../apiBase';
 
 // Parse a declarative action "GET /api/apps/hello/" into { method, path }.
 function parseCall(call) {
@@ -265,11 +266,16 @@ function WidgetBody({ widget }) {
     }
 
     case 'iframe':
+      // Rewrite a same-origin `/api/*` src to the BYOD api host (like the fetch
+      // shim does for fetch) — an iframe loads from the SPA origin, which
+      // file-serves no /api, so a relative src would 404. apiUrl() leaves
+      // absolute/non-/api srcs untouched. Lets a container app embed its own UI
+      // (e.g. the AW Browser's noVNC screen at /api/apps/browser/…).
       return (
         <iframe
           className="appwin-iframe"
           title={widget.title || 'app'}
-          src={widget.src}
+          src={apiUrl(widget.src)}
           sandbox="allow-scripts allow-forms allow-same-origin"
         />
       );

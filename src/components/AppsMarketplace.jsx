@@ -6,7 +6,8 @@
 // has_config app, opens its config window.
 import { useEffect, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
-import { fetchCatalog, installApp, getInstallStatus } from '../apps/appsApi';
+import { wsUrl } from '../auth';
+import { fetchCatalog, installApp, uninstallApp, getInstallStatus } from '../apps/appsApi';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -72,7 +73,7 @@ function pollInstallStatus(appId, alive) {
   });
 }
 
-export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }) {
+export default function AppsMarketplace({ installedApps, onInstalled, onClose }) {
   const [catalog, setCatalog] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState({}); // slug -> true while installing
@@ -90,22 +91,64 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
     return () => { mounted = false; };
   }, []);
 
-  const installed = new Set(installedSlugs || []);
+  const installedVersions = new Map((installedApps || []).map((a) => [a.slug, a.version]));
+  const installed = new Set(installedVersions.keys());
 
-  // Reload mid-install: a background install kicked off before a refresh
-  // still runs on the workspace, so on mount check every not-yet-installed
-  // catalog app's status and resume watching any that's still "installing"
-  // instead of showing a bare Install button as if nothing had happened.
+  // Live install-status push (workspace WS, see aw-workspace's
+  // /ws/apps/install-status) — this is what makes "Installing…" survive a
+  // page refresh: on connect the server replays every tracked job's current
+  // state, so a reload mid-install (kicked off before this panel even
+  // mounted, e.g. from another tab) shows the right button immediately
+  // instead of a bare "Install" as if nothing had happened, and every
+  // subsequent transition arrives instantly instead of waiting on a poll
+  // tick. `notified` dedupes onInstalled — a job can be reported once by the
+  // WS and once by doInstall()'s own poll fallback if both are racing.
+  const notified = useRef(new Set());
+  useEffect(() => {
+    if (!catalog) return;
+    let closed = false;
+    const connect = () => {
+      if (closed) return;
+      const ws = new WebSocket(wsUrl('/ws/apps/install-status'));
+      ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+        if (msg.type !== 'app_install_status' || !msg.job) return;
+        const { app_id, status, error: jobError } = msg.job;
+        const app = (catalog.apps || []).find((a) => a.id === app_id);
+        if (!app) return;
+        if (status === 'installing') {
+          setBusy((b) => ({ ...b, [app_id]: true }));
+          return;
+        }
+        setBusy((b) => ({ ...b, [app_id]: false }));
+        if (status === 'installed' && !notified.current.has(app_id)) {
+          notified.current.add(app_id);
+          onInstalled?.(app);
+        } else if (status === 'failed') {
+          setError(`Install of ${app.name} failed: ${jobError || 'unknown error'}`);
+        }
+      };
+      ws.onclose = () => { if (!closed) setTimeout(connect, 5000); };
+      ws.onerror = () => { try { ws.close(); } catch {} };
+    };
+    connect();
+    return () => { closed = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog]);
+
+  // Polling fallback (WS down / never connected) — same resume-after-reload
+  // check as before, kept so a dropped WS doesn't leave the button stuck.
   useEffect(() => {
     if (!catalog) return;
     const pending = (catalog.apps || []).filter((app) => !installed.has(app.id));
     pending.forEach((app) => {
       getInstallStatus(app.id)
         .then((status) => {
-          if (!alive.current || status.status !== 'installing') return;
+          if (!alive.current || status.status !== 'installing' || busy[app.id]) return;
           setBusy((b) => ({ ...b, [app.id]: true }));
           pollInstallStatus(app.id, alive)
-            .then(() => { if (alive.current) onInstalled?.(app); })
+            .then(() => { if (alive.current && !notified.current.has(app.id)) { notified.current.add(app.id); onInstalled?.(app); } })
             .catch((e) => { if (alive.current) setError(`Install of ${app.name} failed: ${String(e.message || e)}`); })
             .finally(() => { if (alive.current) setBusy((b) => ({ ...b, [app.id]: false })); });
         })
@@ -116,14 +159,44 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
 
   const doInstall = async (app) => {
     if (busy[app.id]) return;
+    notified.current.delete(app.id);
     setBusy((b) => ({ ...b, [app.id]: true }));
     setError(null);
     try {
       await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
       await pollInstallStatus(app.id, alive);
-      if (alive.current) onInstalled?.(app);
+      if (alive.current && !notified.current.has(app.id)) {
+        notified.current.add(app.id);
+        onInstalled?.(app);
+      }
     } catch (e) {
       if (alive.current) setError(`Install of ${app.name} failed: ${String(e.message || e)}`);
+    } finally {
+      if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
+    }
+  };
+
+  // Update = hot-uninstall (drain + journal reverse-replay) then reinstall at
+  // the catalog's current ref — there's no in-place "upgrade" endpoint, but
+  // this pair is already the framework's own supported flow (same one used
+  // to deploy a fixed app version manually). Same busy/poll/notify plumbing
+  // as a fresh install so the button states and WS/refresh-resume behavior
+  // are identical either way.
+  const doUpdate = async (app) => {
+    if (busy[app.id]) return;
+    notified.current.delete(app.id);
+    setBusy((b) => ({ ...b, [app.id]: true }));
+    setError(null);
+    try {
+      await uninstallApp(app.id);
+      await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
+      await pollInstallStatus(app.id, alive);
+      if (alive.current && !notified.current.has(app.id)) {
+        notified.current.add(app.id);
+        onInstalled?.(app);
+      }
+    } catch (e) {
+      if (alive.current) setError(`Update of ${app.name} failed: ${String(e.message || e)}`);
     } finally {
       if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
     }
@@ -143,7 +216,22 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
   const installButton = (app) => {
     const isInstalled = installed.has(app.id);
     if (isInstalled) {
-      return <span className="appmkt-installed" aria-label={`${app.name} installed`}>Installed</span>;
+      const installedVersion = installedVersions.get(app.id);
+      const outdated = app.version && installedVersion && app.version !== installedVersion;
+      if (!outdated) {
+        return <span className="appmkt-installed" aria-label={`${app.name} installed`}>Installed</span>;
+      }
+      return (
+        <button
+          type="button"
+          className="appmkt-install appmkt-update"
+          onClick={(e) => { e.stopPropagation(); doUpdate(app); }}
+          disabled={!!busy[app.id]}
+          title={`Installed v${installedVersion} · latest v${app.version}`}
+        >
+          {busy[app.id] ? 'Updating…' : `Update to v${app.version}`}
+        </button>
+      );
     }
     return (
       <button

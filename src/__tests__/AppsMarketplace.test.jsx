@@ -4,22 +4,39 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../apps/appsApi', () => ({
   fetchCatalog: vi.fn(),
   installApp: vi.fn(),
+  uninstallApp: vi.fn(),
   getInstallStatus: vi.fn(),
 }));
-import { fetchCatalog, installApp, getInstallStatus } from '../apps/appsApi';
+import { fetchCatalog, installApp, uninstallApp, getInstallStatus } from '../apps/appsApi';
 import AppsMarketplace from '../components/AppsMarketplace';
+
+// Minimal fake WebSocket — jsdom doesn't implement a real one, and the
+// component now opens /ws/apps/install-status on mount. Tests that don't
+// care about it just let it sit idle (never .onmessage'd); tests that do
+// grab the latest instance and fire messages manually.
+class FakeWebSocket {
+  constructor(url) {
+    this.url = url;
+    this.readyState = 0;
+    FakeWebSocket.instances.push(this);
+  }
+  send() {}
+  close() { this.readyState = 3; this.onclose?.(); }
+}
+FakeWebSocket.instances = [];
+vi.stubGlobal('WebSocket', FakeWebSocket);
 
 const CATALOG = {
   apps: [
     {
       id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch',
-      repo: 'tekflox/aw-app-git', ref: 'master', has_config: true, tags: ['git', 'github'],
+      repo: 'tekflox/aw-app-git', ref: 'v0.2.0', version: '0.2.0', has_config: true, tags: ['git', 'github'],
       publisher: 'TekFlox', resource_estimate: { cpu: 'low', memory: 'low', disk: 'low' },
       what_you_get: { mcp_tools: [], ui_screens: ['Git & GitHub CLI', 'Git'], commands: ['git', 'gh'] },
     },
     {
       id: 'essentials', name: 'Essentials', description: 'cli tools', icon: 'terminal',
-      repo: 'tekflox/aw-app-essentials', ref: 'master', has_config: false, tags: ['cli', 'networking'],
+      repo: 'tekflox/aw-app-essentials', ref: 'master', version: '0.1.0', has_config: false, tags: ['cli', 'networking'],
       publisher: 'TekFlox', resource_estimate: { cpu: 'low', memory: 'low', disk: 'low' },
       what_you_get: { mcp_tools: [], ui_screens: [], commands: ['telnet', 'ping', 'curl'] },
     },
@@ -29,6 +46,7 @@ const CATALOG = {
 describe('AppsMarketplace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    FakeWebSocket.instances = [];
     // default: no background install already in flight for any app (the
     // reload-mid-install resume effect probes every non-installed app).
     getInstallStatus.mockRejectedValue(new Error('no such job'));
@@ -44,19 +62,19 @@ describe('AppsMarketplace', () => {
       .mockResolvedValue({ app_id: 'git', status: 'installed' });
     const onInstalled = vi.fn();
 
-    render(<AppsMarketplace installedSlugs={['essentials']} onInstalled={onInstalled} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={onInstalled} onClose={() => {}} />);
 
     // both catalog apps listed
     expect(await screen.findByText('Git + GitHub CLI')).toBeInTheDocument();
     expect(screen.getByText('Essentials')).toBeInTheDocument();
-    // already-installed one shows "Installed", not an Install button
+    // already-installed one (up to date) shows "Installed", not a button
     expect(screen.getByText('Installed')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Install' }));
     // Install button shows "Installing…" while polling, not a bare error.
     expect(await screen.findByRole('button', { name: 'Installing…' })).toBeInTheDocument();
     await waitFor(() => expect(installApp).toHaveBeenCalledWith(
-      expect.objectContaining({ repo: 'tekflox/aw-app-git', ref: 'master', app_id: 'git', signed: true }),
+      expect.objectContaining({ repo: 'tekflox/aw-app-git', ref: 'v0.2.0', app_id: 'git', signed: true }),
     ));
     await waitFor(() => expect(getInstallStatus).toHaveBeenCalledWith('git'));
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'git' })));
@@ -66,7 +84,7 @@ describe('AppsMarketplace', () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     installApp.mockResolvedValue({ app_id: 'git', status: 'installing' });
     getInstallStatus.mockResolvedValue({ app_id: 'git', status: 'failed', error: 'apt install git gh failed: exit 1' });
-    render(<AppsMarketplace installedSlugs={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[]} onInstalled={vi.fn()} onClose={() => {}} />);
 
     const installButtons = await screen.findAllByRole('button', { name: 'Install' });
     fireEvent.click(installButtons[0]);
@@ -76,21 +94,21 @@ describe('AppsMarketplace', () => {
   it('surfaces a rejected install call without crashing the panel', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     installApp.mockRejectedValue(new Error('clone failed'));
-    render(<AppsMarketplace installedSlugs={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[]} onInstalled={vi.fn()} onClose={() => {}} />);
 
     const installButtons = await screen.findAllByRole('button', { name: 'Install' });
     fireEvent.click(installButtons[0]);
     expect(await screen.findByTestId('appmkt-error')).toHaveTextContent('clone failed');
   });
 
-  it('resumes watching an install still in progress after a reload', async () => {
+  it('resumes watching an install still in progress after a reload (polling fallback)', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     getInstallStatus.mockImplementation((slug) => {
       if (slug !== 'git') return Promise.reject(new Error('no such job'));
       return Promise.resolve({ app_id: 'git', status: 'installing' });
     });
     const onInstalled = vi.fn();
-    render(<AppsMarketplace installedSlugs={['essentials']} onInstalled={onInstalled} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={onInstalled} onClose={() => {}} />);
 
     // no click — the resume effect alone should show "Installing…" for git.
     expect(await screen.findByRole('button', { name: 'Installing…' })).toBeInTheDocument();
@@ -103,9 +121,57 @@ describe('AppsMarketplace', () => {
       { timeout: 3000 });
   });
 
+  it('resumes an in-progress install instantly via the install-status WebSocket, surviving a refresh', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const onInstalled = vi.fn();
+    render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={onInstalled} onClose={() => {}} />);
+    await screen.findByText('Git + GitHub CLI');
+
+    const ws = FakeWebSocket.instances.at(-1);
+    expect(ws.url).toContain('/ws/apps/install-status');
+
+    // Server replays the in-flight job on connect — no click needed.
+    ws.onmessage({ data: JSON.stringify({ type: 'app_install_status', job: { app_id: 'git', status: 'installing' } }) });
+    expect(await screen.findByRole('button', { name: 'Installing…' })).toBeInTheDocument();
+
+    // Live push reports completion.
+    ws.onmessage({ data: JSON.stringify({ type: 'app_install_status', job: { app_id: 'git', status: 'installed' } }) });
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'git' })));
+    expect(screen.queryByRole('button', { name: 'Installing…' })).not.toBeInTheDocument();
+  });
+
+  it('shows an Update button (not "Installed") when the installed version is behind the catalog', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedApps={[{ slug: 'git', version: '0.1.0' }, { slug: 'essentials', version: '0.1.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);
+
+    await screen.findByText('Git + GitHub CLI');
+    // git: installed 0.1.0, catalog 0.2.0 → outdated
+    expect(screen.getByRole('button', { name: 'Update to v0.2.0' })).toBeInTheDocument();
+    // essentials: installed 0.1.0, catalog 0.1.0 → up to date
+    expect(screen.getByText('Installed')).toBeInTheDocument();
+  });
+
+  it('clicking Update uninstalls then reinstalls at the catalog ref', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    uninstallApp.mockResolvedValue({ uninstalled: true });
+    installApp.mockResolvedValue({ app_id: 'git', status: 'installing' });
+    getInstallStatus.mockRejectedValueOnce(new Error('no such job')).mockResolvedValue({ app_id: 'git', status: 'installed' });
+    const onInstalled = vi.fn();
+
+    render(<AppsMarketplace installedApps={[{ slug: 'git', version: '0.1.0' }]} onInstalled={onInstalled} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update to v0.2.0' }));
+
+    expect(await screen.findByRole('button', { name: 'Updating…' })).toBeInTheDocument();
+    await waitFor(() => expect(uninstallApp).toHaveBeenCalledWith('git'));
+    await waitFor(() => expect(installApp).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: 'tekflox/aw-app-git', ref: 'v0.2.0', app_id: 'git' }),
+    ));
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'git' })));
+  });
+
   it('filters apps by name, description, and tag as the user types', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
-    render(<AppsMarketplace installedSlugs={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[]} onInstalled={vi.fn()} onClose={() => {}} />);
     await screen.findByText('Git + GitHub CLI');
 
     const search = screen.getByLabelText('Search apps');
@@ -137,7 +203,7 @@ describe('AppsMarketplace', () => {
 
   it('shows publisher and resource badges on each card', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
-    render(<AppsMarketplace installedSlugs={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[]} onInstalled={vi.fn()} onClose={() => {}} />);
     await screen.findByText('Git + GitHub CLI');
 
     expect(screen.getAllByText('by TekFlox')).toHaveLength(2);
@@ -146,7 +212,7 @@ describe('AppsMarketplace', () => {
 
   it('opens a detailed view on click with publisher, resources, and What you get, then goes back', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
-    render(<AppsMarketplace installedSlugs={['essentials']} onInstalled={vi.fn()} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);
     await screen.findByText('Git + GitHub CLI');
 
     fireEvent.click(screen.getByText('Git + GitHub CLI'));
@@ -166,7 +232,7 @@ describe('AppsMarketplace', () => {
 
   it('shows Installed (not an Install button) in the detail view for an already-installed app', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
-    render(<AppsMarketplace installedSlugs={['essentials']} onInstalled={vi.fn()} onClose={() => {}} />);
+    render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);
     await screen.findByText('Essentials');
 
     fireEvent.click(screen.getByText('Essentials'));

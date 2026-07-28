@@ -282,7 +282,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
 
       {showMarketplace && (
         <AppsMarketplace
-          installedSlugs={(installed || []).map((a) => a.slug)}
+          installedApps={installed || []}
           onInstalled={onInstalled}
           onClose={() => setShowMarketplace(false)}
         />
