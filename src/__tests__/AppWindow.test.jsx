@@ -315,3 +315,78 @@ describe('AppWindow auth_status widget', () => {
     expect(screen.queryByText('Logged in as octocat')).not.toBeInTheDocument();
   });
 });
+
+describe('AppWindow cross-widget refresh + hide_when_logged_in', () => {
+  // Mirrors the real git app window: an auth_status widget plus a
+  // hide_when_logged_in sign-in button in a sibling region.
+  const SPEC = {
+    regions: [
+      {
+        id: 'status',
+        widgets: [
+          { type: 'auth_status', bind: 'GET /api/apps/git/status', logged_in_text: 'Logged in as {username}' },
+        ],
+      },
+      {
+        id: 'device-login',
+        widgets: [
+          { type: 'markdown', hide_when_logged_in: true, value: 'Sign in instructions' },
+          {
+            type: 'button',
+            hide_when_logged_in: true,
+            label: 'Sign in with GitHub',
+            action: {
+              call: 'POST /api/apps/git/device/start',
+              poll: {
+                call: 'POST /api/apps/git/device/poll',
+                interval_ms: 10,
+                timeout_ms: 1000,
+                done_field: 'status',
+                done_values: ['success'],
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the sign-in button visible while logged out', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ logged_in: false }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument();
+    expect(screen.getByText('Sign in instructions')).toBeInTheDocument();
+  });
+
+  it('hides the sign-in section and refreshes auth_status once the device-flow poll succeeds', async () => {
+    const fetchMock = vi
+      .fn()
+      // auth_status initial fetch — logged out
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ logged_in: false }) })
+      // /device/start
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ user_code: 'ABCD-1234' }) })
+      // /device/poll — terminal success
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ status: 'success' }) })
+      // auth_status re-fetch triggered by the poll's success (RefreshContext bump)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ logged_in: true, username: 'octocat' }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
+
+    await waitFor(() => expect(screen.getByText('Logged in as octocat')).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(screen.queryByRole('button', { name: 'Sign in with GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Sign in instructions')).not.toBeInTheDocument();
+  });
+});

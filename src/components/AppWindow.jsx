@@ -37,6 +37,13 @@
 //   `timeout_ms` elapses (shows `poll.timeout_text`) — no second widget or
 //   manual "check status" click needed.
 //
+//   Any widget may also carry `hide_when_logged_in: true` — it renders
+//   normally until the nearest `auth_status` widget in this window resolves
+//   `logged_in: true`, at which point it disappears (e.g. hiding the "Sign in
+//   with GitHub" section once already signed in, so it doesn't sit right next
+//   to a "Logged in as …" line). Stays visible while the auth state is still
+//   loading/unknown, so nothing flashes away before the first fetch resolves.
+//
 //   collapsible { title, collapsed?, widgets: [] } — hides `widgets` behind
 //   a native <details>/<summary> disclosure, collapsed by default unless
 //   `collapsed: false`. Used for an "Advanced" section so a window's default
@@ -73,9 +80,18 @@ function parseCall(call) {
 // otherwise only fetch once on mount) pick up the new state — e.g. the
 // "Logged in as …" line updating right after a device-flow login succeeds,
 // without the user having to close and reopen the settings panel.
-const RefreshContext = createContext({ counter: 0, bump: () => {} });
+// loggedIn: null (unknown/loading) | true | false — set by whichever
+// `auth_status` widget in this window resolves first (there's normally at
+// most one per window).
+const RefreshContext = createContext({ counter: 0, bump: () => {}, loggedIn: null });
 
 function Widget({ widget }) {
+  const { loggedIn } = useContext(RefreshContext);
+  if (widget.hide_when_logged_in && loggedIn === true) return null;
+  return <WidgetBody widget={widget} />;
+}
+
+function WidgetBody({ widget }) {
   const [result, setResult] = useState(null);
   // Holds the *initial* action response (e.g. the OAuth device-flow `start`
   // body with `user_code`/`verification_uri`). Kept separate from `result` so
@@ -351,7 +367,7 @@ function Form({ widget }) {
 }
 
 function AuthStatus({ widget }) {
-  const { counter } = useContext(RefreshContext);
+  const { counter, setLoggedIn } = useContext(RefreshContext);
   const [state, setState] = useState({ loading: true, data: null, error: null });
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -365,8 +381,10 @@ function AuthStatus({ widget }) {
       const res = await fetch(bindCall.path, { method: bindCall.method });
       const body = await res.json().catch(() => ({}));
       setState({ loading: false, data: body, error: null });
+      setLoggedIn?.(!!body.logged_in);
     } catch (err) {
       setState({ loading: false, data: null, error: String(err) });
+      setLoggedIn?.(null);
     }
   };
 
@@ -425,11 +443,12 @@ function AuthStatus({ widget }) {
 // spec: a parsed windows/main.json ({ title, regions: [{ id, widgets: [] }] }).
 export default function AppWindow({ spec }) {
   const [counter, setCounter] = useState(0);
+  const [loggedIn, setLoggedIn] = useState(null);
   const bump = () => setCounter((c) => c + 1);
   if (!spec) return null;
   const regions = spec.regions || [];
   return (
-    <RefreshContext.Provider value={{ counter, bump }}>
+    <RefreshContext.Provider value={{ counter, bump, loggedIn, setLoggedIn }}>
       <div className="app-window" data-app-window>
         {spec.title && <h3 className="app-window-title">{spec.title}</h3>}
         {regions.map((region) => (
