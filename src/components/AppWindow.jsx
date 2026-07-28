@@ -99,7 +99,7 @@ function WidgetBody({ widget }) {
   const [startBody, setStartBody] = useState(null);
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
-  const pollState = useRef({ timer: null, deadline: 0 });
+  const pollState = useRef({ timer: null, deadline: 0, intervalMs: null });
   const { bump } = useContext(RefreshContext);
 
   useEffect(() => () => clearTimeout(pollState.current.timer), []);
@@ -155,13 +155,25 @@ function WidgetBody({ widget }) {
             return;
           }
           // Intermediate poll (authorization_pending / slow_down): keep the code
-          // block up, don't surface the churn to the user.
+          // block up, don't surface the churn to the user. A "slow_down"
+          // response carries a bumped `interval` (seconds, OAuth device-flow
+          // spec) that MUST be honored for the next poll — ignoring it (i.e.
+          // always falling back to the configured interval_ms) makes the
+          // client keep polling too fast forever, so the server keeps
+          // replying slow_down and never surfaces "success" even after the
+          // user has actually authorized on github.com. Use it when present.
+          if (typeof body.interval === 'number' && body.interval > 0) {
+            pollState.current.intervalMs = body.interval * 1000;
+          }
         } catch (e) {
           setResult({ ok: false, error: String(e) });
           stopPolling();
           return;
         }
-        pollState.current.timer = setTimeout(runPoll, pollCfg.interval_ms || 3000);
+        pollState.current.timer = setTimeout(
+          runPoll,
+          pollState.current.intervalMs || pollCfg.interval_ms || 3000,
+        );
       };
 
       const onClick = async () => {
@@ -178,6 +190,7 @@ function WidgetBody({ widget }) {
             setStartBody(body);
             setResult(null);
             pollState.current.deadline = Date.now() + (pollCfg.timeout_ms || 300000);
+            pollState.current.intervalMs = null; // reset — don't inherit a slow_down bump from a previous attempt
             setPolling(true);
             pollState.current.timer = setTimeout(runPoll, pollCfg.interval_ms || 3000);
           } else {

@@ -140,6 +140,37 @@ describe('AppWindow button auto-poll (device-flow-style)', () => {
     expect(screen.queryByTestId('appwin-poll-pending')).not.toBeInTheDocument();
   });
 
+  it('honors a slow_down response\'s dynamic interval instead of the configured interval_ms', async () => {
+    // Regression: the poll loop used to always reschedule at the fixed
+    // interval_ms from the window spec, ignoring the server's "slow_down"
+    // interval (OAuth device-flow spec) — a real workspace was observed
+    // stuck forever because the client kept polling every 3s while GitHub
+    // kept demanding a 145s interval, so "success" never got surfaced even
+    // after the user actually authorized on github.com.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ user_code: 'ABCD-1234' }) })
+      // First poll: server says slow down, bump to a much bigger interval than configured (10ms).
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ status: 'slow_down', interval: 5 }) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ status: 'authorization_pending' }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+
+    render(<AppWindow spec={POLL_SPEC} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // The reschedule after the slow_down response must use ~5000ms (from
+    // `interval: 5`), not the spec's configured interval_ms: 10.
+    await waitFor(() => {
+      const delays = setTimeoutSpy.mock.calls.map((c) => c[1]);
+      expect(delays).toContain(5000);
+    });
+
+    setTimeoutSpy.mockRestore();
+  });
+
   it('does not start polling if the initial call fails', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: 'boom' }) });
     vi.stubGlobal('fetch', fetchMock);
