@@ -58,7 +58,7 @@
 //   template with a `{username}` placeholder. When logged in and
 //   `logout_action` is set, renders a "Logout" button that calls it and
 //   re-fetches `bind` on success.
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
 
 // Parse a declarative action "GET /api/apps/hello/" into { method, path }.
@@ -67,6 +67,13 @@ function parseCall(call) {
   const [method, ...rest] = call.trim().split(/\s+/);
   return { method: (method || 'GET').toUpperCase(), path: rest.join(' ') };
 }
+
+// Shared refresh signal for the whole window: bumped whenever a button/poll/
+// form action completes successfully, so sibling `auth_status` widgets (which
+// otherwise only fetch once on mount) pick up the new state — e.g. the
+// "Logged in as …" line updating right after a device-flow login succeeds,
+// without the user having to close and reopen the settings panel.
+const RefreshContext = createContext({ counter: 0, bump: () => {} });
 
 function Widget({ widget }) {
   const [result, setResult] = useState(null);
@@ -77,6 +84,7 @@ function Widget({ widget }) {
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const pollState = useRef({ timer: null, deadline: 0 });
+  const { bump } = useContext(RefreshContext);
 
   useEffect(() => () => clearTimeout(pollState.current.timer), []);
 
@@ -127,6 +135,7 @@ function Widget({ widget }) {
             setStartBody(null); // login resolved — retire the code block
             setResult({ ok: res.ok, status: res.status, body });
             stopPolling();
+            bump(); // let sibling auth_status widgets refetch now that this resolved
             return;
           }
           // Intermediate poll (authorization_pending / slow_down): keep the code
@@ -157,6 +166,7 @@ function Widget({ widget }) {
             pollState.current.timer = setTimeout(runPoll, pollCfg.interval_ms || 3000);
           } else {
             setResult({ ok: res.ok, status: res.status, body });
+            if (res.ok) bump();
           }
         } catch (e) {
           setResult({ ok: false, error: String(e) });
@@ -248,6 +258,7 @@ function fieldInputType(field) {
 }
 
 function Form({ widget }) {
+  const { bump } = useContext(RefreshContext);
   const fields = widget.fields || [];
   const [values, setValues] = useState(() => {
     const init = {};
@@ -280,6 +291,7 @@ function Form({ widget }) {
       });
       const body = await res.json().catch(() => ({}));
       setResult({ ok: res.ok, status: res.status, body });
+      if (res.ok) bump();
     } catch (err) {
       setResult({ ok: false, error: String(err) });
     } finally {
@@ -339,6 +351,7 @@ function Form({ widget }) {
 }
 
 function AuthStatus({ widget }) {
+  const { counter } = useContext(RefreshContext);
   const [state, setState] = useState({ loading: true, data: null, error: null });
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -357,10 +370,14 @@ function AuthStatus({ widget }) {
     }
   };
 
+  // Re-fetches on mount AND whenever another widget in this window (e.g. the
+  // device-flow login button) reports a completed action via `counter` —
+  // otherwise this only ever fetched once, so "Logged in as …" stayed stale
+  // even after a successful GitHub sign-in until the panel was reopened.
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [counter]);
 
   const onLogout = async () => {
     if (!logoutCall) return;
@@ -407,18 +424,22 @@ function AuthStatus({ widget }) {
 
 // spec: a parsed windows/main.json ({ title, regions: [{ id, widgets: [] }] }).
 export default function AppWindow({ spec }) {
+  const [counter, setCounter] = useState(0);
+  const bump = () => setCounter((c) => c + 1);
   if (!spec) return null;
   const regions = spec.regions || [];
   return (
-    <div className="app-window" data-app-window>
-      {spec.title && <h3 className="app-window-title">{spec.title}</h3>}
-      {regions.map((region) => (
-        <section key={region.id} className="app-window-region" data-region={region.id}>
-          {(region.widgets || []).map((widget, i) => (
-            <Widget key={i} widget={widget} />
-          ))}
-        </section>
-      ))}
-    </div>
+    <RefreshContext.Provider value={{ counter, bump }}>
+      <div className="app-window" data-app-window>
+        {spec.title && <h3 className="app-window-title">{spec.title}</h3>}
+        {regions.map((region) => (
+          <section key={region.id} className="app-window-region" data-region={region.id}>
+            {(region.widgets || []).map((widget, i) => (
+              <Widget key={i} widget={widget} />
+            ))}
+          </section>
+        ))}
+      </div>
+    </RefreshContext.Provider>
   );
 }
