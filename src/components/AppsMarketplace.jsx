@@ -10,6 +10,39 @@ import { fetchCatalog, installApp, getInstallStatus } from '../apps/appsApi';
 
 const POLL_INTERVAL_MS = 2000;
 
+const RESOURCE_LABEL = { low: 'Low', medium: 'Med', high: 'High' };
+
+// Small colored dot per resource dimension (low=green, medium=amber, high=red).
+function ResourceBadges({ estimate }) {
+  if (!estimate) return null;
+  return (
+    <span className="appmkt-resources" aria-label="Resource estimate">
+      {['cpu', 'memory', 'disk'].map((dim) => (
+        <span key={dim} className={`appmkt-res appmkt-res-${estimate[dim] || 'low'}`}
+          title={`${dim}: ${RESOURCE_LABEL[estimate[dim]] || 'Low'}`}>
+          <span className="appmkt-res-dot" aria-hidden="true" />
+          {dim === 'cpu' ? 'CPU' : dim === 'memory' ? 'Mem' : 'Disk'}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function WhatYouGetList({ title, items }) {
+  return (
+    <div className="appmkt-wyg-group">
+      <h4 className="appmkt-wyg-title">{title}</h4>
+      {items && items.length > 0 ? (
+        <ul className="appmkt-wyg-list">
+          {items.map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      ) : (
+        <p className="appmkt-wyg-empty">None</p>
+      )}
+    </div>
+  );
+}
+
 // Poll GET /api/apps/{slug}/install-status until the background install
 // (kicked off by installApp) lands on installed or failed. `alive` is a ref
 // so a closed panel / unmounted component stops polling instead of leaking.
@@ -36,6 +69,7 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState({}); // slug -> true while installing
   const [query, setQuery] = useState('');
+  const [selectedApp, setSelectedApp] = useState(null);
   const alive = useRef(true);
 
   useEffect(() => () => { alive.current = false; }, []);
@@ -96,67 +130,119 @@ export default function AppsMarketplace({ installedSlugs, onInstalled, onClose }
       })
     : allApps;
 
+  const detailApp = selectedApp ? allApps.find((a) => a.id === selectedApp) : null;
+
+  const installButton = (app) => {
+    const isInstalled = installed.has(app.id);
+    if (isInstalled) {
+      return <span className="appmkt-installed" aria-label={`${app.name} installed`}>Installed</span>;
+    }
+    return (
+      <button
+        type="button"
+        className="appmkt-install"
+        onClick={(e) => { e.stopPropagation(); doInstall(app); }}
+        disabled={!!busy[app.id]}
+      >
+        {busy[app.id] ? 'Installing…' : 'Install'}
+      </button>
+    );
+  };
+
   return (
     <div className="appmkt-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Marketplace">
       <div className="appmkt-panel" onClick={(e) => e.stopPropagation()}>
-        <header className="appmkt-head">
-          <div>
-            <h3 className="appmkt-title">Marketplace</h3>
-            <p className="appmkt-sub">
-              {catalog ? `${allApps.length} apps available` : 'Loading catalog…'}
-              {catalog?.stale ? ' · showing cached' : ''}
-            </p>
-          </div>
-          <button type="button" className="appmkt-close" onClick={onClose} aria-label="Close">✕</button>
-        </header>
+        {detailApp ? (
+          <>
+            <header className="appmkt-head">
+              <div>
+                <button type="button" className="appmkt-back" onClick={() => setSelectedApp(null)}>← Back</button>
+                <h3 className="appmkt-title">{detailApp.name}</h3>
+              </div>
+              <button type="button" className="appmkt-close" onClick={onClose} aria-label="Close">✕</button>
+            </header>
 
-        {catalog && allApps.length > 0 && (
-          <input
-            type="search"
-            className="appmkt-search"
-            placeholder="Search apps by name, description, or tag…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search apps"
-          />
-        )}
+            {error && <p className="appmkt-error" data-testid="appmkt-error">{error}</p>}
 
-        {error && <p className="appmkt-error" data-testid="appmkt-error">{error}</p>}
+            <div className="appmkt-detail">
+              <div className="appmkt-detail-top">
+                <span className="appmkt-icon appmkt-icon-lg">
+                  <AppIcon icon={detailApp.icon} label={detailApp.name} size={36} />
+                </span>
+                <div className="appmkt-detail-meta">
+                  <p className="appmkt-detail-publisher">by {detailApp.publisher || 'TekFlox'}</p>
+                  <ResourceBadges estimate={detailApp.resource_estimate} />
+                </div>
+              </div>
+              <p className="appmkt-item-desc">{detailApp.description}</p>
 
-        {catalog && allApps.length === 0 ? (
-          <p className="appmkt-empty">No apps in the catalog.</p>
-        ) : catalog && apps.length === 0 ? (
-          <p className="appmkt-empty">nenhum app encontrado</p>
+              <div className="appmkt-wyg">
+                <h4 className="appmkt-wyg-heading">What you get</h4>
+                <WhatYouGetList title="MCP Tools" items={detailApp.what_you_get?.mcp_tools} />
+                <WhatYouGetList title="UI Screens" items={detailApp.what_you_get?.ui_screens} />
+                <WhatYouGetList title="Runnable commands" items={detailApp.what_you_get?.commands} />
+              </div>
+
+              <div className="appmkt-detail-actions">{installButton(detailApp)}</div>
+            </div>
+          </>
         ) : (
-          <ul className="appmkt-list">
-            {apps.map((app) => {
-              const isInstalled = installed.has(app.id);
-              return (
-                <li className="appmkt-item" key={app.id}>
-                  <span className="appmkt-icon"><AppIcon icon={app.icon} label={app.name} size={22} /></span>
-                  <div className="appmkt-item-text">
-                    <span className="appmkt-item-name">
-                      {app.name}
-                      {app.has_config && <span className="appmkt-badge">config</span>}
-                    </span>
-                    <span className="appmkt-item-desc">{app.description}</span>
-                  </div>
-                  {isInstalled ? (
-                    <span className="appmkt-installed" aria-label={`${app.name} installed`}>Installed</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="appmkt-install"
-                      onClick={() => doInstall(app)}
-                      disabled={!!busy[app.id]}
-                    >
-                      {busy[app.id] ? 'Installing…' : 'Install'}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <header className="appmkt-head">
+              <div>
+                <h3 className="appmkt-title">Marketplace</h3>
+                <p className="appmkt-sub">
+                  {catalog ? `${allApps.length} apps available` : 'Loading catalog…'}
+                  {catalog?.stale ? ' · showing cached' : ''}
+                </p>
+              </div>
+              <button type="button" className="appmkt-close" onClick={onClose} aria-label="Close">✕</button>
+            </header>
+
+            {catalog && allApps.length > 0 && (
+              <input
+                type="search"
+                className="appmkt-search"
+                placeholder="Search apps by name, description, or tag…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search apps"
+              />
+            )}
+
+            {error && <p className="appmkt-error" data-testid="appmkt-error">{error}</p>}
+
+            {catalog && allApps.length === 0 ? (
+              <p className="appmkt-empty">No apps in the catalog.</p>
+            ) : catalog && apps.length === 0 ? (
+              <p className="appmkt-empty">nenhum app encontrado</p>
+            ) : (
+              <ul className="appmkt-list">
+                {apps.map((app) => (
+                  <li
+                    className="appmkt-item"
+                    key={app.id}
+                    onClick={() => setSelectedApp(app.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') setSelectedApp(app.id); }}
+                  >
+                    <span className="appmkt-icon"><AppIcon icon={app.icon} label={app.name} size={22} /></span>
+                    <div className="appmkt-item-text">
+                      <span className="appmkt-item-name">
+                        {app.name}
+                        {app.has_config && <span className="appmkt-badge">config</span>}
+                      </span>
+                      <span className="appmkt-item-publisher">by {app.publisher || 'TekFlox'}</span>
+                      <span className="appmkt-item-desc">{app.description}</span>
+                      <ResourceBadges estimate={app.resource_estimate} />
+                    </div>
+                    {installButton(app)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -635,6 +635,31 @@ button, [role="button"] { cursor: pointer; }
   background: rgba(255,255,255,.08); color: var(--color-text-muted);
 }
 .appmkt-item-desc { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
+.appmkt-item { cursor: pointer; }
+.appmkt-item:hover { border-color: var(--color-accent); }
+.appmkt-item-publisher, .appmkt-detail-publisher { font-size: 11px; color: var(--color-text-muted); margin: 0; }
+.appmkt-resources { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.appmkt-res { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; }
+.appmkt-res-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
+.appmkt-res-low .appmkt-res-dot { background: #4ade80; }
+.appmkt-res-medium .appmkt-res-dot { background: #facc15; }
+.appmkt-res-high .appmkt-res-dot { background: #f87171; }
+.appmkt-back {
+  background: none; border: none; padding: 0; margin-bottom: 6px; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--color-text-muted);
+}
+.appmkt-back:hover { color: var(--color-accent); }
+.appmkt-detail { display: flex; flex-direction: column; gap: 14px; }
+.appmkt-detail-top { display: flex; align-items: center; gap: 14px; }
+.appmkt-icon-lg { width: 56px; height: 56px; border-radius: 12px; }
+.appmkt-detail-meta { display: flex; flex-direction: column; gap: 6px; }
+.appmkt-wyg { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; border-top: 1px solid var(--color-border); }
+.appmkt-wyg-heading { margin: 10px 0 0; font-size: 13px; font-weight: 800; color: var(--color-text-primary); }
+.appmkt-wyg-group { display: flex; flex-direction: column; gap: 4px; }
+.appmkt-wyg-title { margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); }
+.appmkt-wyg-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--color-text-primary); }
+.appmkt-wyg-empty { margin: 0; font-size: 12px; color: var(--color-text-muted); font-style: italic; }
+.appmkt-detail-actions { display: flex; justify-content: flex-end; }
 .appmkt-install {
   padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; flex-shrink: 0; cursor: pointer;
   background: var(--color-accent); color: #1a1205; border: 1px solid var(--color-accent);
@@ -678,4 +703,7 @@ button, [role="button"] { cursor: pointer; }
   .applt-btn { flex: 1; text-align: center; }
   .appmkt-item { flex-wrap: wrap; }
   .appmkt-install, .appmkt-installed { width: 100%; text-align: center; }
+  .appmkt-detail-top { flex-wrap: wrap; }
+  .appmkt-detail-actions { justify-content: stretch; }
+  .appmkt-detail-actions .appmkt-install, .appmkt-detail-actions .appmkt-installed { width: 100%; }
 }

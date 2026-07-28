@@ -11,8 +11,18 @@ import AppsMarketplace from '../components/AppsMarketplace';
 
 const CATALOG = {
   apps: [
-    { id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch', repo: 'tekflox/aw-app-git', ref: 'master', has_config: true, tags: ['git', 'github'] },
-    { id: 'essentials', name: 'Essentials', description: 'cli tools', icon: 'terminal', repo: 'tekflox/aw-app-essentials', ref: 'master', has_config: false, tags: ['cli', 'networking'] },
+    {
+      id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch',
+      repo: 'tekflox/aw-app-git', ref: 'master', has_config: true, tags: ['git', 'github'],
+      publisher: 'TekFlox', resource_estimate: { cpu: 'low', memory: 'low', disk: 'low' },
+      what_you_get: { mcp_tools: [], ui_screens: ['Git & GitHub CLI', 'Git'], commands: ['git', 'gh'] },
+    },
+    {
+      id: 'essentials', name: 'Essentials', description: 'cli tools', icon: 'terminal',
+      repo: 'tekflox/aw-app-essentials', ref: 'master', has_config: false, tags: ['cli', 'networking'],
+      publisher: 'TekFlox', resource_estimate: { cpu: 'low', memory: 'low', disk: 'low' },
+      what_you_get: { mcp_tools: [], ui_screens: [], commands: ['telnet', 'ping', 'curl'] },
+    },
   ],
 };
 
@@ -123,5 +133,45 @@ describe('AppsMarketplace', () => {
     fireEvent.change(search, { target: { value: '' } });
     expect(screen.getByText('Git + GitHub CLI')).toBeInTheDocument();
     expect(screen.getByText('Essentials')).toBeInTheDocument();
+  });
+
+  it('shows publisher and resource badges on each card', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedSlugs={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('Git + GitHub CLI');
+
+    expect(screen.getAllByText('by TekFlox')).toHaveLength(2);
+    expect(screen.getAllByLabelText('Resource estimate')).toHaveLength(2);
+  });
+
+  it('opens a detailed view on click with publisher, resources, and What you get, then goes back', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedSlugs={['essentials']} onInstalled={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('Git + GitHub CLI');
+
+    fireEvent.click(screen.getByText('Git + GitHub CLI'));
+
+    expect(await screen.findByText('What you get')).toBeInTheDocument();
+    expect(screen.getByText('by TekFlox')).toBeInTheDocument();
+    expect(screen.getByText('git')).toBeInTheDocument();
+    expect(screen.getByText('gh')).toBeInTheDocument();
+    expect(screen.getAllByText('Git & GitHub CLI').length).toBeGreaterThan(0);
+    // essentials was pre-installed, but git wasn't — still shows the Install button
+    expect(screen.getByRole('button', { name: 'Install' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '← Back' }));
+    expect(screen.queryByText('What you get')).not.toBeInTheDocument();
+    expect(screen.getByText('Essentials')).toBeInTheDocument();
+  });
+
+  it('shows Installed (not an Install button) in the detail view for an already-installed app', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedSlugs={['essentials']} onInstalled={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('Essentials');
+
+    fireEvent.click(screen.getByText('Essentials'));
+    expect(await screen.findByText('What you get')).toBeInTheDocument();
+    expect(screen.getByLabelText('Essentials installed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
   });
 });
