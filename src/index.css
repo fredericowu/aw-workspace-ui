@@ -692,6 +692,83 @@ button, [role="button"] { cursor: pointer; }
 .appcfg-save:hover { background: var(--color-accent-hover); }
 .appcfg-save:disabled { opacity: .6; cursor: default; }
 
+/* Declarative AppWindow (windows/main.json widgets) — used standalone and
+   inside .appcfg-appwindow when a settings_panel points at an app window.
+   Previously totally unstyled (bare browser defaults), which is why e.g.
+   the git app's settings looked cramped/low-contrast on the dark theme. */
+.app-window { display: flex; flex-direction: column; gap: 16px; }
+.app-window-title { margin: 0; font-size: 15px; font-weight: 800; color: var(--color-text-primary); }
+.app-window-region { display: flex; flex-direction: column; gap: 10px; }
+.app-window-region + .app-window-region { padding-top: 14px; border-top: 1px solid var(--color-border); }
+
+.appwin-markdown { font-size: 13px; line-height: 1.5; color: var(--color-text-primary); }
+.appwin-markdown > *:first-child { margin-top: 0; }
+.appwin-markdown > *:last-child { margin-bottom: 0; }
+.appwin-markdown h1, .appwin-markdown h2, .appwin-markdown h3, .appwin-markdown h4 {
+  margin: 0 0 6px; font-weight: 700; color: var(--color-text-primary);
+}
+.appwin-markdown h2 { font-size: 15px; }
+.appwin-markdown h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--color-text-muted); }
+.appwin-markdown p { margin: 0 0 8px; color: var(--color-text-primary); }
+.appwin-markdown a { color: var(--color-accent); }
+.appwin-markdown code { font-family: ui-monospace, monospace; font-size: 12px; background: rgba(255,255,255,.08); padding: 1px 4px; border-radius: 4px; }
+.appwin-markdown ul, .appwin-markdown ol { margin: 0 0 8px; padding-left: 18px; }
+
+.appwin-list h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; }
+.appwin-list ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.appwin-list li { font-size: 12px; color: var(--color-text-primary); }
+
+.appwin-button { display: flex; flex-direction: column; gap: 10px; }
+.appwin-button > button {
+  align-self: flex-start; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 700;
+  cursor: pointer; background: var(--color-accent); color: #1a1205; border: 1px solid var(--color-accent);
+}
+.appwin-button > button:hover:not(:disabled) { background: var(--color-accent-hover); }
+.appwin-button > button:disabled { opacity: .6; cursor: default; }
+.appwin-poll-pending { margin: 0; font-size: 12px; color: var(--color-text-muted); font-style: italic; }
+.appwin-result {
+  margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 11px; font-family: ui-monospace, monospace;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border); color: var(--color-text-primary);
+  white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto;
+}
+
+.appwin-collapsible { border-top: 1px solid var(--color-border); padding-top: 10px; }
+.appwin-collapsible-title { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--color-text-muted); user-select: none; }
+.appwin-collapsible-title:hover { color: var(--color-text-primary); }
+.appwin-collapsible-body { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
+
+.appwin-form { display: flex; flex-direction: column; gap: 14px; }
+.appwin-form-field { display: flex; flex-direction: column; gap: 5px; }
+.appwin-form-field label { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.appwin-form-desc { margin: 0; font-size: 11px; color: var(--color-text-muted); line-height: 1.4; }
+.appwin-form-field input[type="text"],
+.appwin-form-field input[type="password"],
+.appwin-form-field select {
+  width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 8px; font-size: 13px;
+  background: var(--color-bg-primary); border: 1px solid var(--color-border); color: var(--color-text-primary);
+}
+.appwin-form-field input:focus, .appwin-form-field select:focus { outline: none; border-color: var(--color-accent); }
+.appwin-form > button[type="submit"] {
+  align-self: flex-start; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+  background: var(--color-accent); color: #1a1205; border: 1px solid var(--color-accent);
+}
+.appwin-form > button[type="submit"]:hover:not(:disabled) { background: var(--color-accent-hover); }
+.appwin-form > button[type="submit"]:disabled { opacity: .6; cursor: default; }
+
+.appwin-auth-status {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px;
+  padding: 9px 12px; border-radius: 8px; background: var(--color-bg-primary); border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+.appwin-auth-status button {
+  padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border);
+}
+.appwin-auth-status button:hover:not(:disabled) { color: var(--color-text-primary); border-color: var(--color-accent); }
+
+.appwin-iframe { width: 100%; min-height: 320px; border: 1px solid var(--color-border); border-radius: 8px; }
+.appwin-unknown { font-size: 12px; color: var(--color-text-muted); font-style: italic; }
+
 /* Per-contribution ErrorBoundary inline card (slot / window body crash). */
 .app-contrib-error {
   display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 8px;

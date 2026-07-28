@@ -7,8 +7,10 @@
 //
 // Kept self-contained (no WindowManager coupling) — the Apps view renders it in
 // an overlay, same pattern as the App Launcher.
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { apiFetch } from '../auth';
+import { fetchContributions } from '../apps/appsApi';
+import AppWindow from './AppWindow';
 
 function fieldType(spec) {
   if (spec['x-secret']) return 'secret';
@@ -21,6 +23,28 @@ function fieldType(spec) {
 export default function AppConfigWindow({ app, onClose, onSaved }) {
   const props = useMemo(() => app?.config_schema?.properties || {}, [app]);
   const fields = useMemo(() => Object.entries(props), [props]);
+
+  // App-authored settings UI: if the app's settings_panel references one of its
+  // own declarative windows (`{ id, window: "<winId>" }`) instead of the
+  // config_schema, render THAT window here instead of the generated form. This
+  // is how e.g. the git app puts its one-button "Sign in with GitHub" (+ the
+  // token/name/email fields folded under Advanced) into settings, rather than
+  // dumping the raw schema form. Falls back to the schema form when no window.
+  const [settingsWindowSpec, setSettingsWindowSpec] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetchContributions()
+      .then((c) => {
+        if (!alive) return;
+        const panel = (c.settings || []).find((s) => s.app === app.slug && s.window);
+        if (!panel) return;
+        const win = (c.windows || []).find((w) => w.app === app.slug && w.id === panel.window);
+        const spec = win?.body?.spec_data;
+        if (spec) setSettingsWindowSpec(spec);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [app.slug]);
 
   const [values, setValues] = useState(() => {
     const init = {};
@@ -70,7 +94,9 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
           <button type="button" className="appcfg-close" onClick={onClose} aria-label="Close">✕</button>
         </header>
 
-        {fields.length === 0 ? (
+        {settingsWindowSpec ? (
+          <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
+        ) : fields.length === 0 ? (
           <p className="appcfg-empty">This app has no configurable settings.</p>
         ) : (
           <form className="appcfg-form" onSubmit={submit}>
