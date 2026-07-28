@@ -151,3 +151,167 @@ describe('AppWindow button auto-poll (device-flow-style)', () => {
     expect(screen.queryByTestId('appwin-poll-pending')).not.toBeInTheDocument();
   });
 });
+
+describe('AppWindow collapsible widget', () => {
+  const SPEC = {
+    regions: [
+      {
+        id: 'advanced',
+        widgets: [
+          {
+            type: 'collapsible',
+            title: 'Advanced / other sign-in method',
+            collapsed: true,
+            widgets: [{ type: 'markdown', value: 'hidden by default' }],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('hides its child widgets behind a closed disclosure by default', () => {
+    render(<AppWindow spec={SPEC} />);
+    const summary = screen.getByText('Advanced / other sign-in method');
+    const details = summary.closest('details');
+    expect(details).not.toHaveAttribute('open');
+    expect(screen.getByText('hidden by default')).toBeInTheDocument();
+  });
+
+  it('respects collapsed: false to render open', () => {
+    const openSpec = {
+      regions: [
+        {
+          id: 'r',
+          widgets: [{ ...SPEC.regions[0].widgets[0], collapsed: false }],
+        },
+      ],
+    };
+    render(<AppWindow spec={openSpec} />);
+    expect(screen.getByText('Advanced / other sign-in method').closest('details')).toHaveAttribute('open');
+  });
+});
+
+describe('AppWindow form widget', () => {
+  const SPEC = {
+    regions: [
+      {
+        id: 'advanced',
+        widgets: [
+          {
+            type: 'form',
+            id: 'advanced_settings',
+            submit: { call: 'POST /api/apps/git/settings' },
+            submit_label: 'Save',
+            fields: [
+              {
+                key: 'auth_method',
+                label: 'Sign-in method',
+                input: 'select',
+                options: ['web', 'token'],
+                default: 'web',
+              },
+              {
+                key: 'github_token',
+                label: 'GitHub personal access token',
+                input: 'password',
+                visible_when: { field: 'auth_method', equals: 'token' },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('hides a conditional field until its condition is met, then shows it', () => {
+    render(<AppWindow spec={SPEC} />);
+    expect(screen.queryByLabelText('GitHub personal access token')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Sign-in method'), { target: { value: 'token' } });
+    expect(screen.getByLabelText('GitHub personal access token')).toBeInTheDocument();
+  });
+
+  it('submits all field values as JSON to the submit call', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    fireEvent.change(screen.getByLabelText('Sign-in method'), { target: { value: 'token' } });
+    fireEvent.change(screen.getByLabelText('GitHub personal access token'), { target: { value: 'ghp_abc' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/apps/git/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_method: 'token', github_token: 'ghp_abc' }),
+      });
+    });
+  });
+});
+
+describe('AppWindow auth_status widget', () => {
+  const SPEC = {
+    regions: [
+      {
+        id: 'status',
+        widgets: [
+          {
+            type: 'auth_status',
+            bind: 'GET /api/apps/git/status',
+            logout_action: { call: 'POST /api/apps/git/logout' },
+            loading_text: 'Checking…',
+            logged_in_text: 'Logged in as {username}',
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows the logged-in state with a Logout button', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ logged_in: true, username: 'octocat' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(screen.getByText('Logged in as octocat')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument();
+  });
+
+  it('renders nothing extra when logged out and no logged_out_text is set', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ logged_in: false }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(screen.queryByText('Checking…')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+  });
+
+  it('calls the logout action and re-fetches status', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ logged_in: true, username: 'octocat' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ logged_in: false }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/apps/git/logout', { method: 'POST' });
+    expect(screen.queryByText('Logged in as octocat')).not.toBeInTheDocument();
+  });
+});
