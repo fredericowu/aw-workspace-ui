@@ -76,6 +76,7 @@ export async function loadComponentPlugin(app, host, { importer } = {}) {
 
   const scoped = hostForApp(host, {
     slug: app.slug,
+    app: app.app,
     grantedSlots: grantedSlotsFor(app),
   });
   await register(scoped);

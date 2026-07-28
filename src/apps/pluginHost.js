@@ -57,7 +57,7 @@ export function installPluginHost({ registry = defaultRegistry, apiFetch = defau
 // goes through `host.onDispose(fn)` below. This is exactly the devctl client's
 // shape (connect on load, no UI unless it also fills a slot like `core.nav`).
 export function hostForApp(host, app) {
-  const slug = app.slug;
+  const slug = app.slug || app.app;
   const grantedSlots = new Set(app.grantedSlots || []);
   const grantedAll = !!app.grantedAll;
   const disposers = [];

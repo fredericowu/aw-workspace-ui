@@ -61,6 +61,17 @@ describe('loadComponentPlugin — component-mode PoC', () => {
     expect(fakeModule._disposed).toBe(true);
   });
 
+  it('accepts contribution rows that identify the app as app instead of slug', async () => {
+    const host = freshHost();
+    let scoped;
+    const mod = { register(h) { scoped = h; } };
+    await loadComponentPlugin({ ...app, slug: undefined, app: 'demo' }, host, {
+      importer: async () => mod,
+    });
+    expect(scoped.slug).toBe('demo');
+    expect(scoped.app.apiUrl('/status')).toBe('/api/apps/demo/status');
+  });
+
   it('an ungranted slot is skipped (no-op), not mounted', async () => {
     const host = freshHost();
     const mod = { register(h) { h.registerSlot('core.nav', () => 'x', { id: 'demo:nav' }); } };
