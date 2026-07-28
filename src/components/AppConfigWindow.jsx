@@ -31,6 +31,13 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
   // token/name/email fields folded under Advanced) into settings, rather than
   // dumping the raw schema form. Falls back to the schema form when no window.
   const [settingsWindowSpec, setSettingsWindowSpec] = useState(null);
+  // Gates which of the three bodies (window / generated form / "no settings")
+  // renders below — without it, the panel briefly shows "no configurable
+  // settings" (the fields.length===0 fallback) and then pops to the real
+  // window once fetchContributions resolves, a visible re-layout/restyle
+  // flash. Holding a spinner until we KNOW which body applies means the
+  // window that does render is already fully resolved, no follow-up jump.
+  const [resolving, setResolving] = useState(true);
   useEffect(() => {
     let alive = true;
     fetchContributions()
@@ -42,7 +49,8 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
         const spec = win?.body?.spec_data;
         if (spec) setSettingsWindowSpec(spec);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (alive) setResolving(false); });
     return () => { alive = false; };
   }, [app.slug]);
 
@@ -94,7 +102,12 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
           <button type="button" className="appcfg-close" onClick={onClose} aria-label="Close">✕</button>
         </header>
 
-        {settingsWindowSpec ? (
+        {resolving ? (
+          <div className="appcfg-loading" data-testid="appcfg-loading">
+            <span className="appcfg-spinner" aria-hidden="true" />
+            <span>Loading settings…</span>
+          </div>
+        ) : settingsWindowSpec ? (
           <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
         ) : fields.length === 0 ? (
           <p className="appcfg-empty">This app has no configurable settings.</p>

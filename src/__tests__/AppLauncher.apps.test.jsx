@@ -8,6 +8,10 @@ vi.mock('../apps/appsApi', () => ({
   fetchCatalog: vi.fn(),
   installApp: vi.fn(),
   getInstallStatus: vi.fn().mockRejectedValue(new Error('no such job')),
+  // AppConfigWindow always checks for an app-authored settings_panel window
+  // on open (see aw-app-git's Sign in with GitHub panel) — without this the
+  // gear-click test's dialog never renders (fetchContributions undefined).
+  fetchContributions: vi.fn().mockResolvedValue({ settings: [], windows: [] }),
 }));
 import {
   listInstalledApps, uninstallApp, installMyApps, fetchCatalog,

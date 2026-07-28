@@ -75,6 +75,18 @@ function parseCall(call) {
   return { method: (method || 'GET').toUpperCase(), path: rest.join(' ') };
 }
 
+// Renders markdown for widget content, forcing links to open in a new tab —
+// this window usually renders inside a floating settings panel, so an
+// in-page navigation (e.g. clicking the github.com/login/device link) would
+// blow away the panel instead of just opening a reference in a new tab.
+// A local string-replace instead of configuring `marked`'s renderer, since
+// `marked` is a shared singleton module (also used by KnowledgeBasePanel)
+// and mutating it globally would affect unrelated markdown elsewhere.
+function renderMarkdown(text, inline = false) {
+  const html = inline ? marked.parseInline(text || '') : marked.parse(text || '');
+  return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
+}
+
 // Shared refresh signal for the whole window: bumped whenever a button/poll/
 // form action completes successfully, so sibling `auth_status` widgets (which
 // otherwise only fetch once on mount) pick up the new state — e.g. the
@@ -109,7 +121,7 @@ function WidgetBody({ widget }) {
       return (
         <div
           className="appwin-markdown"
-          dangerouslySetInnerHTML={{ __html: marked.parse(widget.value || '') }}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(widget.value) }}
         />
       );
 
@@ -240,7 +252,7 @@ function WidgetBody({ widget }) {
               // pending_text supports inline markdown (e.g. a `[label](url)`
               // link to the verification page) — parseInline avoids wrapping
               // it in a <p>, since we already render our own.
-              dangerouslySetInnerHTML={{ __html: marked.parseInline(pollCfg.pending_text) }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(pollCfg.pending_text, true) }}
             />
           )}
           {result && (
