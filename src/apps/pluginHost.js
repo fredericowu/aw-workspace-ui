@@ -49,6 +49,12 @@ export function installPluginHost({ registry = defaultRegistry, apiFetch = defau
 // App-scoped handle. `app` = { slug, grantedSlots?: string[], grantedAll?: bool }.
 // grantedAll short-circuits the per-slot check (used in tests / fully-trusted
 // core registrations); production passes the granted `ui:slots:<id>` set.
+//
+// `register(host)` (the bundle's entrypoint) may be HEADLESS: it's sanctioned
+// to start background work — open a WS via `host.app.wsUrl(...)`, install
+// listeners — without registering any slot at all, as long as every teardown
+// goes through `host.onDispose(fn)` below. This is exactly the devctl client's
+// shape (connect on load, no UI unless it also fills a slot like `core.nav`).
 export function hostForApp(host, app) {
   const slug = app.slug;
   const grantedSlots = new Set(app.grantedSlots || []);
@@ -69,6 +75,16 @@ export function hostForApp(host, app) {
     ReactDOM: host.ReactDOM,
     sdk: host.sdk,
     slug,
+
+    // App-scoped URL helpers (ADR "Apps Own Their Front + Back Routes"
+    // Decision 3) — how a frontend contribution talks to ITS OWN backend
+    // without hand-building `/api/apps/<slug>/…` origins. Routed through
+    // `sdk.api.fetch`/`wsUrl` so the BYOD apiBase.js rewrite still applies.
+    app: {
+      apiUrl: (sub) => `/api/apps/${slug}${sub}`,
+      fetch: (sub, init) => host.sdk.api.fetch(`/api/apps/${slug}${sub}`, init),
+      wsUrl: (sub) => host.sdk.api.wsUrl(`/api/apps/${slug}${sub}`),
+    },
 
     // Register a component into a named slot. `render(props)` → React node.
     registerSlot(slotId, render, opts = {}) {

@@ -32,7 +32,6 @@ import { initApiKey } from './auth'
 
 import App from './App.jsx'
 import { startViewdbg } from './lib/viewdbgClient'
-import { startDevctl } from './lib/devctlClient'
 import { installKbdModeSweep } from './lib/keyboardMode'
 import { initOtel } from './otel.js'
 import { initLaunchDarkly } from './launchdarkly.js'
@@ -51,10 +50,6 @@ initApiKey()
 // Temporary: iPhone Safari pinch-zoom-out viewport telemetry.
 // Activates on `?viewdbg=1`.  Remove once the bug is diagnosed.
 startViewdbg()
-
-// Temporary: remote JS eval channel for live device debugging.
-// Activates on `?devctl=1`.  Remove with viewdbg once done.
-startDevctl()
 
 // Apply "suppress on-screen keyboard" state (if enabled) to all xterm
 // helper textareas, and watch for new terminals via MutationObserver.

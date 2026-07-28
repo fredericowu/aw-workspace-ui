@@ -22,7 +22,6 @@ import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComp
 import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
 import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keyboardMode';
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
-import { isDevctlEnabled, enableDevctl, disableDevctl, onDevctlStateChange, getDevctlConnectionState } from './lib/devctlClient';
 import { isWorkspaceSpa, consoleLoginUrl } from './apiBase';
 import { isVirtualKeyboardTrackpadOpen, toggleVirtualKeyboardTrackpad } from './lib/virtualKeyboardTrackpad';
 const API_BASE = '';
@@ -229,15 +228,6 @@ function AuthenticatedApp() {
   // devices to <MobileApp/>), so we just check the screen size.
   const [desktopWidth, setDesktopWidthState] = useState(() => getDesktopWidth());
 
-  // Dev-control channel state for the [dev] top-bar toggle.  Tracks
-  // both whether the user has enabled it and the current WebSocket
-  // connection state (closed / connecting / open / error).
-  const [devEnabled, setDevEnabled] = useState(() => isDevctlEnabled());
-  const [devState, setDevState] = useState(() => getDevctlConnectionState());
-  useEffect(() => onDevctlStateChange(({ enabled, state }) => {
-    setDevEnabled(enabled);
-    setDevState(state);
-  }), []);
   const [virtualKbdOpen, setVirtualKbdOpen] = useState(() => isVirtualKeyboardTrackpadOpen());
   useEffect(() => {
     const onState = (event) => setVirtualKbdOpen(!!event.detail?.open);
@@ -245,14 +235,13 @@ function AuthenticatedApp() {
     return () => window.removeEventListener('aw-virtual-keyboard-trackpad-state', onState);
   }, []);
 
-  // Show the iPhone toolset (width picker, keyboard toggle, [dev]
-  // toggle) on phone-sized devices regardless of standalone PWA mode
-  // — user wants the tools available both in regular Safari and when
-  // launched from the home-screen icon.  Real desktops stay clean.
+  // Show the iPhone toolset (width picker, keyboard toggle) on phone-sized
+  // devices regardless of standalone PWA mode — user wants the tools
+  // available both in regular Safari and when launched from the
+  // home-screen icon.  Real desktops stay clean.
   const showPhoneTools = isPhoneSized();
   const showWidthPicker = showPhoneTools;
   const showKbdToggle = showPhoneTools;
-  const showDevToggle = showPhoneTools;
 
   const { components, refetch } = useComponentStatus();
 
@@ -1705,27 +1694,6 @@ function AuthenticatedApp() {
                 <path d="M6 13h.01M10 13h.01M14 13h.01" />
                 <path d="M8 17h8" />
               </svg>
-            </button>
-          )}
-          {/* [dev] toggle — flips the live JS-eval WebSocket channel.
-              Green when an authoring session is connected, yellow
-              while connecting, gray when disabled.  Hidden in PWA
-              standalone mode. */}
-          {showDevToggle && (
-            <button
-              onClick={() => devEnabled ? disableDevctl() : enableDevctl()}
-              className={`text-[10px] uppercase tracking-wider px-1.5 py-1 rounded transition-colors ${
-                !devEnabled
-                  ? 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5'
-                  : devState === 'open'
-                    ? 'text-[var(--color-status-running)] bg-[var(--color-status-running)]/15'
-                    : devState === 'connecting'
-                      ? 'text-[var(--color-status-boot)] bg-[var(--color-status-boot)]/15'
-                      : 'text-[var(--color-danger)] bg-[var(--color-danger)]/15'
-              }`}
-              title={`Remote dev channel — ${devEnabled ? 'enabled, ' + devState : 'disabled'}`}
-            >
-              dev{devEnabled ? '•' : ''}
             </button>
           )}
           {/* Desktop-on-phone viewport width picker.  Only shown on
