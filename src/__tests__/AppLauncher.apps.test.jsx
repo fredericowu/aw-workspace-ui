@@ -5,8 +5,12 @@ vi.mock('../apps/appsApi', () => ({
   listInstalledApps: vi.fn(),
   uninstallApp: vi.fn(),
   installMyApps: vi.fn(),
-  fetchCatalog: vi.fn(),
+  // AppLauncher fetches the catalog on mount (for the Installed-row update
+  // badge) even when the Marketplace panel is never opened — default to an
+  // empty catalog so tests that don't care about updates aren't broken.
+  fetchCatalog: vi.fn().mockResolvedValue({ apps: [] }),
   installApp: vi.fn(),
+  updateApp: vi.fn(),
   getInstallStatus: vi.fn().mockRejectedValue(new Error('no such job')),
   // AppConfigWindow always checks for an app-authored settings_panel window
   // on open (see aw-app-git's Sign in with GitHub panel) — without this the
@@ -14,7 +18,7 @@ vi.mock('../apps/appsApi', () => ({
   fetchContributions: vi.fn().mockResolvedValue({ settings: [], windows: [] }),
 }));
 import {
-  listInstalledApps, uninstallApp, installMyApps, fetchCatalog,
+  listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp, getInstallStatus,
 } from '../apps/appsApi';
 import AppLauncher from '../components/AppLauncher';
 
@@ -85,5 +89,39 @@ describe('AppLauncher — F5 Apps view', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Install My Apps' }));
     await waitFor(() => expect(installMyApps).toHaveBeenCalled());
+  });
+
+  it('shows an "Update available" badge when the catalog version is newer than installed', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    fetchCatalog.mockResolvedValue({ apps: [{ id: 'essentials', name: 'Essentials', version: '0.2.0' }] });
+    renderLauncher();
+
+    expect(await screen.findByTestId('update-badge-essentials')).toHaveTextContent('Update available v0.2.0');
+    expect(screen.queryByTestId('update-badge-git')).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Update Essentials' })).toBeInTheDocument();
+  });
+
+  it('no badge/button when installed matches (or exceeds) the catalog version', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    fetchCatalog.mockResolvedValue({ apps: [{ id: 'essentials', name: 'Essentials', version: '0.1.0' }] });
+    renderLauncher();
+
+    await screen.findByTestId('installed-list');
+    expect(screen.queryByTestId('update-badge-essentials')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Update Essentials' })).toBeNull();
+  });
+
+  it('clicking Update POSTs to /api/apps/{slug}/update and refreshes the installed list', async () => {
+    listInstalledApps
+      .mockResolvedValueOnce(INSTALLED)
+      .mockResolvedValueOnce([{ ...INSTALLED[0] }, { ...INSTALLED[1], version: '0.2.0' }]);
+    fetchCatalog.mockResolvedValue({ apps: [{ id: 'essentials', name: 'Essentials', version: '0.2.0' }] });
+    updateApp.mockResolvedValue({ status: 'installing' });
+    getInstallStatus.mockResolvedValue({ status: 'installed' });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Update Essentials' }));
+    await waitFor(() => expect(updateApp).toHaveBeenCalledWith('essentials'));
+    await waitFor(() => expect(screen.queryByTestId('update-badge-essentials')).toBeNull());
   });
 });

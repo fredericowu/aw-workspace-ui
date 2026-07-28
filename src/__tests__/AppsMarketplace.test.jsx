@@ -4,10 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../apps/appsApi', () => ({
   fetchCatalog: vi.fn(),
   installApp: vi.fn(),
-  uninstallApp: vi.fn(),
+  updateApp: vi.fn(),
   getInstallStatus: vi.fn(),
 }));
-import { fetchCatalog, installApp, uninstallApp, getInstallStatus } from '../apps/appsApi';
+import { fetchCatalog, installApp, updateApp, getInstallStatus } from '../apps/appsApi';
 import AppsMarketplace from '../components/AppsMarketplace';
 
 // Minimal fake WebSocket — jsdom doesn't implement a real one, and the
@@ -151,10 +151,9 @@ describe('AppsMarketplace', () => {
     expect(screen.getByText('Installed')).toBeInTheDocument();
   });
 
-  it('clicking Update uninstalls then reinstalls at the catalog ref', async () => {
+  it('clicking Update POSTs /api/apps/{slug}/update and polls to completion (app-update-mechanism ADR)', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
-    uninstallApp.mockResolvedValue({ uninstalled: true });
-    installApp.mockResolvedValue({ app_id: 'git', status: 'installing' });
+    updateApp.mockResolvedValue({ app_id: 'git', status: 'installing' });
     getInstallStatus.mockRejectedValueOnce(new Error('no such job')).mockResolvedValue({ app_id: 'git', status: 'installed' });
     const onInstalled = vi.fn();
 
@@ -162,10 +161,7 @@ describe('AppsMarketplace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Update to v0.2.0' }));
 
     expect(await screen.findByRole('button', { name: 'Updating…' })).toBeInTheDocument();
-    await waitFor(() => expect(uninstallApp).toHaveBeenCalledWith('git'));
-    await waitFor(() => expect(installApp).toHaveBeenCalledWith(
-      expect.objectContaining({ repo: 'tekflox/aw-app-git', ref: 'v0.2.0', app_id: 'git' }),
-    ));
+    await waitFor(() => expect(updateApp).toHaveBeenCalledWith('git'));
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'git' })));
   });
 

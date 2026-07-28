@@ -51,6 +51,14 @@ export function uninstallApp(slug) {
   return apiFetch(`/api/apps/${encodeURIComponent(slug)}`, { method: 'DELETE' }).then(json);
 }
 
+// POST /api/apps/{slug}/update — bump an installed app to the catalog's
+// current version (app-update-mechanism ADR). Same async job contract as
+// installApp: kicks off in the background and returns immediately; poll
+// getInstallStatus(slug) for progress/completion.
+export function updateApp(slug) {
+  return apiFetch(`/api/apps/${encodeURIComponent(slug)}/update`, { method: 'POST' }).then(json);
+}
+
 // POST /api/apps/install-my-apps — reconcile the user's registry into this ws.
 export function installMyApps() {
   return apiFetch('/api/apps/install-my-apps', { method: 'POST' }).then(json);

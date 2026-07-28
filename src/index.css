@@ -583,6 +583,10 @@ button, [role="button"] { cursor: pointer; }
 }
 .applt-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; text-transform: uppercase; }
 .applt-tag-dev { background: rgba(245,166,35,.18); color: var(--color-accent); }
+.applt-tag-update {
+  text-transform: none; font-weight: 600; background: rgba(59,130,246,.16); color: #60a5fa;
+  white-space: nowrap;
+}
 .applt-installed-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .applt-gear, .applt-uninstall {
   width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
@@ -592,6 +596,13 @@ button, [role="button"] { cursor: pointer; }
 .applt-gear:hover { background: rgba(255,255,255,.08); color: var(--color-text-primary); }
 .applt-uninstall:hover { background: rgba(248,113,113,.14); color: #f87171; }
 .applt-uninstall:disabled { opacity: .5; cursor: default; }
+.applt-update {
+  height: 30px; display: flex; align-items: center; justify-content: center; white-space: nowrap;
+  padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 600; color: #fff;
+  background: #3b82f6; border: 1px solid #3b82f6; cursor: pointer; transition: background .12s;
+}
+.applt-update:hover { background: #2563eb; }
+.applt-update:disabled { opacity: .6; cursor: default; }
 
 /* Marketplace + config-window overlays (float above the launcher stage). */
 .appmkt-overlay, .appcfg-overlay {
@@ -802,4 +813,7 @@ button, [role="button"] { cursor: pointer; }
   .appmkt-detail-top { flex-wrap: wrap; }
   .appmkt-detail-actions { justify-content: stretch; }
   .appmkt-detail-actions .appmkt-install, .appmkt-detail-actions .appmkt-installed { width: 100%; }
+  .applt-installed-row { flex-wrap: wrap; }
+  .applt-installed-name { flex-wrap: wrap; }
+  .applt-installed-actions { width: 100%; justify-content: flex-end; }
 }

@@ -7,7 +7,8 @@
 import { useEffect, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
 import { wsUrl } from '../auth';
-import { fetchCatalog, installApp, uninstallApp, getInstallStatus } from '../apps/appsApi';
+import { fetchCatalog, installApp, updateApp, getInstallStatus } from '../apps/appsApi';
+import { semverGt } from '../apps/semver';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -55,7 +56,7 @@ function WhatYouGetList({ title, items }) {
 // Poll GET /api/apps/{slug}/install-status until the background install
 // (kicked off by installApp) lands on installed or failed. `alive` is a ref
 // so a closed panel / unmounted component stops polling instead of leaking.
-function pollInstallStatus(appId, alive) {
+export function pollInstallStatus(appId, alive) {
   return new Promise((resolve, reject) => {
     const tick = async () => {
       if (!alive.current) return;
@@ -176,20 +177,16 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
     }
   };
 
-  // Update = hot-uninstall (drain + journal reverse-replay) then reinstall at
-  // the catalog's current ref — there's no in-place "upgrade" endpoint, but
-  // this pair is already the framework's own supported flow (same one used
-  // to deploy a fixed app version manually). Same busy/poll/notify plumbing
-  // as a fresh install so the button states and WS/refresh-resume behavior
-  // are identical either way.
+  // Update = POST /api/apps/{slug}/update (app-update-mechanism ADR) — same
+  // async job/status contract as install (install_jobs.py), so it reuses the
+  // same busy/poll/notify plumbing as a fresh install.
   const doUpdate = async (app) => {
     if (busy[app.id]) return;
     notified.current.delete(app.id);
     setBusy((b) => ({ ...b, [app.id]: true }));
     setError(null);
     try {
-      await uninstallApp(app.id);
-      await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
+      await updateApp(app.id);
       await pollInstallStatus(app.id, alive);
       if (alive.current && !notified.current.has(app.id)) {
         notified.current.add(app.id);
@@ -217,7 +214,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
     const isInstalled = installed.has(app.id);
     if (isInstalled) {
       const installedVersion = installedVersions.get(app.id);
-      const outdated = app.version && installedVersion && app.version !== installedVersion;
+      const outdated = app.version && installedVersion && semverGt(app.version, installedVersion);
       if (!outdated) {
         return <span className="appmkt-installed" aria-label={`${app.name} installed`}>Installed</span>;
       }

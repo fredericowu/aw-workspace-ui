@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
 import InstalledApps from './InstalledApps';
 import AppsMarketplace from './AppsMarketplace';
 import AppConfigWindow from './AppConfigWindow';
-import { listInstalledApps, uninstallApp, installMyApps } from '../apps/appsApi';
+import { pollInstallStatus } from './AppsMarketplace';
+import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
 
 /**
@@ -120,6 +121,12 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   const [showMarketplace, setShowMarketplace] = useState(false);
   const [configApp, setConfigApp] = useState(null);
   const [reconciling, setReconciling] = useState(false);
+  // Catalog versions, keyed by app id/slug — fetched once so the Installed
+  // list can show an "Update available" badge without opening the
+  // Marketplace panel (app-update-mechanism ADR).
+  const [catalogVersions, setCatalogVersions] = useState({});
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const refreshInstalled = useCallback(async () => {
     try {
@@ -137,11 +144,24 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   // Fetch on mount. setState lands inside the async .then/.catch (past the
   // await boundary), so it's never a synchronous cascading render.
   useEffect(() => {
-    let alive = true;
+    let mounted = true;
     listInstalledApps()
-      .then((apps) => { if (alive) { setInstalled(apps); setInstalledError(null); } })
-      .catch((e) => { if (alive) { setInstalled([]); setInstalledError(String(e.message || e)); } });
-    return () => { alive = false; };
+      .then((apps) => { if (mounted) { setInstalled(apps); setInstalledError(null); } })
+      .catch((e) => { if (mounted) { setInstalled([]); setInstalledError(String(e.message || e)); } });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchCatalog()
+      .then((data) => {
+        if (!mounted) return;
+        const versions = {};
+        (data?.apps || []).forEach((a) => { versions[a.id] = a.version; });
+        setCatalogVersions(versions);
+      })
+      .catch(() => { /* catalog badge is best-effort — Marketplace surfaces the real error */ });
+    return () => { mounted = false; };
   }, []);
 
   const handleKeyDown = useCallback((e) => {
@@ -183,6 +203,23 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
       setInstalledError(`Uninstall of ${app.name} failed: ${String(e.message || e)}`);
     } finally {
       setRowBusy((b) => ({ ...b, [app.slug]: false }));
+    }
+  }, [rowBusy, refreshInstalled]);
+
+  // Update button on the Installed row — POST /api/apps/{slug}/update, same
+  // async job/status contract as install, then refresh the installed list
+  // (app-update-mechanism ADR).
+  const onUpdate = useCallback(async (app) => {
+    if (rowBusy[app.slug]) return;
+    setRowBusy((b) => ({ ...b, [app.slug]: true }));
+    try {
+      await updateApp(app.slug);
+      await pollInstallStatus(app.slug, alive);
+      await refreshInstalled();
+    } catch (e) {
+      setInstalledError(`Update of ${app.name} failed: ${String(e.message || e)}`);
+    } finally {
+      if (alive.current) setRowBusy((b) => ({ ...b, [app.slug]: false }));
     }
   }, [rowBusy, refreshInstalled]);
 
@@ -264,9 +301,11 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
           <InstalledApps
             apps={installed}
             busy={rowBusy}
+            catalogVersions={catalogVersions}
             onOpen={onOpenInstalledApp}
             onConfig={setConfigApp}
             onUninstall={onUninstall}
+            onUpdate={onUpdate}
           />
         </section>
 

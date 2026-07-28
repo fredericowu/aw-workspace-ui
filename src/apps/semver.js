@@ -1,0 +1,14 @@
+// Minimal semver compare for catalog vs installed app versions — no
+// pre-release/build-metadata handling, just dotted numeric components
+// (what aw-app.json / apps.json actually produce). See the
+// app-update-mechanism ADR.
+export function semverGt(a, b) {
+  const pa = String(a || '0').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '0').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] || 0;
+    const db = pb[i] || 0;
+    if (da !== db) return da > db;
+  }
+  return false;
+}

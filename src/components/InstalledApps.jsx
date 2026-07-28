@@ -5,8 +5,9 @@
 // controls and the config-window/marketplace overlays are owned by the parent
 // (AppLauncher) so there's one source of truth for the installed set.
 import AppIcon from './AppIcon';
+import { semverGt } from '../apps/semver';
 
-export default function InstalledApps({ apps, busy, onOpen, onConfig, onUninstall }) {
+export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onConfig, onUninstall, onUpdate }) {
   if (!apps) {
     return <p className="applt-installed-empty">Loading installed apps…</p>;
   }
@@ -19,7 +20,10 @@ export default function InstalledApps({ apps, busy, onOpen, onConfig, onUninstal
   }
   return (
     <ul className="applt-installed" data-testid="installed-list">
-      {apps.map((app) => (
+      {apps.map((app) => {
+        const catalogVersion = catalogVersions?.[app.slug];
+        const hasUpdate = !!catalogVersion && semverGt(catalogVersion, app.version);
+        return (
         <li
           className={`applt-installed-row${onOpen ? ' applt-installed-row-openable' : ''}`}
           key={app.slug}
@@ -33,6 +37,11 @@ export default function InstalledApps({ apps, busy, onOpen, onConfig, onUninstal
             <span className="applt-installed-name">
               {app.name}
               {!app.signed && <span className="applt-tag applt-tag-dev" title="side-loaded / unsigned">dev</span>}
+              {hasUpdate && (
+                <span className="applt-tag applt-tag-update" data-testid={`update-badge-${app.slug}`}>
+                  {`Update available v${catalogVersion}`}
+                </span>
+              )}
             </span>
             <span className="applt-installed-meta">
               {app.slug} · v{app.version}
@@ -40,6 +49,16 @@ export default function InstalledApps({ apps, busy, onOpen, onConfig, onUninstal
             </span>
           </div>
           <div className="applt-installed-actions" onClick={(e) => e.stopPropagation()}>
+            {hasUpdate && (
+              <button
+                type="button"
+                className="applt-update"
+                onClick={() => onUpdate(app)}
+                disabled={!!busy?.[app.slug]}
+                aria-label={`Update ${app.name}`}
+                title={`Update to v${catalogVersion}`}
+              >{busy?.[app.slug] ? 'Updating…' : 'Update'}</button>
+            )}
             {app.has_config && (
               <button
                 type="button"
@@ -64,7 +83,8 @@ export default function InstalledApps({ apps, busy, onOpen, onConfig, onUninstal
             >{busy?.[app.slug] ? '…' : '🗑'}</button>
           </div>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
