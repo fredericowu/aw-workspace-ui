@@ -8,6 +8,7 @@ import { pollInstallStatus } from './AppsMarketplace';
 import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
 import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
+import { colorForApp } from '../apps/appColor';
 
 function catalogVersionsFrom(catalog) {
   const versions = {};
@@ -31,13 +32,6 @@ function catalogVersionsFrom(catalog) {
  * tokens so the launcher reads as one app, not six differently-branded
  * tiles.
  */
-
-const APP_TILE_PALETTE = ['#6366f1', '#059669', '#ca8a04', '#db2777', '#0284c7', '#7c3aed', '#dc2626', '#0d9488', '#9333ea', '#ea580c'];
-function colorForApp(id) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return APP_TILE_PALETTE[hash % APP_TILE_PALETTE.length];
-}
 
 function AppCard({ app, index, onOpen }) {
   const running = app.hasStatus && app.running;

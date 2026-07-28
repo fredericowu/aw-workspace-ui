@@ -26,8 +26,8 @@ import {
 import AppLauncher from '../components/AppLauncher';
 
 const INSTALLED = [
-  { slug: 'git', name: 'Git + GitHub CLI', version: '0.1.0', icon: 'git-branch', signed: true, has_config: true, config_schema: { properties: { github_token: { type: 'string', 'x-secret': true } } }, frontend: {} },
-  { slug: 'essentials', name: 'Essentials', version: '0.1.0', icon: 'terminal', signed: true, has_config: false, config_schema: {}, frontend: {} },
+  { slug: 'git', name: 'Git + GitHub CLI', version: '0.1.0', icon: 'git-branch', signed: true, has_config: true, has_windows: true, config_schema: { properties: { github_token: { type: 'string', 'x-secret': true } } }, frontend: {} },
+  { slug: 'essentials', name: 'Essentials', version: '0.1.0', icon: 'terminal', signed: true, has_config: false, has_windows: false, config_schema: {}, frontend: {} },
 ];
 
 function renderLauncher() {
@@ -59,6 +59,18 @@ describe('AppLauncher — F5 Apps view', () => {
     // gear only for the has_config app
     expect(screen.getByRole('button', { name: 'Configure Git + GitHub CLI' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Configure Essentials' })).toBeNull();
+  });
+
+  it('splits visual (has_windows) apps into the card grid and command-only apps into the list below', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+
+    const grid = await screen.findByTestId('installed-grid');
+    const commands = await screen.findByTestId('installed-commands');
+    expect(grid).toHaveTextContent('Git + GitHub CLI');
+    expect(grid).not.toHaveTextContent('Essentials');
+    expect(commands).toHaveTextContent('Essentials');
+    expect(commands).not.toHaveTextContent('Git + GitHub CLI');
   });
 
   it('gear opens the config window for a has_config app', async () => {

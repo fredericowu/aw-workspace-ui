@@ -568,6 +568,16 @@ button, [role="button"] { cursor: pointer; }
 }
 .applt-installed-row-openable { cursor: pointer; }
 .applt-installed-row-openable:hover { border-color: var(--color-accent); }
+.applt-installed-row-command { cursor: default; }
+
+/* Installed apps: visual (contributes.windows) apps as a card grid, reusing
+   the same .applt-grid/.applt-card language as the legacy workspace_apps
+   grid below; command-only apps (system_clis, no window) stay a compact
+   list — nothing to "Tap to launch" for those. */
+.applt-installed-grid { margin-bottom: 4px; }
+.applt-installed-card { cursor: default; }
+.applt-installed-card[role="button"] { cursor: pointer; }
+.applt-installed-card .applt-installed-actions { padding: 0 12px 12px; }
 .applt-installed-row-skeleton { pointer-events: none; }
 .applt-skeleton-block, .applt-skeleton-line {
   background: linear-gradient(90deg, var(--color-border) 25%, rgba(255,255,255,.08) 50%, var(--color-border) 75%);
