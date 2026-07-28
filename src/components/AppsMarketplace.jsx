@@ -9,6 +9,7 @@ import AppIcon from './AppIcon';
 import { wsUrl } from '../auth';
 import { fetchCatalog, installApp, updateApp, getInstallStatus } from '../apps/appsApi';
 import { semverGt } from '../apps/semver';
+import { readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -75,7 +76,12 @@ export function pollInstallStatus(appId, alive) {
 }
 
 export default function AppsMarketplace({ installedApps, onInstalled, onClose }) {
-  const [catalog, setCatalog] = useState(null);
+  // Seeded from the last-known cached catalog (stale-while-revalidate, same
+  // cache AppLauncher writes) so opening the Marketplace panel paints the
+  // catalog immediately instead of a blank panel while GET
+  // /api/apps/-/catalog is in flight — the effect below still revalidates
+  // and overwrites both state and cache once the real response lands.
+  const [catalog, setCatalog] = useState(() => readCachedCatalog());
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState({}); // slug -> true while installing
   const [query, setQuery] = useState('');
@@ -87,7 +93,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
   useEffect(() => {
     let mounted = true;
     fetchCatalog()
-      .then((data) => { if (mounted) setCatalog(data); })
+      .then((data) => { if (mounted) { setCatalog(data); writeCachedCatalog(data); } })
       .catch((e) => { if (mounted) setError(String(e.message || e)); });
     return () => { mounted = false; };
   }, []);

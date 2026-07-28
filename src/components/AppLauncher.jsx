@@ -3,9 +3,17 @@ import AppIcon from './AppIcon';
 import InstalledApps from './InstalledApps';
 import AppsMarketplace from './AppsMarketplace';
 import AppConfigWindow from './AppConfigWindow';
+import AppVersionWindow from './AppVersionWindow';
 import { pollInstallStatus } from './AppsMarketplace';
 import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
+import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
+
+function catalogVersionsFrom(catalog) {
+  const versions = {};
+  (catalog?.apps || []).forEach((a) => { versions[a.id] = a.version; });
+  return versions;
+}
 
 /**
  * Full-screen "Mission Control" App Launcher — replaces the old Apps
@@ -114,17 +122,21 @@ function StartBuildingCard({ index, starting, onStart }) {
 
 export default function AppLauncher({ workspaceApps, components, starting, onOpenApp, onOpenInstalledApp, onStartBuilding, onClose }) {
   // Framework (decoupled-apps) installed set — separate from the legacy
-  // aw.json workspace_apps grid below. Null while first loading.
-  const [installed, setInstalled] = useState(null);
+  // aw.json workspace_apps grid below. Seeded from the last-known
+  // localStorage cache (stale-while-revalidate) so the view paints
+  // immediately instead of showing a blocking loading state on every open;
+  // stays null only on a true first visit with no cache yet.
+  const [installed, setInstalled] = useState(() => readCachedInstalled());
   const [installedError, setInstalledError] = useState(null);
   const [rowBusy, setRowBusy] = useState({});
   const [showMarketplace, setShowMarketplace] = useState(false);
   const [configApp, setConfigApp] = useState(null);
+  const [versionApp, setVersionApp] = useState(null);
   const [reconciling, setReconciling] = useState(false);
-  // Catalog versions, keyed by app id/slug — fetched once so the Installed
-  // list can show an "Update available" badge without opening the
-  // Marketplace panel (app-update-mechanism ADR).
-  const [catalogVersions, setCatalogVersions] = useState({});
+  // Catalog versions, keyed by app id/slug — so the Installed list can show
+  // an "Update available" badge without opening the Marketplace panel
+  // (app-update-mechanism ADR). Seeded from cache same as `installed`.
+  const [catalogVersions, setCatalogVersions] = useState(() => catalogVersionsFrom(readCachedCatalog()));
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
@@ -132,22 +144,29 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
     try {
       const apps = await listInstalledApps();
       setInstalled(apps);
+      writeCachedInstalled(apps);
       setInstalledError(null);
     } catch (e) {
       // A workspace without the apps framework (older backend) just shows the
       // legacy grid — don't surface a scary error, but keep it for diagnostics.
-      setInstalled([]);
+      // Keep whatever was already on screen (cache or a prior fetch) instead
+      // of wiping it out on a transient failure.
+      setInstalled((prev) => prev ?? []);
       setInstalledError(String(e.message || e));
     }
   }, []);
 
-  // Fetch on mount. setState lands inside the async .then/.catch (past the
-  // await boundary), so it's never a synchronous cascading render.
+  // Background revalidate on mount (stale-while-revalidate): `installed` may
+  // already be non-null from the cache seed above, so this never blocks the
+  // first paint — it just updates state (and the cache) in place once the
+  // real GET /api/apps response lands. setState lands inside the async
+  // .then/.catch (past the await boundary), so it's never a synchronous
+  // cascading render.
   useEffect(() => {
     let mounted = true;
     listInstalledApps()
-      .then((apps) => { if (mounted) { setInstalled(apps); setInstalledError(null); } })
-      .catch((e) => { if (mounted) { setInstalled([]); setInstalledError(String(e.message || e)); } });
+      .then((apps) => { if (mounted) { setInstalled(apps); writeCachedInstalled(apps); setInstalledError(null); } })
+      .catch((e) => { if (mounted) { setInstalled((prev) => prev ?? []); setInstalledError(String(e.message || e)); } });
     return () => { mounted = false; };
   }, []);
 
@@ -156,9 +175,8 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
     fetchCatalog()
       .then((data) => {
         if (!mounted) return;
-        const versions = {};
-        (data?.apps || []).forEach((a) => { versions[a.id] = a.version; });
-        setCatalogVersions(versions);
+        setCatalogVersions(catalogVersionsFrom(data));
+        writeCachedCatalog(data);
       })
       .catch(() => { /* catalog badge is best-effort — Marketplace surfaces the real error */ });
     return () => { mounted = false; };
@@ -167,30 +185,34 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   const handleKeyDown = useCallback((e) => {
     // Esc closes the topmost overlay first, then the launcher.
     if (e.key !== 'Escape') return;
-    if (configApp) setConfigApp(null);
+    if (versionApp) setVersionApp(null);
+    else if (configApp) setConfigApp(null);
     else if (showMarketplace) setShowMarketplace(false);
     else onClose();
-  }, [onClose, configApp, showMarketplace]);
+  }, [onClose, configApp, versionApp, showMarketplace]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // Install succeeded in the Marketplace panel → refresh installed set and, for
-  // a has_config app, pop its config window so the user can finish setup.
-  // Also flags a pending full-page reload (see ../apps/uiRefresh) when the
+  // Install succeeded in the Marketplace panel → refresh installed set. Also
+  // flags a pending full-page reload (see ../apps/uiRefresh) when the
   // freshly-(re)installed app's manifest declares requires_ui_refresh — e.g.
   // it just contributed a new top-nav entry the SPA won't mount live.
+  //
+  // Config is OPT-IN ONLY — never auto-opened here. It used to pop
+  // AppConfigWindow automatically for a has_config app, but that also fired
+  // from a stale/leftover install job the Marketplace panel resumes on open
+  // (the WS/poll "installed" transition in AppsMarketplace.jsx calls this
+  // same callback), so a user could see a config window appear on its own a
+  // few seconds after just opening the Marketplace, with nothing installed
+  // in this session. The gear in InstalledApps.jsx is the only opt-in.
   const onInstalled = useCallback(async (catalogApp) => {
     await refreshInstalled();
     const apps = await listInstalledApps().catch(() => []);
     const fresh = apps.find((a) => a.slug === catalogApp?.id);
     if (fresh?.requires_ui_refresh) markUiRefreshNeeded();
-    if (catalogApp?.has_config && fresh) {
-      setShowMarketplace(false);
-      setConfigApp(fresh);
-    }
   }, [refreshInstalled]);
 
   const onUninstall = useCallback(async (app) => {
@@ -304,6 +326,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
             catalogVersions={catalogVersions}
             onOpen={onOpenInstalledApp}
             onConfig={setConfigApp}
+            onVersion={setVersionApp}
             onUninstall={onUninstall}
             onUpdate={onUpdate}
           />
@@ -343,6 +366,13 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
             // contributions (see ../apps/uiRefresh), same as a fresh install.
             if (configApp?.requires_ui_refresh) markUiRefreshNeeded();
           }}
+        />
+      )}
+      {versionApp && (
+        <AppVersionWindow
+          app={versionApp}
+          onClose={() => setVersionApp(null)}
+          onChanged={() => { refreshInstalled(); setVersionApp(null); }}
         />
       )}
     </>

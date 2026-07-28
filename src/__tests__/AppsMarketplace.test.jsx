@@ -46,6 +46,7 @@ const CATALOG = {
 describe('AppsMarketplace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear(); // AppsMarketplace now seeds `catalog` from the shared apps cache
     FakeWebSocket.instances = [];
     // default: no background install already in flight for any app (the
     // reload-mid-install resume effect probes every non-installed app).

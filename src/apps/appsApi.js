@@ -63,3 +63,20 @@ export function updateApp(slug) {
 export function installMyApps() {
   return apiFetch('/api/apps/install-my-apps', { method: 'POST' }).then(json);
 }
+
+// GET /api/apps/{slug}/versions — tagged release history for the pin/rollback
+// Version window: {slug, installed_version, catalog_version, versions:[{ref,version}]}.
+export function getAppVersions(slug) {
+  return apiFetch(`/api/apps/${encodeURIComponent(slug)}/versions`).then(json);
+}
+
+// POST /api/apps/{slug}/version — pin/rollback to an explicit tagged ref
+// (older or newer than what's installed). Same async job contract as
+// installApp/updateApp: kicks off in the background, poll getInstallStatus().
+export function setAppVersion(slug, { ref, version }) {
+  return apiFetch(`/api/apps/${encodeURIComponent(slug)}/version`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ref, version }),
+  }).then(json);
+}

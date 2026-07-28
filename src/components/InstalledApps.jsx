@@ -7,9 +7,28 @@
 import AppIcon from './AppIcon';
 import { semverGt } from '../apps/semver';
 
-export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onConfig, onUninstall, onUpdate }) {
+// Placeholder rows shown only on a true first visit (no cached `apps` yet) —
+// stale-while-revalidate means every subsequent open already has last-known
+// data to paint immediately, so this never blocks a return visit.
+function InstalledSkeleton() {
+  return (
+    <ul className="applt-installed" aria-hidden="true" data-testid="installed-skeleton">
+      {[0, 1, 2].map((i) => (
+        <li className="applt-installed-row applt-installed-row-skeleton" key={i}>
+          <span className="applt-installed-icon applt-skeleton-block" />
+          <div className="applt-installed-text">
+            <span className="applt-skeleton-line applt-skeleton-line-name" />
+            <span className="applt-skeleton-line applt-skeleton-line-meta" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
   if (!apps) {
-    return <p className="applt-installed-empty">Loading installed apps…</p>;
+    return <InstalledSkeleton />;
   }
   if (apps.length === 0) {
     return (
@@ -73,6 +92,19 @@ export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onC
                 </svg>
               </button>
             )}
+            <button
+              type="button"
+              className="applt-gear"
+              onClick={() => onVersion(app)}
+              aria-label={`${app.name} version`}
+              title="Version (pin / rollback)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 8v4l3 3" />
+                <path d="M3.05 11a9 9 0 1 1 .5 4" />
+                <path d="M3 4v6h6" />
+              </svg>
+            </button>
             <button
               type="button"
               className="applt-uninstall"

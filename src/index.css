@@ -568,6 +568,18 @@ button, [role="button"] { cursor: pointer; }
 }
 .applt-installed-row-openable { cursor: pointer; }
 .applt-installed-row-openable:hover { border-color: var(--color-accent); }
+.applt-installed-row-skeleton { pointer-events: none; }
+.applt-skeleton-block, .applt-skeleton-line {
+  background: linear-gradient(90deg, var(--color-border) 25%, rgba(255,255,255,.08) 50%, var(--color-border) 75%);
+  background-size: 200% 100%; animation: applt-skeleton-pulse 1.4s ease-in-out infinite; border-radius: 6px;
+}
+.applt-skeleton-line { height: 10px; }
+.applt-skeleton-line-name { width: 45%; }
+.applt-skeleton-line-meta { width: 30%; }
+@keyframes applt-skeleton-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .applt-installed-icon {
   width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
   border-radius: 8px; background: rgba(255,255,255,.05); flex-shrink: 0;
@@ -689,6 +701,25 @@ button, [role="button"] { cursor: pointer; }
 .appmkt-update:hover { background: #2563eb; }
 
 .appcfg-empty { font-size: 13px; color: var(--color-text-muted); font-style: italic; }
+
+/* AppVersionWindow — pin/rollback list. */
+.appver-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+.appver-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.03);
+}
+.appver-version { font-size: 13px; font-weight: 600; color: var(--color-text-primary); display: flex; align-items: center; gap: 8px; }
+.appver-tag {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--color-accent); background: rgba(245,166,35,.15); border-radius: 4px; padding: 2px 6px;
+}
+.appver-installed { font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
+.appver-install {
+  font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 6px; border: none;
+  background: var(--color-accent); color: #1a1a1a; cursor: pointer;
+}
+.appver-install:hover { background: var(--color-accent-hover); }
+.appver-install:disabled { opacity: .6; cursor: default; }
 .appcfg-loading {
   display: flex; align-items: center; gap: 10px; padding: 24px 0;
   font-size: 13px; color: var(--color-text-muted);

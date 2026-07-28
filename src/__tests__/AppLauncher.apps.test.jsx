@@ -41,7 +41,10 @@ function renderLauncher() {
 }
 
 describe('AppLauncher — F5 Apps view', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear(); // AppLauncher now seeds installed/catalogVersions from the apps cache
+  });
 
   it('renders the installed framework apps from GET /api/apps with a config gear', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
