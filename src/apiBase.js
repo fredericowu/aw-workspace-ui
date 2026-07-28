@@ -139,7 +139,18 @@ export function installApiBaseShims() {
   const origFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     if (typeof input === 'string' && input.startsWith('/')) {
-      return origFetch(apiUrl(input), init);
+      const rewritten = apiUrl(input);
+      // When we transparently rewrite a same-origin `/api/*` path to the
+      // cross-origin workspace API host, the browser would stop sending the
+      // aw_id_jwt cookie by default (cross-origin requests default to
+      // credentials:'omit'). Every call site wrote `fetch('/api/...')` assuming
+      // same-origin cookie behavior — including raw fetches in declarative app
+      // windows (AppWindow.jsx) that don't go through apiFetch — so preserve it.
+      // An explicit `credentials` in `init` still wins (spread last).
+      if (rewritten !== input) {
+        return origFetch(rewritten, { credentials: 'include', ...init });
+      }
+      return origFetch(rewritten, init);
     }
     return origFetch(input, init);
   };

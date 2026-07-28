@@ -70,6 +70,10 @@ function parseCall(call) {
 
 function Widget({ widget }) {
   const [result, setResult] = useState(null);
+  // Holds the *initial* action response (e.g. the OAuth device-flow `start`
+  // body with `user_code`/`verification_uri`). Kept separate from `result` so
+  // the subsequent poll responses don't clobber the code the user must enter.
+  const [startBody, setStartBody] = useState(null);
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const pollState = useRef({ timer: null, deadline: 0 });
@@ -119,11 +123,14 @@ function Widget({ widget }) {
         try {
           const res = await fetch(pollCall.path, { method: pollCall.method });
           const body = await res.json().catch(() => ({}));
-          setResult({ ok: res.ok, status: res.status, body });
           if (doneValues.includes(body[doneField])) {
+            setStartBody(null); // login resolved — retire the code block
+            setResult({ ok: res.ok, status: res.status, body });
             stopPolling();
             return;
           }
+          // Intermediate poll (authorization_pending / slow_down): keep the code
+          // block up, don't surface the churn to the user.
         } catch (e) {
           setResult({ ok: false, error: String(e) });
           stopPolling();
@@ -138,11 +145,18 @@ function Widget({ widget }) {
         try {
           const res = await fetch(call.path, { method: call.method });
           const body = await res.json().catch(() => ({}));
-          setResult({ ok: res.ok, status: res.status, body });
           if (res.ok && pollCall) {
+            // Auto-poll flow (e.g. OAuth device flow): the START body carries
+            // the code the user must enter (user_code + verification_uri). Pin
+            // it so it stays visible while we poll; poll responses land in
+            // `result` and never overwrite the code.
+            setStartBody(body);
+            setResult(null);
             pollState.current.deadline = Date.now() + (pollCfg.timeout_ms || 300000);
             setPolling(true);
             pollState.current.timer = setTimeout(runPoll, pollCfg.interval_ms || 3000);
+          } else {
+            setResult({ ok: res.ok, status: res.status, body });
           }
         } catch (e) {
           setResult({ ok: false, error: String(e) });
@@ -155,6 +169,31 @@ function Widget({ widget }) {
           <button type="button" onClick={onClick} disabled={busy || polling || !call}>
             {busy ? '…' : widget.label || 'Run'}
           </button>
+          {startBody && startBody.user_code && (
+            <div
+              className="appwin-devicecode"
+              data-testid="appwin-devicecode"
+              style={{ margin: '0.75rem 0', padding: '0.75rem 1rem', border: '1px solid var(--color-border, #333)', borderRadius: 8, textAlign: 'center' }}
+            >
+              <p className="appwin-devicecode-lead" style={{ margin: '0 0 0.5rem', opacity: 0.85, fontSize: '0.9rem' }}>
+                Enter this code at{' '}
+                <a
+                  href={startBody.verification_uri || 'https://github.com/login/device'}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {(startBody.verification_uri || 'github.com/login/device').replace(/^https?:\/\//, '')}
+                </a>
+                :
+              </p>
+              <code
+                className="appwin-devicecode-code"
+                style={{ display: 'inline-block', fontSize: '1.6rem', fontWeight: 700, letterSpacing: '0.15em', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+              >
+                {startBody.user_code}
+              </code>
+            </div>
+          )}
           {polling && pollCfg.pending_text && (
             <p className="appwin-poll-pending" data-testid="appwin-poll-pending">
               {pollCfg.pending_text}
