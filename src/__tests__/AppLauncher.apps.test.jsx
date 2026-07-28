@@ -16,9 +16,12 @@ vi.mock('../apps/appsApi', () => ({
   // on open (see aw-app-git's Sign in with GitHub panel) — without this the
   // gear-click test's dialog never renders (fetchContributions undefined).
   fetchContributions: vi.fn().mockResolvedValue({ settings: [], windows: [] }),
+  getAppVersions: vi.fn(),
+  setAppVersion: vi.fn(),
 }));
 import {
   listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp, getInstallStatus,
+  installApp, getAppVersions,
 } from '../apps/appsApi';
 import AppLauncher from '../components/AppLauncher';
 
@@ -126,5 +129,43 @@ describe('AppLauncher — F5 Apps view', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Update Essentials' }));
     await waitFor(() => expect(updateApp).toHaveBeenCalledWith('essentials'));
     await waitFor(() => expect(screen.queryByTestId('update-badge-essentials')).toBeNull());
+  });
+
+  it('installing a has_config app from the Marketplace never auto-opens its config window', async () => {
+    // Regression test — config used to pop open automatically right after a
+    // successful install for a has_config app. Frederico's feedback: the
+    // Marketplace must never force a config screen; the gear is opt-in only.
+    listInstalledApps
+      .mockResolvedValueOnce(INSTALLED)
+      .mockResolvedValueOnce([...INSTALLED, { slug: 'notes', name: 'Notes', version: '1.0.0', icon: 'notebook', signed: true, has_config: true, config_schema: { properties: { key: { type: 'string' } } }, frontend: {} }]);
+    fetchCatalog.mockResolvedValue({ apps: [{ id: 'notes', name: 'Notes', description: 'notes app', icon: 'notebook', repo: 'x/notes', ref: 'main', has_config: true }] });
+    installApp.mockResolvedValue({ app_id: 'notes', status: 'installing' });
+    getInstallStatus.mockResolvedValue({ status: 'installed' });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Marketplace' }));
+    fireEvent.click(await screen.findByText('Notes'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+
+    await waitFor(() => expect(installApp).toHaveBeenCalled());
+    // give the onInstalled callback a tick to run through — it must NOT open
+    // AppConfigWindow for the freshly-installed has_config app.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /settings/i })).not.toBeInTheDocument());
+  });
+
+  it('Version button opens the pin/rollback window and fetches version history', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    getAppVersions.mockResolvedValue({
+      slug: 'essentials', installed_version: '0.1.0', catalog_version: '0.2.0',
+      versions: [{ ref: 'v0.2.0', version: '0.2.0' }, { ref: 'v0.1.0', version: '0.1.0' }],
+    });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Essentials version' }));
+    expect(await screen.findByRole('dialog', { name: /versions/i })).toBeInTheDocument();
+    await waitFor(() => expect(getAppVersions).toHaveBeenCalledWith('essentials'));
+    const list = await screen.findByTestId('appver-list');
+    expect(list).toHaveTextContent('Installed');
+    expect(screen.getByRole('button', { name: 'Install this version' })).toBeInTheDocument();
   });
 });
