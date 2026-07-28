@@ -36,7 +36,28 @@ function grantedSlotsFor(app) {
     .map((p) => p.slice('ui:slots:'.length));
 }
 
-// Load a COMPONENT-mode plugin: dynamic-import the hashed bundle URL, hand its
+// Load component bundles through fetch instead of importing the URL directly.
+// The workspace API auth path is implemented by the SPA's fetch layer/cookies;
+// native dynamic import cannot attach the same credentials/headers reliably.
+async function importFetchedModule(url) {
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) {
+    throw new Error(`bundle fetch failed: ${res.status} ${res.statusText}`);
+  }
+  const source = await res.text();
+  const absolute = new URL(url, window.location.href).href;
+  const blob = new Blob([
+    `${source}\n//# sourceURL=${absolute}`,
+  ], { type: 'text/javascript' });
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await import(/* @vite-ignore */ objectUrl);
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+}
+
+// Load a COMPONENT-mode plugin: fetch+import the hashed bundle URL, hand its
 // register() an app-scoped host, return a dispose fn. `importer` is injectable
 // so tests supply a fake module without a network/module fetch.
 export async function loadComponentPlugin(app, host, { importer } = {}) {
@@ -46,7 +67,7 @@ export async function loadComponentPlugin(app, host, { importer } = {}) {
   const url = app.frontend?.bundle_url || app.bundle_url;
   if (!url) throw new Error(`${app.slug}: no frontend.bundle_url`);
 
-  const doImport = importer || ((u) => import(/* @vite-ignore */ u));
+  const doImport = importer || importFetchedModule;
   const mod = await doImport(url);
   const register = mod.register || mod.default;
   if (typeof register !== 'function') {

@@ -33,6 +33,7 @@ export function installPluginHost({ registry = defaultRegistry, apiFetch = defau
     version: PLUGIN_API_VERSION,
     React,
     ReactDOM,
+    h: React.createElement,
     sdk,
     registry,
     // Low-level registry access (advanced plugins); most use the scoped handle.
@@ -73,6 +74,7 @@ export function hostForApp(host, app) {
     version: host.version,
     React: host.React,
     ReactDOM: host.ReactDOM,
+    h: host.h,
     sdk: host.sdk,
     slug,
 
