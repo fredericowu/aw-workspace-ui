@@ -14,7 +14,6 @@ import TopNotifications from './components/TopNotifications';
 import ErrorBoundary from './components/ErrorBoundary';
 import { asArray } from './lib/asArray';
 import AppSlot from './apps/AppSlot';
-import AppWindow from './components/AppWindow';
 import { installPluginHost } from './apps/pluginHost';
 import { fetchContributions } from './apps/appsApi';
 import { wireContributions, findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
@@ -389,8 +388,13 @@ function AuthenticatedApp() {
     return () => { closed = true; if (ws) { try { ws.close(); } catch {} } };
   }, []);
   const [view, setView] = useState('home');
-  // Decoupled-apps (F6 Cap 2): declarative window opened from an app nav entry.
-  const [openedAppWindow, setOpenedAppWindow] = useState(null); // { title, spec }
+  // Decoupled-apps (F6 Cap 2): declarative windows (contributes.windows,
+  // opened via a nav entry or an Installed Apps row click) are real
+  // WindowManager-managed windows (drag/resize/maximize/persisted position,
+  // same as every other window type) — see AppDeclarativeWindow.jsx. Keyed
+  // by `appwin:{windowId}` in the shared `openWindows` Set; this map holds
+  // each one's {id, title, spec} for WindowManager to render.
+  const [appWindowSpecs, setAppWindowSpecs] = useState({});
   const [terminals, setTerminals] = useState([]);
   const [presentations, setPresentations] = useState([]);
   const [diffs, setDiffs] = useState({});
@@ -691,6 +695,16 @@ function AuthenticatedApp() {
   // bundles. Re-runs on app install/uninstall + window refocus. Zero contributing
   // apps ⇒ zero visual change (safe).
   const contributionsRef = useRef(null);
+
+  // Opens (or refocuses) a decoupled app's declarative window as a real
+  // WindowManager window — see the appWindowSpecs state declaration above.
+  const openAppWindow = useCallback((found) => {
+    if (!found?.id) return;
+    const key = `appwin:${found.id}`;
+    setAppWindowSpecs((prev) => ({ ...prev, [key]: found }));
+    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
+  }, []);
+
   useEffect(() => {
     installPluginHost();
     let disposed = false;
@@ -698,7 +712,7 @@ function AuthenticatedApp() {
 
     const openWindowById = (windowId) => {
       const found = findWindowSpec(contributionsRef.current, windowId);
-      if (found && found.spec) setOpenedAppWindow(found);
+      if (found && found.spec) openAppWindow(found);
     };
 
     const load = async () => {
@@ -732,8 +746,8 @@ function AuthenticatedApp() {
   // (InstalledApps has no nav entry to click through — see AppLauncher).
   const openInstalledApp = useCallback((appId) => {
     const found = findAppDefaultWindow(contributionsRef.current, appId);
-    if (found && found.spec) setOpenedAppWindow(found);
-  }, []);
+    if (found && found.spec) openAppWindow(found);
+  }, [openAppWindow]);
 
   const toggleWindow = useCallback((key) => {
     setOpenWindows((prev) => {
@@ -1920,6 +1934,7 @@ function AuthenticatedApp() {
             layout={layout}
             layoutTrigger={layoutTrigger}
             terminalReconnectSignals={terminalReconnectSignals}
+            appWindowSpecs={appWindowSpecs}
           />
         </div>
       </div>
@@ -2041,25 +2056,6 @@ function AuthenticatedApp() {
       {/* Backdrop */}
       {profileDrawerOpen && <div className="fixed inset-0 z-[9997]" onClick={() => setProfileDrawerOpen(false)} />}
 
-      {/* Decoupled-apps (F6 Cap 2): a declarative app window opened from an app
-          nav entry — rendered via the generic AppWindow spec renderer. This is
-          what makes aw-app-git's "Sign in with GitHub" window reachable. */}
-      {openedAppWindow && (
-        <div className="fixed inset-0 z-[9996] flex items-center justify-center bg-black/50"
-             onClick={() => setOpenedAppWindow(null)}>
-          <div className="relative max-h-[85vh] w-[min(640px,92vw)] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 shadow-xl"
-               onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => setOpenedAppWindow(null)}
-              aria-label="Close"
-              className="absolute right-3 top-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
-            >✕</button>
-            <ErrorBoundary label={openedAppWindow.title || 'App'}>
-              <AppWindow spec={openedAppWindow.spec} />
-            </ErrorBoundary>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

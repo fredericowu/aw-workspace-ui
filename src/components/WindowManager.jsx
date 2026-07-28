@@ -7,6 +7,7 @@ import PresentationWindow from './PresentationWindow';
 import WhiteboardWindow from './WhiteboardWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
 import DiffWindow from './DiffWindow';
+import AppDeclarativeWindow from './AppDeclarativeWindow';
 import StubbornWindow from './StubbornWindow';
 import TasksTab from './TasksTab';
 import PlansPanel from './PlansPanel';
@@ -846,7 +847,7 @@ function loadFromStorage(key, fallback) {
   } catch { return fallback; }
 }
 
-export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTrigger, focusTriggers, presentations, onRenamePresentation, onDeletePresentation, diffs, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps }) {
+export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTrigger, focusTriggers, presentations, onRenamePresentation, onDeletePresentation, diffs, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs }) {
   // Derive agentType from terminals array for any session key
   const _getAgentType = (key) => {
     const sessionId = key.replace('terminal:', '');
@@ -1146,6 +1147,16 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   onMaximize={onMaximize}
                   isMaximized={maximizedKey === key}
                   onRename={onRenamePresentation}
+                  onFocus={() => bringToFront(key)}
+                />
+              ) : key.startsWith('appwin:') ? (
+                <AppDeclarativeWindow
+                  title={(appWindowSpecs || {})[key]?.title}
+                  spec={(appWindowSpecs || {})[key]?.spec}
+                  windowKey={key}
+                  onClose={() => onCloseWindow(key)}
+                  onMaximize={onMaximize}
+                  isMaximized={maximizedKey === key}
                   onFocus={() => bringToFront(key)}
                 />
               ) : key === 'panel:whiteboard' ? (

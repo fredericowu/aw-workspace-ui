@@ -796,6 +796,16 @@ button, [role="button"] { cursor: pointer; }
 .appwin-iframe { width: 100%; min-height: 320px; border: 1px solid var(--color-border); border-radius: 8px; }
 .appwin-unknown { font-size: 12px; color: var(--color-text-muted); font-style: italic; }
 
+/* When a declarative app window is the WindowManager-hosted, resizable kind
+   (AppDeclarativeWindow, not the old fixed-height modal), let its iframe
+   fill the actual window body instead of sitting at a small fixed
+   min-height — matters for a canvas-like app (e.g. whiteboard) where the
+   iframe IS the content. */
+.app-declarative-window-body { display: flex; flex-direction: column; height: 100%; }
+.app-declarative-window-body .app-window { flex: 1; min-height: 0; }
+.app-declarative-window-body .app-window-region:has(> .appwin-iframe:only-child) { flex: 1; min-height: 0; }
+.app-declarative-window-body .appwin-iframe { flex: 1; height: 100%; min-height: 0; }
+
 /* Per-contribution ErrorBoundary inline card (slot / window body crash). */
 .app-contrib-error {
   display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 8px;
