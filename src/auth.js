@@ -1,4 +1,6 @@
 
+import { identityLogoutUrl } from './apiBase';
+
 let _popupView = null;
 
 export function initAuth() {
@@ -64,7 +66,8 @@ export async function guestLogin(username, password) {
 
 /** Logout — clears the JWT cookie server-side. */
 export async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  const centralLogout = identityLogoutUrl();
+  await fetch(centralLogout || '/api/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
 export async function apiFetch(url, options = {}) {

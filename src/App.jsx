@@ -101,10 +101,27 @@ export default function App() {
 
   // Check auth on mount via server
   useEffect(() => {
+    let cancelled = false;
+    const refreshAuth = () => {
+      getAuthStatus().then(({ authenticated }) => {
+        if (!cancelled) {
+          setAuthState(authenticated ? 'authenticated' : 'unauthenticated');
+        }
+      });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden') refreshAuth();
+    };
+
     initAuth();
-    getAuthStatus().then(({ authenticated }) => {
-      setAuthState(authenticated ? 'authenticated' : 'unauthenticated');
-    });
+    refreshAuth();
+    window.addEventListener('focus', refreshAuth);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refreshAuth);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   // Listen for auth failures (401) from any fetch call
