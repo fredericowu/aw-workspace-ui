@@ -131,6 +131,14 @@ export function consoleLoginUrl() {
   return `${window.location.protocol}//console.${BASES.apex}/login?return=${ret}`;
 }
 
+/** Console-owned logout URL for workspace SPA hosts. Logout must run on the
+ *  console flow so the user sees the logged-out confirmation and the console
+ *  session is cleared together with the workspace session. */
+export function consoleLogoutUrl() {
+  if (!BASES.api || !BASES.apex) return null;
+  return `${window.location.protocol}//console.${BASES.apex}/logout`;
+}
+
 /** Central identity logout URL for workspace SPA hosts. The workspace API does
  *  not own the HttpOnly apex auth cookie; only the identity backend can expire
  *  it for console + workspace together. */

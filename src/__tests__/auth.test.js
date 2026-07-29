@@ -24,7 +24,10 @@ describe('Auth module', () => {
   });
 
   it('logout uses legacy auth endpoint outside workspace hosts', async () => {
-    vi.doMock('../apiBase', () => ({ identityLogoutUrl: () => null }));
+    vi.doMock('../apiBase', () => ({
+      consoleLogoutUrl: () => null,
+      identityLogoutUrl: () => null,
+    }));
     const { logout } = await import('../auth');
 
     await logout();
@@ -37,6 +40,7 @@ describe('Auth module', () => {
 
   it('logout uses central identity endpoint from workspace hosts', async () => {
     vi.doMock('../apiBase', () => ({
+      consoleLogoutUrl: () => null,
       identityLogoutUrl: () => 'https://api.aw.tekflox.com/api/identity/logout',
     }));
     const { logout } = await import('../auth');
@@ -47,5 +51,23 @@ describe('Auth module', () => {
       method: 'POST',
       credentials: 'include',
     });
+  });
+
+  it('logout redirects workspace hosts to the console logout flow', async () => {
+    vi.doMock('../apiBase', () => ({
+      consoleLogoutUrl: () => 'https://console.aw.tekflox.com/logout',
+      identityLogoutUrl: () => 'https://api.aw.tekflox.com/api/identity/logout',
+    }));
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, assign },
+    });
+    const { logout } = await import('../auth');
+
+    await logout();
+
+    expect(assign).toHaveBeenCalledWith('https://console.aw.tekflox.com/logout');
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
