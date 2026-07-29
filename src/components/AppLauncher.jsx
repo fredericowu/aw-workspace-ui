@@ -16,6 +16,10 @@ function catalogVersionsFrom(catalog) {
   return versions;
 }
 
+function installedAppId(app) {
+  return app?.slug || app?.id || app?.app_id;
+}
+
 /**
  * Full-screen "Mission Control" App Launcher — replaces the old Apps
  * hover-popover with a live-tile grid (ported from the UX-Proto
@@ -205,7 +209,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   const onInstalled = useCallback(async (catalogApp) => {
     await refreshInstalled();
     const apps = await listInstalledApps().catch(() => []);
-    const fresh = apps.find((a) => a.slug === catalogApp?.id);
+    const fresh = apps.find((a) => installedAppId(a) === catalogApp?.id);
     if (fresh?.requires_ui_refresh) markUiRefreshNeeded();
   }, [refreshInstalled]);
 

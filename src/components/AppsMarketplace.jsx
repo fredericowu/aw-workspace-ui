@@ -15,6 +15,10 @@ const POLL_INTERVAL_MS = 2000;
 
 const RESOURCE_LABEL = { low: 'Low', medium: 'Med', high: 'High' };
 
+function installedAppId(app) {
+  return app?.slug || app?.id || app?.app_id;
+}
+
 // CPU is the ONLY traffic-light dimension (green=low, amber=medium, red=high).
 // Memory and disk are free-form *server-usage* estimates — a size string like
 // "~200 MB", or "–" for something that never stays resident (e.g. the git CLI
@@ -98,7 +102,11 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
     return () => { mounted = false; };
   }, []);
 
-  const installedVersions = new Map((installedApps || []).map((a) => [a.slug, a.version]));
+  const installedVersions = new Map(
+    (installedApps || [])
+      .map((a) => [installedAppId(a), a.version])
+      .filter(([id]) => !!id)
+  );
   const installed = new Set(installedVersions.keys());
 
   // Live install-status push (workspace WS, see aw-workspace's
@@ -330,17 +338,21 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
                     tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter') setSelectedApp(app.id); }}
                   >
-                    <span className="appmkt-icon"><AppIcon icon={app.icon} label={app.name} size={22} /></span>
-                    <div className="appmkt-item-text">
-                      <span className="appmkt-item-name">
-                        {app.name}
-                        {app.has_config && <span className="appmkt-badge">config</span>}
-                      </span>
-                      <span className="appmkt-item-publisher">by {app.publisher || 'TekFlox'}</span>
-                      <span className="appmkt-item-desc">{app.description}</span>
-                      <ResourceBadges estimate={app.resource_estimate} />
+                    <div className="appmkt-item-main">
+                      <span className="appmkt-icon"><AppIcon icon={app.icon} label={app.name} size={22} /></span>
+                      <div className="appmkt-item-text">
+                        <span className="appmkt-item-name">
+                          {app.name}
+                          {app.has_config && <span className="appmkt-badge">config</span>}
+                        </span>
+                        <span className="appmkt-item-publisher">by {app.publisher || 'TekFlox'}</span>
+                        <span className="appmkt-item-desc">{app.description}</span>
+                        <ResourceBadges estimate={app.resource_estimate} />
+                      </div>
                     </div>
-                    {installButton(app)}
+                    <div className="appmkt-item-actions">
+                      {installButton(app)}
+                    </div>
                   </li>
                 ))}
               </ul>

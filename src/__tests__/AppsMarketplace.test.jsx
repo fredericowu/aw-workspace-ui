@@ -237,4 +237,14 @@ describe('AppsMarketplace', () => {
     expect(screen.getByLabelText('Essentials installed')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
   });
+
+  it('treats app_id from the installed registry as installed', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedApps={[{ app_id: 'git', version: '0.2.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);
+
+    await screen.findByText('Git + GitHub CLI');
+    fireEvent.click(screen.getByText('Git + GitHub CLI'));
+    expect(screen.getByLabelText('Git + GitHub CLI installed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+  });
 });
