@@ -834,6 +834,33 @@ function AppProxyWindow({
   );
 }
 
+function managedWindowAppEntry(windowSpec, workspaceApps, componentMap) {
+  if (windowSpec?.body?.type !== 'managed_app') return null;
+  const body = windowSpec.body || {};
+  const appId = body.app_id || windowSpec.app || body.kind;
+  if (!appId) return null;
+
+  const existing = (workspaceApps || []).find((a) => a.id === appId);
+  const path = body.path || '/';
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const apex = window.location.hostname.replace(/^www\./, '');
+  const url = body.url || `${window.location.protocol}//${appId}.app.${apex}${normalizedPath}`;
+  const conventionalComponent = `docker:aw-${appId}`;
+  const component = body.component
+    || windowSpec.component
+    || existing?.component
+    || (componentMap[conventionalComponent] ? conventionalComponent : null);
+
+  return {
+    ...(existing || {}),
+    id: appId,
+    label: windowSpec.title || existing?.label || existing?.name || appId,
+    icon: windowSpec.icon || body.icon || existing?.icon,
+    url,
+    component,
+  };
+}
+
 
 const MIN_W = 400;
 const MIN_H = 200;
@@ -1067,6 +1094,8 @@ export default function WindowManager({ openWindows, components, terminals, maxL
         if (!ws) return null;
         const isMax = maximizedKey === key;
         const zIndex = isMax ? 9000 : zOrder.indexOf(key) + 1;
+        const appWindowSpec = (appWindowSpecs || {})[key];
+        const managedApp = managedWindowAppEntry(appWindowSpec, workspaceApps, componentMap);
 
         // Maximize geometry comes from props — ws is preserved untouched
         // so the snapshot+restore useEffect above can put the window
@@ -1149,11 +1178,26 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   onRename={onRenamePresentation}
                   onFocus={() => bringToFront(key)}
                 />
+              ) : key.startsWith('appwin:') && managedApp ? (
+                <AppProxyWindow
+                  appId={managedApp.id}
+                  workspaceApps={[managedApp, ...(workspaceApps || []).filter((a) => a.id !== managedApp.id)]}
+                  windowKey={key}
+                  componentMap={componentMap}
+                  onCloseWindow={onCloseWindow}
+                  onReopenWindow={() => {
+                    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
+                  }}
+                  onMaximize={onMaximize}
+                  maximizedKey={maximizedKey}
+                  bringToFront={() => bringToFront(key)}
+                  isFocused={zOrder[zOrder.length - 1] === key}
+                />
               ) : key.startsWith('appwin:') ? (
                 <AppDeclarativeWindow
-                  title={(appWindowSpecs || {})[key]?.title}
-                  spec={(appWindowSpecs || {})[key]?.spec}
-                  windowSpec={(appWindowSpecs || {})[key]}
+                  title={appWindowSpec?.title}
+                  spec={appWindowSpec?.spec}
+                  windowSpec={appWindowSpec}
                   windowKey={key}
                   onClose={() => onCloseWindow(key)}
                   onMaximize={onMaximize}
