@@ -68,7 +68,14 @@ export async function wireContributions(contributions, host, {
 export function findWindowSpec(contributions, windowId) {
   const win = (contributions?.windows || []).find((w) => w.id === windowId);
   if (!win) return null;
-  return { id: win.id, title: win.title || win.id, spec: win.body?.spec_data || null };
+  return {
+    id: win.id,
+    app: win.app,
+    title: win.title || win.id,
+    icon: win.icon,
+    body: win.body || {},
+    spec: win.body?.spec_data || null,
+  };
 }
 
 // Look up an app's DEFAULT window (its first declared `contributes.windows[]`
@@ -78,5 +85,12 @@ export function findWindowSpec(contributions, windowId) {
 export function findAppDefaultWindow(contributions, appId) {
   const win = (contributions?.windows || []).find((w) => w.app === appId);
   if (!win) return null;
-  return { id: win.id, title: win.title || win.id, spec: win.body?.spec_data || null };
+  return {
+    id: win.id,
+    app: win.app,
+    title: win.title || win.id,
+    icon: win.icon,
+    body: win.body || {},
+    spec: win.body?.spec_data || null,
+  };
 }

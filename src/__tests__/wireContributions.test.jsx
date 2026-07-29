@@ -91,4 +91,18 @@ describe('wireContributions — F6 Cap 2 keystone wiring', () => {
     expect(found.spec.regions).toHaveLength(1);
     expect(findWindowSpec(contributions, 'nope')).toBeNull();
   });
+
+  it('findWindowSpec preserves managed window body metadata', () => {
+    const contributions = {
+      windows: [{
+        app: 'browser', id: 'browser.main', title: 'Browser', icon: 'globe',
+        body: { type: 'managed_app', kind: 'browser', path: '/vnc.html?autoconnect=true' },
+      }],
+    };
+    const found = findWindowSpec(contributions, 'browser.main');
+    expect(found.app).toBe('browser');
+    expect(found.icon).toBe('globe');
+    expect(found.spec).toBeNull();
+    expect(found.body).toEqual({ type: 'managed_app', kind: 'browser', path: '/vnc.html?autoconnect=true' });
+  });
 });

@@ -1,5 +1,6 @@
 import AppWindow from './AppWindow';
 import ErrorBoundary from './ErrorBoundary';
+import AppIcon from './AppIcon';
 
 // Real WindowManager-integrated chrome (drag/resize/maximize/close, same
 // header pattern as DiffWindow/PresentationWindow) for a decoupled app's
@@ -13,16 +14,44 @@ import ErrorBoundary from './ErrorBoundary';
 // type gets for free. That modal was originally built for tiny single-action
 // popups (e.g. aw-app-git's "Sign in with GitHub"), not a full app UI —
 // confirmed as the wrong fit for aw-app-whiteboard's window (2026-07-28).
-export default function AppDeclarativeWindow({ title, spec, onClose, onMaximize, isMaximized, windowKey, onFocus }) {
+export function specFromManagedWindow(windowSpec) {
+  const body = windowSpec?.body || {};
+  if (body.type !== 'managed_app') return null;
+  const appId = body.app_id || windowSpec?.app;
+  if (!appId) return null;
+  return {
+    layout: 'stack',
+    regions: [
+      {
+        id: 'main',
+        widgets: [
+          {
+            type: 'app_iframe',
+            title: windowSpec?.title || appId,
+            app_id: appId,
+            path: body.path || '/',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export default function AppDeclarativeWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus }) {
+  const resolvedSpec = spec || specFromManagedWindow(windowSpec);
+  const icon = windowSpec?.icon || windowSpec?.body?.icon;
   return (
     <div className="flex flex-col bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden h-full shadow-2xl shadow-black/40 border border-[var(--color-border)]">
       <div
         className="drag-handle flex items-center justify-between px-3 py-2 bg-[var(--color-bg-header)] border-b border-[var(--color-border)] select-none cursor-grab active:cursor-grabbing shrink-0"
         onMouseDown={onFocus}
       >
-        <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">
-          {title || 'App'}
-        </span>
+        <div className="min-w-0 flex items-center gap-2">
+          {icon && <AppIcon icon={icon} label={title || 'App'} size={16} />}
+          <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">
+            {title || 'App'}
+          </span>
+        </div>
         <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
           <button
             onClick={() => onMaximize?.(windowKey)}
@@ -47,7 +76,7 @@ export default function AppDeclarativeWindow({ title, spec, onClose, onMaximize,
 
       <div className="app-declarative-window-body flex-1 overflow-auto no-drag" onMouseDown={(e) => e.stopPropagation()}>
         <ErrorBoundary label={title || 'App'}>
-          <AppWindow spec={spec} />
+          <AppWindow spec={resolvedSpec} />
         </ErrorBoundary>
       </div>
     </div>

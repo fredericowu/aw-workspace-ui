@@ -701,7 +701,7 @@ function AuthenticatedApp() {
 
     const openWindowById = (windowId) => {
       const found = findWindowSpec(contributionsRef.current, windowId);
-      if (found && found.spec) openAppWindow(found);
+      if (found && (found.spec || found.body?.type === 'managed_app')) openAppWindow(found);
     };
 
     const load = async () => {
@@ -735,7 +735,7 @@ function AuthenticatedApp() {
   // (InstalledApps has no nav entry to click through — see AppLauncher).
   const openInstalledApp = useCallback((appId) => {
     const found = findAppDefaultWindow(contributionsRef.current, appId);
-    if (found && found.spec) openAppWindow(found);
+    if (found && (found.spec || found.body?.type === 'managed_app')) openAppWindow(found);
   }, [openAppWindow]);
 
   const toggleWindow = useCallback((key) => {

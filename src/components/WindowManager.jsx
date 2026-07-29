@@ -1153,6 +1153,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                 <AppDeclarativeWindow
                   title={(appWindowSpecs || {})[key]?.title}
                   spec={(appWindowSpecs || {})[key]?.spec}
+                  windowSpec={(appWindowSpecs || {})[key]}
                   windowKey={key}
                   onClose={() => onCloseWindow(key)}
                   onMaximize={onMaximize}
