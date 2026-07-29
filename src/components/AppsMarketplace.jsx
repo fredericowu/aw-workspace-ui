@@ -91,8 +91,13 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
   const [query, setQuery] = useState('');
   const [selectedApp, setSelectedApp] = useState(null);
   const alive = useRef(true);
+  const errorDialogRef = useRef(null);
 
   useEffect(() => () => { alive.current = false; }, []);
+
+  useEffect(() => {
+    if (error) errorDialogRef.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     let mounted = true;
@@ -224,6 +229,8 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
 
   const detailApp = selectedApp ? allApps.find((a) => a.id === selectedApp) : null;
 
+  const dismissError = () => setError(null);
+
   const installButton = (app) => {
     const isInstalled = installed.has(app.id);
     if (isInstalled) {
@@ -268,8 +275,6 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
               </div>
               <button type="button" className="appmkt-close" onClick={onClose} aria-label="Close">✕</button>
             </header>
-
-            {error && <p className="appmkt-error" data-testid="appmkt-error">{error}</p>}
 
             <div className="appmkt-detail">
               <div className="appmkt-detail-top">
@@ -321,8 +326,6 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
               />
             )}
 
-            {error && <p className="appmkt-error" data-testid="appmkt-error">{error}</p>}
-
             {catalog && allApps.length === 0 ? (
               <p className="appmkt-empty">No apps in the catalog.</p>
             ) : catalog && apps.length === 0 ? (
@@ -360,6 +363,34 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
           </>
         )}
       </div>
+      {error && (
+        <div
+          className="appmkt-error-overlay"
+          onClick={(e) => { e.stopPropagation(); dismissError(); }}
+        >
+          <div
+            className="appmkt-error-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="appmkt-error-title"
+            aria-describedby="appmkt-error"
+            tabIndex={-1}
+            ref={errorDialogRef}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => { if (e.key === 'Escape') dismissError(); }}
+            data-testid="appmkt-error-modal"
+          >
+            <div className="appmkt-error-head">
+              <h4 id="appmkt-error-title">Action failed</h4>
+              <button type="button" className="appmkt-error-close" onClick={dismissError} aria-label="Close error">✕</button>
+            </div>
+            <p className="appmkt-error" id="appmkt-error" data-testid="appmkt-error">{error}</p>
+            <div className="appmkt-error-actions">
+              <button type="button" className="appmkt-error-ok" onClick={dismissError}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

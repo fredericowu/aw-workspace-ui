@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../apps/appsApi', () => ({
@@ -89,7 +89,9 @@ describe('AppsMarketplace', () => {
 
     const installButtons = await screen.findAllByRole('button', { name: 'Install' });
     fireEvent.click(installButtons[0]);
-    expect(await screen.findByTestId('appmkt-error')).toHaveTextContent('apt install git gh failed: exit 1');
+    const modal = await screen.findByRole('alertdialog', { name: 'Action failed' });
+    expect(modal).toHaveFocus();
+    expect(within(modal).getByTestId('appmkt-error')).toHaveTextContent('apt install git gh failed: exit 1');
   });
 
   it('surfaces a rejected install call without crashing the panel', async () => {
@@ -99,7 +101,10 @@ describe('AppsMarketplace', () => {
 
     const installButtons = await screen.findAllByRole('button', { name: 'Install' });
     fireEvent.click(installButtons[0]);
-    expect(await screen.findByTestId('appmkt-error')).toHaveTextContent('clone failed');
+    const modal = await screen.findByRole('alertdialog', { name: 'Action failed' });
+    expect(within(modal).getByTestId('appmkt-error')).toHaveTextContent('clone failed');
+    fireEvent.keyDown(modal, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: 'Action failed' })).not.toBeInTheDocument());
   });
 
   it('resumes watching an install still in progress after a reload (polling fallback)', async () => {
