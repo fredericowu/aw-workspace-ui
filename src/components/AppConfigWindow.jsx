@@ -12,6 +12,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { apiFetch } from '../auth';
 import { fetchContributions } from '../apps/appsApi';
 import AppWindow from './AppWindow';
+import McpGatewayConfigEditor from './McpGatewayConfigEditor';
 
 function fieldType(spec) {
   if (spec['x-secret']) return 'secret';
@@ -50,6 +51,7 @@ function isManagedApp(app) {
 }
 
 export default function AppConfigWindow({ app, onClose, onSaved }) {
+  const isMcpGateway = app?.slug === 'mcp-gateway';
   const props = useMemo(() => {
     const appProps = app?.config_schema?.properties || {};
     if (!isManagedApp(app)) return appProps;
@@ -147,7 +149,7 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
             <span className="appcfg-spinner" aria-hidden="true" />
             <span>Loading settings…</span>
           </div>
-        ) : fields.length === 0 && !settingsWindowSpec ? (
+        ) : fields.length === 0 && !settingsWindowSpec && !isMcpGateway ? (
           <p className="appcfg-empty">This app has no configurable settings.</p>
         ) : (
           <>
@@ -216,6 +218,9 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
             )}
             {settingsWindowSpec && (
               <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
+            )}
+            {isMcpGateway && (
+              <McpGatewayConfigEditor onSaved={onSaved} />
             )}
           </>
         )}

@@ -125,6 +125,65 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(document.getElementById('appcfg-window_height')).toHaveValue(900);
   });
 
+  it('renders MCP Gateway final config and saves custom MCP JSON', async () => {
+    const gatewayPayload = {
+      custom: { mcpServers: { custom: { type: 'stdio', command: 'mine' } } },
+      scanned: { mcpServers: { scanned: { type: 'stdio', command: 'scan' } } },
+      final: {
+        mcpServers: {
+          custom: { type: 'stdio', command: 'mine' },
+          scanned: { type: 'stdio', command: 'scan' },
+        },
+      },
+      sources: {
+        custom: { source: 'custom' },
+        scanned: { source: 'scanned', app: 'aw-app-tools' },
+      },
+    };
+    apiFetch.mockImplementation((url, opts = {}) => {
+      if (url === '/api/apps/-/contributions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ settings: [], windows: [] }) });
+      }
+      if (url === '/api/apps/mcp-gateway/admin/config' && opts.method === 'PUT') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ...gatewayPayload, restart_required: true }),
+        });
+      }
+      if (url === '/api/apps/mcp-gateway/admin/config') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(gatewayPayload) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    });
+
+    render(<AppConfigWindow app={{
+      slug: 'mcp-gateway',
+      name: 'MCP Gateway',
+      version: '0.1.0',
+      tier: 'container',
+      config_schema: { type: 'object', properties: {} },
+    }} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('mcpgw-editor')).toBeInTheDocument();
+    expect(screen.getByText('scanned')).toBeInTheDocument();
+    expect(screen.getByText('scanned: aw-app-tools')).toBeInTheDocument();
+
+    fireEvent.change(document.getElementById('mcpgw-custom-json'), {
+      target: { value: JSON.stringify({ mcpServers: { custom: { type: 'stdio', command: 'next' } } }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save custom MCPs' }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/apps/mcp-gateway/admin/config',
+      expect.objectContaining({ method: 'PUT' }),
+    ));
+    const saveCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/mcp-gateway/admin/config' && c[1]?.method === 'PUT');
+    expect(JSON.parse(saveCall[1].body)).toMatchObject({
+      custom: { mcpServers: { custom: { command: 'next' } } },
+    });
+    expect(await screen.findByTestId('mcpgw-msg')).toHaveTextContent(/restart MCP Gateway/i);
+  });
+
   it('falls back to the legacy app settings route when the framework config route is missing', async () => {
     apiFetch
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })

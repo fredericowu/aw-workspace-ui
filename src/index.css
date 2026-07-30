@@ -813,6 +813,86 @@ button, [role="button"] { cursor: pointer; }
 .appcfg-save:hover { background: var(--color-accent-hover); }
 .appcfg-save:disabled { opacity: .6; cursor: default; }
 
+.mcpgw {
+  margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-border);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.mcpgw-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.mcpgw-head h4 {
+  margin: 0; font-size: 14px; font-weight: 800; color: var(--color-text-primary);
+}
+.mcpgw-head p {
+  margin: 4px 0 0; font-size: 11px; line-height: 1.4; color: var(--color-text-muted);
+}
+.mcpgw-stats {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 172px;
+}
+.mcpgw-stats span, .mcpgw-badge {
+  display: inline-flex; align-items: center; min-height: 20px; padding: 2px 7px;
+  border-radius: 6px; font-size: 10px; font-weight: 700; color: var(--color-text-muted);
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.07);
+}
+.mcpgw-badge.is-custom {
+  color: #fed7aa; background: rgba(245,166,35,.14); border-color: rgba(245,166,35,.22);
+}
+.mcpgw-grid {
+  display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: 10px; min-height: 220px;
+}
+.mcpgw-list, .mcpgw-detail {
+  min-width: 0; max-height: 260px; overflow: auto; border: 1px solid var(--color-border);
+  border-radius: 8px; background: rgba(0,0,0,.12);
+}
+.mcpgw-list { display: flex; flex-direction: column; padding: 6px; gap: 5px; }
+.mcpgw-row {
+  width: 100%; min-height: 36px; padding: 7px 8px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  text-align: left; cursor: pointer; color: var(--color-text-primary);
+}
+.mcpgw-row:hover, .mcpgw-row.is-selected {
+  background: rgba(255,255,255,.06);
+}
+.mcpgw-row.is-selected { outline: 1px solid rgba(245,166,35,.45); }
+.mcpgw-row-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 700;
+}
+.mcpgw-detail { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.mcpgw-detail-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  color: var(--color-text-primary); font-size: 12px;
+}
+.mcpgw-detail pre {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.45;
+  color: var(--color-text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-empty { margin: 0; padding: 8px; font-size: 12px; color: var(--color-text-muted); font-style: italic; }
+.mcpgw-editor-label {
+  font-size: 12px; font-weight: 700; color: var(--color-text-primary);
+}
+.mcpgw-json {
+  width: 100%; min-height: 220px; resize: vertical; box-sizing: border-box;
+  padding: 10px 11px; border-radius: 8px; border: 1px solid var(--color-border);
+  background: var(--color-bg-primary); color: var(--color-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px; line-height: 1.45;
+}
+.mcpgw-json:focus { outline: none; border-color: var(--color-accent); }
+.mcpgw-msg {
+  padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4;
+  background: rgba(255,255,255,.04);
+}
+.mcpgw-msg.is-ok { color: #86efac; }
+.mcpgw-msg.is-err { color: #fca5a5; }
+
+@media (max-width: 680px) {
+  .mcpgw-head { flex-direction: column; }
+  .mcpgw-stats { flex: 1 1 auto; justify-content: flex-start; }
+  .mcpgw-grid { grid-template-columns: 1fr; }
+}
+
 /* Declarative AppWindow (windows/main.json widgets) — used standalone and
    inside .appcfg-appwindow when a settings_panel points at an app window.
    Previously totally unstyled (bare browser defaults), which is why e.g.
