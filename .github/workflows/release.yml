@@ -16,7 +16,7 @@ permissions:
 jobs:
   release:
     name: Build + publish to Caddy static root
-    runs-on: [self-hosted, aw-baremetal]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       ARTIFACT_NAME: aw-frontend-dist
