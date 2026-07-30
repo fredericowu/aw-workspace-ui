@@ -3,7 +3,8 @@
 // app's `config_schema` (returned by GET /api/apps): `x-secret` fields render as
 // password inputs (routed to the zero-knowledge secret store on the backend),
 // `enum` as a select, `integer` as a number. Submit POSTs the whole object to
-// the app's own `/api/apps/<slug>/settings` route.
+// the framework-owned `/api/apps/<slug>/config` route; app-authored settings
+// panels can still call their own routes such as `/api/apps/<slug>/settings`.
 //
 // Kept self-contained (no WindowManager coupling) — the Apps view renders it in
 // an overlay, same pattern as the App Launcher.
@@ -20,8 +21,40 @@ function fieldType(spec) {
   return 'text';
 }
 
+const MANAGED_APP_PROPS = {
+  auto_start: {
+    type: 'boolean',
+    default: true,
+    title: 'Auto-start',
+    description: 'Start this app automatically when the workspace starts.',
+    'x-framework': true,
+  },
+  auth_required: {
+    type: 'boolean',
+    default: true,
+    title: 'Authentication required',
+    description: 'Only signed-in workspace users can open this app.',
+    'x-framework': true,
+  },
+  public: {
+    type: 'boolean',
+    default: false,
+    title: 'Public',
+    description: 'Expose this app through the workspace public routing layer.',
+    'x-framework': true,
+  },
+};
+
+function isManagedApp(app) {
+  return !!(app?.managed_app || app?.tier === 'container');
+}
+
 export default function AppConfigWindow({ app, onClose, onSaved }) {
-  const props = useMemo(() => app?.config_schema?.properties || {}, [app]);
+  const props = useMemo(() => {
+    const appProps = app?.config_schema?.properties || {};
+    if (!isManagedApp(app)) return appProps;
+    return { ...MANAGED_APP_PROPS, ...appProps };
+  }, [app]);
   const fields = useMemo(() => Object.entries(props), [props]);
 
   // App-authored settings UI: if the app's settings_panel references one of its
@@ -59,6 +92,7 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
     for (const [key, spec] of Object.entries(props)) {
       if (spec.default !== undefined) init[key] = spec.default;
     }
+    Object.assign(init, app?.config || {});
     return init;
   });
   const [saving, setSaving] = useState(false);
@@ -72,10 +106,10 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
     setSaving(true);
     setMessage(null);
     try {
-      const res = await apiFetch(`/api/apps/${encodeURIComponent(app.slug)}/settings`, {
+      const res = await apiFetch(`/api/apps/${encodeURIComponent(app.slug)}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ config: values }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.error) {
@@ -107,51 +141,77 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
             <span className="appcfg-spinner" aria-hidden="true" />
             <span>Loading settings…</span>
           </div>
-        ) : settingsWindowSpec ? (
-          <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
-        ) : fields.length === 0 ? (
+        ) : fields.length === 0 && !settingsWindowSpec ? (
           <p className="appcfg-empty">This app has no configurable settings.</p>
         ) : (
-          <form className="appcfg-form" onSubmit={submit}>
-            {fields.map(([key, spec]) => {
-              const type = fieldType(spec);
-              const id = `appcfg-${key}`;
-              return (
-                <div className="appcfg-field" key={key}>
-                  <label htmlFor={id} className="appcfg-label">
-                    {spec.title || key}
-                  </label>
-                  {spec.description && <p className="appcfg-desc">{spec.description}</p>}
-                  {type === 'enum' ? (
-                    <select id={id} className="appcfg-input" value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
-                      {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  ) : type === 'boolean' ? (
-                    <input id={id} type="checkbox" checked={!!values[key]} onChange={(e) => setValue(key, e.target.checked)} />
-                  ) : (
-                    <input
-                      id={id}
-                      className="appcfg-input"
-                      type={type === 'secret' ? 'password' : type === 'number' ? 'number' : 'text'}
-                      value={values[key] ?? ''}
-                      autoComplete={type === 'secret' ? 'new-password' : 'off'}
-                      onChange={(e) => setValue(key, type === 'number' ? Number(e.target.value) : e.target.value)}
-                    />
+          <>
+            {fields.length > 0 && (
+              <form className="appcfg-form" onSubmit={submit}>
+                {fields.map(([key, spec]) => {
+                  const type = fieldType(spec);
+                  const id = `appcfg-${key}`;
+                  return (
+                    <div className={`appcfg-field ${type === 'boolean' ? 'appcfg-field-toggle' : ''}`} key={key}>
+                      {type === 'boolean' ? (
+                        <>
+                          <div className="appcfg-toggle-copy">
+                            <label htmlFor={id} className="appcfg-label">
+                              {spec.title || key}
+                            </label>
+                            {spec.description && <p className="appcfg-desc">{spec.description}</p>}
+                          </div>
+                          <button
+                            type="button"
+                            id={id}
+                            role="switch"
+                            aria-checked={!!values[key]}
+                            className={`appcfg-switch ${values[key] ? 'is-on' : ''}`}
+                            onClick={() => setValue(key, !values[key])}
+                          >
+                            <span />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <label htmlFor={id} className="appcfg-label">
+                            {spec.title || key}
+                          </label>
+                          {spec.description && <p className="appcfg-desc">{spec.description}</p>}
+                          {type === 'enum' ? (
+                            <select id={id} className="appcfg-input" value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
+                              {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              id={id}
+                              className="appcfg-input"
+                              type={type === 'secret' ? 'password' : type === 'number' ? 'number' : 'text'}
+                              value={values[key] ?? ''}
+                              autoComplete={type === 'secret' ? 'new-password' : 'off'}
+                              onChange={(e) => setValue(key, type === 'number' ? Number(e.target.value) : e.target.value)}
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="appcfg-actions">
+                  {message && (
+                    <span className={`appcfg-msg ${message.ok ? 'is-ok' : 'is-err'}`} data-testid="appcfg-msg">
+                      {message.text}
+                    </span>
                   )}
+                  <button type="submit" className="appcfg-save" disabled={saving}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
                 </div>
-              );
-            })}
-            <div className="appcfg-actions">
-              {message && (
-                <span className={`appcfg-msg ${message.ok ? 'is-ok' : 'is-err'}`} data-testid="appcfg-msg">
-                  {message.text}
-                </span>
-              )}
-              <button type="submit" className="appcfg-save" disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </form>
+              </form>
+            )}
+            {settingsWindowSpec && (
+              <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
+            )}
+          </>
         )}
       </div>
     </div>

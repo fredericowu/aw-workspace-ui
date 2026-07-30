@@ -42,7 +42,7 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(method.value).toBe('token');
   });
 
-  it('submits the whole config object to the app settings route and shows Saved', async () => {
+  it('submits the whole config object to the framework config route and shows Saved', async () => {
     apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true, logged_in: true }) });
     const onSaved = vi.fn();
     render(<AppConfigWindow app={GIT_APP} onClose={() => {}} onSaved={onSaved} />);
@@ -52,14 +52,77 @@ describe('AppConfigWindow — schema-driven config window', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
-      '/api/apps/git/settings',
+      '/api/apps/git/config',
       expect.objectContaining({ method: 'POST' }),
     ));
-    const settingsCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/git/settings');
+    const settingsCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/git/config');
     const body = JSON.parse(settingsCall[1].body);
-    expect(body).toMatchObject({ auth_method: 'token', github_token: 'ghp_x' });
+    expect(body).toMatchObject({ config: { auth_method: 'token', github_token: 'ghp_x' } });
     expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent('Saved');
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('renders managed-app framework toggles and saves their booleans', async () => {
+    apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    render(<AppConfigWindow app={{
+      slug: 'browser',
+      name: 'Browser',
+      version: '1.0.0',
+      managed_app: true,
+      config: { auto_start: true, auth_required: true, public: false },
+      config_schema: {
+        type: 'object',
+        properties: {
+          auto_start: { type: 'boolean', title: 'Auto-start' },
+          auth_required: { type: 'boolean', title: 'Authentication required' },
+          public: { type: 'boolean', title: 'Public' },
+        },
+      },
+    }} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const autoStart = screen.getByRole('switch', { name: 'Auto-start' });
+    const publicSwitch = screen.getByRole('switch', { name: 'Public' });
+    expect(autoStart).toHaveAttribute('aria-checked', 'true');
+    expect(publicSwitch).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(autoStart);
+    fireEvent.click(publicSwitch);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/apps/browser/config',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    const configCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/browser/config');
+    expect(JSON.parse(configCall[1].body)).toMatchObject({
+      config: { auto_start: false, auth_required: true, public: true },
+    });
+  });
+
+  it('adds managed-app toggles in the app settings modal when the backend schema only has app fields', async () => {
+    apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    render(<AppConfigWindow app={{
+      slug: 'browser',
+      name: 'Browser',
+      version: '0.7.4',
+      tier: 'container',
+      config: { window_width: 1440, window_height: 900 },
+      config_schema: {
+        type: 'object',
+        properties: {
+          window_width: { type: 'integer', default: 1440 },
+          window_height: { type: 'integer', default: 900 },
+        },
+      },
+    }} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    expect(screen.getByRole('switch', { name: 'Auto-start' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Authentication required' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Public' })).toHaveAttribute('aria-checked', 'false');
+    expect(document.getElementById('appcfg-window_width')).toHaveValue(1440);
+    expect(document.getElementById('appcfg-window_height')).toHaveValue(900);
   });
 
   it('shows the empty state for an app with no configurable settings', async () => {

@@ -771,6 +771,13 @@ button, [role="button"] { cursor: pointer; }
 @keyframes appcfg-spin { to { transform: rotate(360deg); } }
 .appcfg-form { display: flex; flex-direction: column; gap: 16px; }
 .appcfg-field { display: flex; flex-direction: column; gap: 5px; }
+.appcfg-field-toggle {
+  flex-direction: row; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 4px 0;
+}
+.appcfg-toggle-copy {
+  min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px;
+}
 .appcfg-label { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
 .appcfg-desc { margin: 0; font-size: 11px; color: var(--color-text-muted); line-height: 1.4; }
 .appcfg-input {
@@ -778,6 +785,23 @@ button, [role="button"] { cursor: pointer; }
   background: var(--color-bg-primary); border: 1px solid var(--color-border); color: var(--color-text-primary);
 }
 .appcfg-input:focus { outline: none; border-color: var(--color-accent); }
+.appcfg-switch {
+  width: 46px; height: 26px; border-radius: 999px; flex: 0 0 46px;
+  padding: 2px; border: 1px solid var(--color-border); cursor: pointer;
+  background: rgba(255,255,255,.08); transition: background .15s ease, border-color .15s ease;
+}
+.appcfg-switch span {
+  display: block; width: 20px; height: 20px; border-radius: 999px;
+  background: var(--color-text-muted); transform: translateX(0);
+  transition: transform .15s ease, background .15s ease;
+}
+.appcfg-switch.is-on {
+  border-color: var(--color-accent); background: rgba(245,166,35,.22);
+}
+.appcfg-switch.is-on span {
+  transform: translateX(20px); background: var(--color-accent);
+}
+.appcfg-switch:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .appcfg-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 4px; }
 .appcfg-msg { font-size: 12px; }
 .appcfg-msg.is-ok { color: #4ade80; }
