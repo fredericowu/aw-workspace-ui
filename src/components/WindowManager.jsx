@@ -845,11 +845,18 @@ function managedWindowAppEntry(windowSpec, workspaceApps, componentMap) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const apex = window.location.hostname.replace(/^www\./, '');
   const url = body.url || `${window.location.protocol}//${appId}.app.${apex}${normalizedPath}`;
-  const conventionalComponent = `docker:aw-${appId}`;
-  const component = body.component
+  const componentCandidates = [
+    body.component,
+    windowSpec.component,
+    existing?.component,
+    `docker:aw-${appId}`,
+    `docker:${appId}`,
+  ].filter(Boolean);
+  const component = componentCandidates.find((key) => componentMap[key])
+    || body.component
     || windowSpec.component
     || existing?.component
-    || (componentMap[conventionalComponent] ? conventionalComponent : null);
+    || null;
 
   return {
     ...(existing || {}),
