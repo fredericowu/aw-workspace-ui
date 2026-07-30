@@ -1,0 +1,89 @@
+name: Release aw-frontend static assets
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-aw-frontend-static
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  release:
+    name: Build + publish to Caddy static root
+    runs-on: [self-hosted, aw-baremetal]
+    timeout-minutes: 20
+    env:
+      ARTIFACT_NAME: aw-frontend-dist
+      AW_CONSOLE_DEPLOY_URL: https://console.aw.tekflox.com/api/deploy/aw-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deploy secret
+        run: |
+          if [ -z "${{ secrets.AW_FRONTEND_DEPLOY_TOKEN }}" ]; then
+            echo "::error::AW_FRONTEND_DEPLOY_TOKEN is required to publish static assets through aw-console."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+      - name: Build static assets
+        run: npm run build
+
+      - name: Upload static artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Deploy via aw-console webhook
+        env:
+          WEBHOOK_TOKEN: ${{ secrets.AW_FRONTEND_DEPLOY_TOKEN }}
+          GITHUB_TOKEN_FOR_ARTIFACT: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          payload="$(jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg artifact_name "$ARTIFACT_NAME" \
+            --arg github_token "$GITHUB_TOKEN_FOR_ARTIFACT" \
+            --arg sha "$GITHUB_SHA" \
+            '{repository:$repository,run_id:$run_id,artifact_name:$artifact_name,github_token:$github_token,sha:$sha}')"
+
+          response="$(curl -fsS \
+            -X POST "$AW_CONSOLE_DEPLOY_URL" \
+            -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload")"
+
+          echo "$response" | jq -e '.ok == true' >/dev/null
+
+      - name: Summary
+        run: |
+          {
+            echo "## aw-frontend static release"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| Artifact | \`$ARTIFACT_NAME\` |"
+            echo "| Deployed by | \`$AW_CONSOLE_DEPLOY_URL\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
