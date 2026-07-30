@@ -27,30 +27,26 @@ const API_BASE = '';
  * LogWindow but uses the tighter `p-1` padding the window header
  * already uses for Pop-out / Maximize / Close so the row stays uniform.
  *
- * After Start and Restart we also close+reopen the window: the iframe
- * components have a `if (ready) return;` guard inside their start-and-
- * poll effect, so once they've gone ready they NEVER re-poll on their
- * own.  Without the close+reopen, hitting Stop → Start would leave a
- * stale frame stuck on the dead container.  Stop intentionally leaves
- * the window in place so the user can see the status dot flip and
- * decide the next move.
+ * After Start and Restart we remount the iframe in place. Closing and
+ * reopening the parent window is fragile for managed app windows because
+ * their state is owned by App.jsx, while AppProxyWindow already has a
+ * reliable cross-origin reload path via iframeReloadKey.
  */
-function DockerControls({ componentKey, status, windowKey, onCloseWindow, onReopenWindow }) {
+function DockerControls({ componentKey, status, onReloadWindow }) {
   const [busy, setBusy] = useState(null);
 
   const isOff = status === 'off';
   const isRunning = status === 'running' || status === 'boot';
 
-  const reopen = () => {
-    onCloseWindow(windowKey);
-    setTimeout(() => onReopenWindow?.(windowKey), 200);
+  const reloadSoon = (delay = 600) => {
+    setTimeout(() => onReloadWindow?.(), delay);
   };
 
   const onStart = async () => {
     setBusy('start');
     try {
       await startComponent(componentKey).catch(() => {});
-      reopen();
+      reloadSoon(600);
     } finally {
       setTimeout(() => setBusy(null), 400);
     }
@@ -59,12 +55,8 @@ function DockerControls({ componentKey, status, windowKey, onCloseWindow, onReop
   const onRestart = async () => {
     setBusy('restart');
     try {
-      // Close immediately so the iframe doesn't keep hitting the
-      // container while it's being recreated, then reopen once the
-      // request settles. Polling inside the iframe handles the rest.
-      onCloseWindow(windowKey);
       await restartComponent(componentKey).catch(() => {});
-      setTimeout(() => onReopenWindow?.(windowKey), 800);
+      reloadSoon(800);
     } finally {
       setTimeout(() => setBusy(null), 600);
     }
@@ -546,7 +538,7 @@ function AppWindowIcon({ icon, label }) {
  *   windowKey      — the full window key ("app:{id}")
  *   componentMap   — live component status map from the parent WindowManager
  *   onCloseWindow  — close callback
- *   onReopenWindow — reopen/toggle callback (used by DockerControls)
+ *   onReopenWindow — reopen/toggle callback
  *   onMaximize     — maximize/restore callback
  *   maximizedKey   — currently maximized window key (for button label)
  *   bringToFront   — focus callback
@@ -689,9 +681,7 @@ function AppProxyWindow({
             <DockerControls
               componentKey={app.component}
               status={componentMap[app.component]?.status || 'off'}
-              windowKey={windowKey}
-              onCloseWindow={onCloseWindow}
-              onReopenWindow={onReopenWindow}
+              onReloadWindow={reloadIframe}
             />
           )}
           {/* Logs toggle — only for apps backed by a docker component.
@@ -1192,9 +1182,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   windowKey={key}
                   componentMap={componentMap}
                   onCloseWindow={onCloseWindow}
-                  onReopenWindow={() => {
-                    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-                  }}
+                  onReopenWindow={onReopenWindow}
                   onMaximize={onMaximize}
                   maximizedKey={maximizedKey}
                   bringToFront={() => bringToFront(key)}
@@ -1389,9 +1377,6 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                       <DockerControls
                         componentKey="docker:aw-hoppscotch"
                         status={componentMap['docker:aw-hoppscotch']?.status || 'off'}
-                        windowKey={key}
-                        onCloseWindow={onCloseWindow}
-                        onReopenWindow={onReopenWindow}
                       />
                       <button onClick={() => {
                         window.open(`${window.location.protocol}//apis.${window.location.host.replace(/^www\./, '')}/`, 'aw-hoppscotch', 'popup=1,width=1400,height=900');
