@@ -106,12 +106,18 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
     setSaving(true);
     setMessage(null);
     try {
-      const res = await apiFetch(`/api/apps/${encodeURIComponent(app.slug)}/config`, {
+      const slug = encodeURIComponent(app.slug);
+      const post = (url, body) => apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: values }),
+        body: JSON.stringify(body),
       });
-      const body = await res.json().catch(() => ({}));
+      let res = await post(`/api/apps/${slug}/config`, { config: values });
+      let body = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        res = await post(`/api/apps/${slug}/settings`, values);
+        body = await res.json().catch(() => ({}));
+      }
       if (!res.ok || body.error) {
         setMessage({ ok: false, text: body.error || `Save failed (${res.status})` });
       } else {

@@ -125,6 +125,31 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(document.getElementById('appcfg-window_height')).toHaveValue(900);
   });
 
+  it('falls back to the legacy app settings route when the framework config route is missing', async () => {
+    apiFetch
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })
+      .mockResolvedValueOnce({ status: 404, ok: false, json: () => Promise.reject(new Error('html 404')) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ok: true }) });
+
+    render(<AppConfigWindow app={GIT_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    fireEvent.change(document.getElementById('appcfg-github_token'), { target: { value: 'ghp_x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/apps/git/settings',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    expect(JSON.parse(apiFetch.mock.calls[1][1].body)).toMatchObject({
+      config: { auth_method: 'token', github_token: 'ghp_x' },
+    });
+    expect(JSON.parse(apiFetch.mock.calls[2][1].body)).toMatchObject({
+      auth_method: 'token',
+      github_token: 'ghp_x',
+    });
+  });
+
   it('shows the empty state for an app with no configurable settings', async () => {
     render(<AppConfigWindow app={{ slug: 'essentials', name: 'Essentials', version: '0.1.0', config_schema: {} }} onClose={() => {}} />);
     expect(await screen.findByText(/no configurable settings/i)).toBeInTheDocument();
