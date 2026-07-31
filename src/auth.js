@@ -77,7 +77,13 @@ export async function logout() {
 
 export async function apiFetch(url, options = {}) {
   const res = await fetch(url, { credentials: 'include', ...options });
-  if (res.status === 401) {
+  // A 401 from an app-proxied route (/api/apps/<slug>/...) reflects THAT
+  // app's own auth surface (e.g. mcp-gateway's admin/config also checks its
+  // own bearer token) — it does not mean the workspace session itself is
+  // invalid. Only a 401 from the framework's own API should force the whole
+  // dashboard into a logged-out state; otherwise opening one misbehaving
+  // app's settings panel wrongly logs the user out of everything.
+  if (res.status === 401 && !/\/api\/apps\//.test(url)) {
     window.dispatchEvent(new Event('aw-auth-failed'));
   }
   return res;

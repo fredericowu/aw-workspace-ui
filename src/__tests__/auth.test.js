@@ -23,6 +23,30 @@ describe('Auth module', () => {
     expect(url).toBe('/api/test');
   });
 
+  it('apiFetch fires aw-auth-failed on a 401 from the framework API', async () => {
+    fetch.mockResolvedValueOnce({ status: 401, ok: false, json: () => Promise.resolve({}) });
+    const { apiFetch } = await import('../auth');
+    const onFail = vi.fn();
+    window.addEventListener('aw-auth-failed', onFail);
+
+    await apiFetch('/api/tasks');
+
+    expect(onFail).toHaveBeenCalledTimes(1);
+    window.removeEventListener('aw-auth-failed', onFail);
+  });
+
+  it('apiFetch does NOT fire aw-auth-failed on a 401 from an app-proxied route', async () => {
+    fetch.mockResolvedValueOnce({ status: 401, ok: false, json: () => Promise.resolve({}) });
+    const { apiFetch } = await import('../auth');
+    const onFail = vi.fn();
+    window.addEventListener('aw-auth-failed', onFail);
+
+    await apiFetch('/api/apps/mcp-gateway/admin/config');
+
+    expect(onFail).not.toHaveBeenCalled();
+    window.removeEventListener('aw-auth-failed', onFail);
+  });
+
   it('logout uses legacy auth endpoint outside workspace hosts', async () => {
     vi.doMock('../apiBase', () => ({
       consoleLogoutUrl: () => null,
