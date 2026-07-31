@@ -75,15 +75,53 @@ export async function logout() {
   await fetch(centralLogout || '/api/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
+// A plain `fetch()` throws exactly this (TypeError, message "Failed to
+// fetch") when the connection drops before any response arrives — no HTTP
+// status is ever returned, so callers can't tell it apart from a real
+// failure without this check.
+function isDroppedConnectionError(e) {
+  return e instanceof TypeError && /fetch/i.test(String(e?.message || ''));
+}
+
+const APP_ROUTE_RE = /\/api\/apps\//;
+const APP_RETRY_ATTEMPTS = 3;
+const APP_RETRY_DELAY_MS = 500;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function apiFetch(url, options = {}) {
-  const res = await fetch(url, { credentials: 'include', ...options });
+  const isAppRoute = APP_ROUTE_RE.test(url);
+  let res;
+  let attempt = 0;
+  // Every /api/apps/<slug>/... request is tunneled through the BYOD
+  // workspace's own /link WebSocket (workspace_tunnel_proxy.py), which gets
+  // torn down and re-established any time aw-backend or the workspace
+  // container itself restarts/redeploys — an expected, recurring event, not
+  // an outage. A request in flight at that exact moment loses its response
+  // with no HTTP status at all (a bare "Failed to fetch"), even though the
+  // framework's own app actions (install/update/config save/uninstall) are
+  // idempotent by design (job-tracked or plain overwrites) — so retrying
+  // the SAME request a few times is safe and turns most of these into a
+  // half-second delay instead of a scary, misleading error.
+  while (true) {
+    try {
+      res = await fetch(url, { credentials: 'include', ...options });
+      break;
+    } catch (e) {
+      attempt += 1;
+      if (!isAppRoute || !isDroppedConnectionError(e) || attempt >= APP_RETRY_ATTEMPTS) throw e;
+      await sleep(APP_RETRY_DELAY_MS * attempt);
+    }
+  }
   // A 401 from an app-proxied route (/api/apps/<slug>/...) reflects THAT
   // app's own auth surface (e.g. mcp-gateway's admin/config also checks its
   // own bearer token) — it does not mean the workspace session itself is
   // invalid. Only a 401 from the framework's own API should force the whole
   // dashboard into a logged-out state; otherwise opening one misbehaving
   // app's settings panel wrongly logs the user out of everything.
-  if (res.status === 401 && !/\/api\/apps\//.test(url)) {
+  if (res.status === 401 && !isAppRoute) {
     window.dispatchEvent(new Event('aw-auth-failed'));
   }
   return res;

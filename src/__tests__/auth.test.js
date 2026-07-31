@@ -47,6 +47,48 @@ describe('Auth module', () => {
     window.removeEventListener('aw-auth-failed', onFail);
   });
 
+  it('apiFetch retries a dropped connection on an app-proxied route and succeeds', async () => {
+    vi.useFakeTimers();
+    fetch
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ status: 200, ok: true, json: () => Promise.resolve({ ok: true }) });
+    const { apiFetch } = await import('../auth');
+
+    const promise = apiFetch('/api/apps/mcp-gateway/admin/config');
+    await vi.runAllTimersAsync();
+    const res = await promise;
+
+    expect(res.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('apiFetch gives up retrying a dropped connection after a few attempts', async () => {
+    vi.useFakeTimers();
+    fetch
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const { apiFetch } = await import('../auth');
+
+    const promise = apiFetch('/api/apps/mcp-gateway/admin/config');
+    // Swallow the eventual rejection so it doesn't register as an unhandled
+    // one while the fake-timer-driven retries are still in flight.
+    promise.catch(() => {});
+    await vi.runAllTimersAsync();
+    await expect(promise).rejects.toThrow('Failed to fetch');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it('apiFetch does NOT retry a dropped connection on a non-app route', async () => {
+    fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const { apiFetch } = await import('../auth');
+
+    await expect(apiFetch('/api/tasks')).rejects.toThrow('Failed to fetch');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('logout uses legacy auth endpoint outside workspace hosts', async () => {
     vi.doMock('../apiBase', () => ({
       consoleLogoutUrl: () => null,
