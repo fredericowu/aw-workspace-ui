@@ -58,6 +58,36 @@ function WhatYouGetList({ title, items }) {
   );
 }
 
+// A plain `fetch()` throws exactly this (TypeError, message "Failed to
+// fetch") when the connection drops before any response arrives — the
+// BYOD tunnel does this to install/update requests that legitimately take
+// long enough to complete server-side (see appsApi.js's installApp/
+// updateApp comments). It's indistinguishable at the JS level from a real
+// network outage, so callers use this to decide whether it's worth
+// re-checking install-status before showing a hard failure.
+function isDroppedConnectionError(e) {
+  return e instanceof TypeError && /fetch/i.test(String(e.message || ''));
+}
+
+// Builds a rich, renderable error from a thrown value — a short summary
+// for the headline, plus a technical detail block (error name + message,
+// and a stack trace when the browser provides one) so a report back to us
+// ("it just says Failed to fetch") carries the actual exception instead of
+// a paraphrase.
+function describeActionError(action, appName, e) {
+  const name = e?.name || (e instanceof Error ? 'Error' : typeof e);
+  const message = String(e?.message ?? e);
+  const summary = appName ? `${action} of ${appName} failed: ${message}` : `${action} failed: ${message}`;
+  let detail = `${name}: ${message}`;
+  if (e?.stack) detail += `\n\n${e.stack}`;
+  const hint = isDroppedConnectionError(e)
+    ? 'This usually means the connection dropped before the response arrived, ' +
+      'not that the action failed — it can still complete in the background. ' +
+      'Already re-checked the current status below.'
+    : null;
+  return { summary, detail, hint };
+}
+
 // Poll GET /api/apps/{slug}/install-status until the background install
 // (kicked off by installApp) lands on installed or failed. `alive` is a ref
 // so a closed panel / unmounted component stops polling instead of leaking.
@@ -105,7 +135,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
     let mounted = true;
     fetchCatalog()
       .then((data) => { if (mounted) { setCatalog(data); writeCachedCatalog(data); } })
-      .catch((e) => { if (mounted) setError(String(e.message || e)); });
+      .catch((e) => { if (mounted) setError(describeActionError('Loading the catalog', '', e)); });
     return () => { mounted = false; };
   }, []);
 
@@ -148,7 +178,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
           notified.current.add(app_id);
           onInstalled?.(app);
         } else if (status === 'failed') {
-          setError(`Install of ${app.name} failed: ${jobError || 'unknown error'}`);
+          setError(describeActionError('Install', app.name, new Error(jobError || 'unknown error')));
         }
       };
       ws.onclose = () => { if (!closed) setTimeout(connect, 5000); };
@@ -171,7 +201,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
           setBusy((b) => ({ ...b, [app.id]: true }));
           pollInstallStatus(app.id, alive)
             .then(() => { if (alive.current && !notified.current.has(app.id)) { notified.current.add(app.id); onInstalled?.(app); } })
-            .catch((e) => { if (alive.current) setError(`Install of ${app.name} failed: ${String(e.message || e)}`); })
+            .catch((e) => { if (alive.current) setError(describeActionError('Install', app.name, e)); })
             .finally(() => { if (alive.current) setBusy((b) => ({ ...b, [app.id]: false })); });
         })
         .catch(() => { /* no job / never installed — nothing to resume */ });
@@ -185,14 +215,21 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
     setBusy((b) => ({ ...b, [app.id]: true }));
     setError(null);
     try {
-      await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
+      try {
+        await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
+      } catch (e) {
+        // The POST itself can be the request that gets dropped (not just the
+        // long-running install it kicks off) — fall through to the normal
+        // poll rather than assuming nothing started server-side.
+        if (!isDroppedConnectionError(e)) throw e;
+      }
       await pollInstallStatus(app.id, alive);
       if (alive.current && !notified.current.has(app.id)) {
         notified.current.add(app.id);
         onInstalled?.(app);
       }
     } catch (e) {
-      if (alive.current) setError(`Install of ${app.name} failed: ${String(e.message || e)}`);
+      if (alive.current) setError(describeActionError('Install', app.name, e));
     } finally {
       if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
     }
@@ -207,14 +244,20 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
     setBusy((b) => ({ ...b, [app.id]: true }));
     setError(null);
     try {
-      await updateApp(app.id);
+      try {
+        await updateApp(app.id);
+      } catch (e) {
+        // Same tunnel-drop as install — the update may have kicked off
+        // server-side even though this response never made it back.
+        if (!isDroppedConnectionError(e)) throw e;
+      }
       await pollInstallStatus(app.id, alive);
       if (alive.current && !notified.current.has(app.id)) {
         notified.current.add(app.id);
         onInstalled?.(app);
       }
     } catch (e) {
-      if (alive.current) setError(`Update of ${app.name} failed: ${String(e.message || e)}`);
+      if (alive.current) setError(describeActionError('Update', app.name, e));
     } finally {
       if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
     }
@@ -227,7 +270,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
     try {
       await onUninstall?.({ slug: app.id, name: app.name, id: app.id });
     } catch (e) {
-      if (alive.current) setError(`Uninstall of ${app.name} failed: ${String(e.message || e)}`);
+      if (alive.current) setError(describeActionError('Uninstall', app.name, e));
     } finally {
       if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
     }
@@ -423,7 +466,16 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
               <h4 id="appmkt-error-title">Action failed</h4>
               <button type="button" className="appmkt-error-close" onClick={dismissError} aria-label="Close error">✕</button>
             </div>
-            <p className="appmkt-error" id="appmkt-error" data-testid="appmkt-error">{error}</p>
+            <p className="appmkt-error" id="appmkt-error" data-testid="appmkt-error">{error.summary}</p>
+            {error.hint && (
+              <p className="appmkt-error-hint" data-testid="appmkt-error-hint">{error.hint}</p>
+            )}
+            {error.detail && (
+              <details className="appmkt-error-detail" data-testid="appmkt-error-detail">
+                <summary>Technical details</summary>
+                <pre>{error.detail}</pre>
+              </details>
+            )}
             <div className="appmkt-error-actions">
               <button type="button" className="appmkt-error-ok" onClick={dismissError}>Close</button>
             </div>

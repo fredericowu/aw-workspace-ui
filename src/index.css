@@ -711,6 +711,21 @@ button, [role="button"] { cursor: pointer; }
 .appmkt-error-modal .appmkt-error {
   margin: 0; padding: 10px 0 0; line-height: 1.45; color: #fecaca; overflow-wrap: anywhere;
 }
+.appmkt-error-hint {
+  margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45;
+  color: var(--color-text-secondary); background: rgba(255,255,255,.04);
+}
+.appmkt-error-detail { margin-top: 12px; }
+.appmkt-error-detail summary {
+  cursor: pointer; font-size: 12px; font-weight: 700; color: var(--color-text-muted); user-select: none;
+}
+.appmkt-error-detail summary:hover { color: var(--color-text-secondary); }
+.appmkt-error-detail pre {
+  margin: 8px 0 0; padding: 10px 11px; border-radius: 8px; border: 1px solid var(--color-border);
+  background: var(--color-bg-primary); color: var(--color-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto;
+}
 .appmkt-error-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .appmkt-error-ok {
   padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;

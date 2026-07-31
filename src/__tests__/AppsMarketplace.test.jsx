@@ -107,6 +107,53 @@ describe('AppsMarketplace', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog', { name: 'Action failed' })).not.toBeInTheDocument());
   });
 
+  it('recovers from a dropped "Failed to fetch" if the update actually succeeded server-side', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    updateApp.mockRejectedValue(new TypeError('Failed to fetch'));
+    // Keyed by slug, not call order — the mount-time resume-probe also calls
+    // getInstallStatus (for 'git', not installed in this test) before the
+    // update button is ever clicked, and would otherwise consume a plain
+    // mockResolvedValueOnce/mockRejectedValueOnce meant for 'essentials'.
+    getInstallStatus.mockImplementation((slug) => {
+      if (slug !== 'essentials') return Promise.reject(new Error('no such job'));
+      return Promise.resolve({ app_id: 'essentials', status: 'installed' });
+    });
+    const onInstalled = vi.fn();
+
+    render(<AppsMarketplace
+      installedApps={[{ slug: 'essentials', version: '0.0.9' }]}
+      onInstalled={onInstalled}
+      onClose={() => {}}
+    />);
+
+    const updateButton = await screen.findByRole('button', { name: 'Update to v0.1.0' });
+    fireEvent.click(updateButton);
+
+    // No error modal — the dropped POST didn't actually fail, so it's
+    // treated as success once the recovery poll confirms "installed".
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'essentials' })));
+    expect(screen.queryByRole('alertdialog', { name: 'Action failed' })).not.toBeInTheDocument();
+  });
+
+  it('shows a detailed, dismissable error (with hint) when a dropped connection genuinely did not recover', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    updateApp.mockRejectedValue(new TypeError('Failed to fetch'));
+    getInstallStatus.mockImplementation((slug) => {
+      if (slug !== 'essentials') return Promise.reject(new Error('no such job'));
+      return Promise.reject(new TypeError('Failed to fetch'));
+    });
+
+    render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.0.9' }]} onInstalled={vi.fn()} onClose={() => {}} />);
+
+    const updateButton = await screen.findByRole('button', { name: 'Update to v0.1.0' });
+    fireEvent.click(updateButton);
+
+    const modal = await screen.findByRole('alertdialog', { name: 'Action failed' });
+    expect(within(modal).getByTestId('appmkt-error')).toHaveTextContent('Failed to fetch');
+    expect(within(modal).getByTestId('appmkt-error-hint')).toHaveTextContent('connection dropped');
+    expect(within(modal).getByTestId('appmkt-error-detail')).toHaveTextContent('TypeError: Failed to fetch');
+  });
+
   it('resumes watching an install still in progress after a reload (polling fallback)', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     getInstallStatus.mockImplementation((slug) => {
