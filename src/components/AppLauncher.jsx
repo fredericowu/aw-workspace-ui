@@ -297,13 +297,18 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   // interactive window), Services (legacy aw.json workspace_apps, each
   // backed by a docker component — same "component window" the workspace
   // has always opened for these), Runnables (framework command-only apps,
-  // e.g. CLIs — nothing to open, no service running).
-  const uiApps = (installed || []).filter((a) => !!a.has_windows);
-  const runnableApps = (installed || []).filter((a) => !a.has_windows);
+  // e.g. CLIs — nothing to open, no service running), Tools (a manifest
+  // opts in via aw-app.json's top-level "category": "Tools" — pulled out of
+  // the UI/Runnables split regardless of has_windows).
+  const toolsApps = (installed || []).filter((a) => a.category === 'Tools');
+  const toolsIds = new Set(toolsApps.map((a) => a.slug));
+  const uiApps = (installed || []).filter((a) => !!a.has_windows && !toolsIds.has(a.slug));
+  const runnableApps = (installed || []).filter((a) => !a.has_windows && !toolsIds.has(a.slug));
   const CATEGORIES = [
     { key: 'ui', label: 'UI', count: uiApps.length },
     { key: 'services', label: 'Services', count: apps.length },
     { key: 'runnables', label: 'Runnables', count: runnableApps.length },
+    { key: 'tools', label: 'Tools', count: toolsApps.length },
   ];
   const [category, setCategory] = useState('ui');
 
@@ -372,7 +377,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
         {category === 'ui' && (
           <section className="applt-section">
             <InstalledApps
-              apps={installed}
+              apps={installed === null ? null : uiApps}
               busy={rowBusy}
               catalogVersions={catalogVersions}
               onOpen={onOpenInstalledApp}
@@ -405,7 +410,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
         {category === 'runnables' && (
           <section className="applt-section">
             <InstalledApps
-              apps={installed}
+              apps={installed === null ? null : runnableApps}
               busy={rowBusy}
               catalogVersions={catalogVersions}
               onOpen={onOpenInstalledApp}
@@ -414,6 +419,21 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
               onUninstall={onUninstall}
               onUpdate={onUpdate}
               only="commands"
+            />
+          </section>
+        )}
+
+        {category === 'tools' && (
+          <section className="applt-section">
+            <InstalledApps
+              apps={installed === null ? null : toolsApps}
+              busy={rowBusy}
+              catalogVersions={catalogVersions}
+              onOpen={onOpenInstalledApp}
+              onConfig={setConfigApp}
+              onVersion={setVersionApp}
+              onUninstall={onUninstall}
+              onUpdate={onUpdate}
             />
           </section>
         )}

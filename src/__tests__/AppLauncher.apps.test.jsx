@@ -65,6 +65,28 @@ describe('AppLauncher — F5 Apps view', () => {
     expect(screen.queryByRole('button', { name: 'Configure Essentials' })).toBeNull();
   });
 
+  it('an app with category "Tools" shows under the Tools tab, not UI or Runnables', async () => {
+    const withTools = [
+      ...INSTALLED,
+      { slug: 'mcp-tools', name: 'MCP Tools', version: '0.3.1', icon: 'plug', signed: true,
+        has_config: true, has_windows: true, category: 'Tools', config_schema: {}, frontend: {} },
+      { slug: 'devctl', name: 'DevCtl', version: '0.3.0', icon: 'monitor', signed: true,
+        has_config: false, has_windows: true, category: 'Tools', config_schema: {}, frontend: {} },
+    ];
+    listInstalledApps.mockResolvedValue(withTools);
+    renderLauncher();
+
+    // Not under UI (default tab) despite has_windows: true.
+    await screen.findByText('Git + GitHub CLI');
+    expect(screen.queryByText('MCP Tools')).toBeNull();
+    expect(screen.queryByText('DevCtl')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Tools/ }));
+    expect(await screen.findByText('MCP Tools')).toBeInTheDocument();
+    expect(screen.getByText('DevCtl')).toBeInTheDocument();
+    expect(screen.queryByText('Git + GitHub CLI')).toBeNull();
+  });
+
   it('UI tab shows the visual (has_windows) card grid; Runnables tab shows the command-only list', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     renderLauncher();
