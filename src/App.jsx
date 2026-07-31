@@ -104,9 +104,13 @@ export default function App() {
     let cancelled = false;
     const refreshAuth = () => {
       getAuthStatus().then(({ authenticated }) => {
-        if (!cancelled) {
-          setAuthState(authenticated ? 'authenticated' : 'unauthenticated');
-        }
+        if (cancelled) return;
+        // `null` means the check itself couldn't complete (e.g. the BYOD
+        // tunnel is mid-restart) — not a real logout. Keep the current
+        // state rather than bouncing the user to the login screen; the
+        // next focus/visibility recheck will retry.
+        if (authenticated === null) return;
+        setAuthState(authenticated ? 'authenticated' : 'unauthenticated');
       });
     };
     const onVisibility = () => {

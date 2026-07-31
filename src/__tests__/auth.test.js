@@ -89,6 +89,76 @@ describe('Auth module', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('getAuthStatus returns the parsed body on a healthy response', async () => {
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, mode: 'password' }) });
+    const { getAuthStatus } = await import('../auth');
+
+    const result = await getAuthStatus();
+
+    expect(result).toEqual({ authenticated: true, mode: 'password' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('getAuthStatus returns authenticated:false on a real 401/403', async () => {
+    fetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) });
+    const { getAuthStatus } = await import('../auth');
+
+    const result = await getAuthStatus();
+
+    expect(result).toEqual({ authenticated: false, mode: 'password' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('getAuthStatus retries a 502 from the BYOD tunnel and succeeds', async () => {
+    vi.useFakeTimers();
+    fetch
+      .mockResolvedValueOnce({ ok: false, status: 502, json: () => Promise.resolve({}) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, mode: 'password' }) });
+    const { getAuthStatus } = await import('../auth');
+
+    const promise = getAuthStatus();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result).toEqual({ authenticated: true, mode: 'password' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('getAuthStatus returns authenticated:null (not false) after exhausting retries on 5xx', async () => {
+    vi.useFakeTimers();
+    fetch
+      .mockResolvedValueOnce({ ok: false, status: 502, json: () => Promise.resolve({}) })
+      .mockResolvedValueOnce({ ok: false, status: 502, json: () => Promise.resolve({}) })
+      .mockResolvedValueOnce({ ok: false, status: 502, json: () => Promise.resolve({}) });
+    const { getAuthStatus } = await import('../auth');
+
+    const promise = getAuthStatus();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.authenticated).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it('getAuthStatus returns authenticated:null (not false) after a dropped connection', async () => {
+    vi.useFakeTimers();
+    fetch
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const { getAuthStatus } = await import('../auth');
+
+    const promise = getAuthStatus();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.authenticated).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
   it('logout uses legacy auth endpoint outside workspace hosts', async () => {
     vi.doMock('../apiBase', () => ({
       consoleLogoutUrl: () => null,

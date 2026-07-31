@@ -19,15 +19,57 @@ export function getPopupView() {
   return _popupView;
 }
 
-/** Check auth state with the server. Returns {authenticated, mode}. */
+// A plain `fetch()` throws exactly this (TypeError, message "Failed to
+// fetch") when the connection drops before any response arrives — no HTTP
+// status is ever returned, so callers can't tell it apart from a real
+// failure without this check.
+function isDroppedConnectionError(e) {
+  return e instanceof TypeError && /fetch/i.test(String(e?.message || ''));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const AUTH_STATUS_RETRY_ATTEMPTS = 3;
+const AUTH_STATUS_RETRY_DELAY_MS = 500;
+
+/** Check auth state with the server. Returns {authenticated, mode}.
+ *  `authenticated` is `null` when the check itself couldn't be completed
+ *  (server unreachable) — distinct from a real `false`, which only comes
+ *  from a reachable server explicitly saying "not logged in". On a
+ *  workspace SPA host this call is tunneled through the BYOD /link bridge
+ *  (see apiBase.js), which returns a 502 "workspace offline" any time
+ *  aw-backend or the workspace container itself restarts/redeploys — an
+ *  expected, recurring event, not a real logout. Retrying (like apiFetch
+ *  already does for /api/apps/* routes) turns most of these into a
+ *  half-second delay instead of wrongly kicking the user to the login
+ *  screen. Callers must treat `null` as "keep current state", not as
+ *  unauthenticated. */
 export async function getAuthStatus() {
-  try {
-    const res = await fetch('/api/auth/status', { credentials: 'include' });
-    if (res.ok) return await res.json();
-  } catch {
-    // network error
+  let attempt = 0;
+  while (true) {
+    try {
+      const res = await fetch('/api/auth/status', { credentials: 'include' });
+      if (res.ok) return await res.json();
+      if (res.status >= 500) {
+        attempt += 1;
+        if (attempt < AUTH_STATUS_RETRY_ATTEMPTS) {
+          await sleep(AUTH_STATUS_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        return { authenticated: null, mode: 'password' };
+      }
+      return { authenticated: false, mode: 'password' };
+    } catch (e) {
+      attempt += 1;
+      if (isDroppedConnectionError(e) && attempt < AUTH_STATUS_RETRY_ATTEMPTS) {
+        await sleep(AUTH_STATUS_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      return { authenticated: null, mode: 'password' };
+    }
   }
-  return { authenticated: false, mode: 'password' };
 }
 
 /** Login with password. Returns true on success, error string on failure. */
@@ -75,21 +117,9 @@ export async function logout() {
   await fetch(centralLogout || '/api/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
-// A plain `fetch()` throws exactly this (TypeError, message "Failed to
-// fetch") when the connection drops before any response arrives — no HTTP
-// status is ever returned, so callers can't tell it apart from a real
-// failure without this check.
-function isDroppedConnectionError(e) {
-  return e instanceof TypeError && /fetch/i.test(String(e?.message || ''));
-}
-
 const APP_ROUTE_RE = /\/api\/apps\//;
 const APP_RETRY_ATTEMPTS = 3;
 const APP_RETRY_DELAY_MS = 500;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export async function apiFetch(url, options = {}) {
   const isAppRoute = APP_ROUTE_RE.test(url);
