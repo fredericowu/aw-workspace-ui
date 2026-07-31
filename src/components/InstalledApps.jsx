@@ -91,7 +91,10 @@ function InstalledActions({ app, busy, hasUpdate, catalogVersion, onConfig, onVe
 // doesn't expose a running/process-state signal for framework apps the way
 // the legacy workspace_apps + components status does — TODO once the
 // runtime surfaces that, wire it in here instead of inventing one.
-function InstalledAppCard({ app, busy, hasUpdate, catalogVersion, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
+// Gear-only, top-right corner — pin/rollback (history/clock) and uninstall
+// (trash) don't belong on this tile view; both are still reachable via
+// Settings → More → the Marketplace app detail (Other Releases / Uninstall).
+function InstalledAppCard({ app, busy, hasUpdate, catalogVersion, onOpen, onConfig, onUpdate }) {
   return (
     <div
       className="applt-card applt-installed-card"
@@ -108,6 +111,20 @@ function InstalledAppCard({ app, busy, hasUpdate, catalogVersion, onOpen, onConf
           <span className="applt-dot" />
           <span className="applt-dot" />
         </div>
+        {app.has_config && (
+          <button
+            type="button"
+            className="applt-card-gear"
+            onClick={(e) => { e.stopPropagation(); onConfig(app); }}
+            aria-label={`Configure ${app.name}`}
+            title="Settings"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        )}
         <div className="applt-wash" />
         <div className="applt-glyph">
           <AppIcon icon={app.icon} label={app.name} size={40} />
@@ -124,11 +141,17 @@ function InstalledAppCard({ app, busy, hasUpdate, catalogVersion, onOpen, onConf
           </span>
           <span className="applt-state">{onOpen ? 'Tap to launch' : `v${app.version}`}</span>
         </div>
+        {hasUpdate && (
+          <button
+            type="button"
+            className="applt-update applt-card-update"
+            onClick={(e) => { e.stopPropagation(); onUpdate(app); }}
+            disabled={!!busy?.[app.slug]}
+            aria-label={`Update ${app.name}`}
+            title={`Update to v${catalogVersion}`}
+          >{busy?.[app.slug] ? 'Updating…' : 'Update'}</button>
+        )}
       </div>
-      <InstalledActions
-        app={app} busy={busy} hasUpdate={hasUpdate} catalogVersion={catalogVersion}
-        onConfig={onConfig} onVersion={onVersion} onUninstall={onUninstall} onUpdate={onUpdate}
-      />
     </div>
   );
 }
@@ -166,7 +189,7 @@ export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onC
             return (
               <InstalledAppCard
                 key={app.slug} app={app} busy={busy} hasUpdate={hasUpdate} catalogVersion={catalogVersion}
-                onOpen={onOpen} onConfig={onConfig} onVersion={onVersion} onUninstall={onUninstall} onUpdate={onUpdate}
+                onOpen={onOpen} onConfig={onConfig} onUpdate={onUpdate}
               />
             );
           })}

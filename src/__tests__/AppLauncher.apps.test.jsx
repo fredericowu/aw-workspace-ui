@@ -133,13 +133,16 @@ describe('AppLauncher — F5 Apps view', () => {
   });
 
   it('uninstall calls DELETE and refreshes the installed list', async () => {
-    listInstalledApps.mockResolvedValueOnce(INSTALLED).mockResolvedValueOnce([INSTALLED[1]]);
+    // Uninstall only remains on the Runnables (command-only) list rows — the
+    // UI tab's card view dropped it (gear-only, top-right corner).
+    listInstalledApps.mockResolvedValueOnce(INSTALLED).mockResolvedValueOnce([INSTALLED[0]]);
     uninstallApp.mockResolvedValue({ uninstalled: true });
     renderLauncher();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall Git + GitHub CLI' }));
-    await waitFor(() => expect(uninstallApp).toHaveBeenCalledWith('git'));
-    await waitFor(() => expect(screen.queryByText('Git + GitHub CLI')).toBeNull());
+    fireEvent.click(await screen.findByRole('tab', { name: /Runnables/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall Essentials' }));
+    await waitFor(() => expect(uninstallApp).toHaveBeenCalledWith('essentials'));
+    await waitFor(() => expect(screen.queryByText('Essentials')).toBeNull());
   });
 
   it('Install My Apps triggers the reconcile flow', async () => {

@@ -437,6 +437,16 @@ button, [role="button"] { cursor: pointer; }
 }
 .applt-dot { width: 7px; height: 7px; border-radius: 999px; background: rgba(255,255,255,.18); }
 
+.applt-card-gear {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; color: rgba(255,255,255,.7);
+  background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.12); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.applt-card-gear:hover { background: rgba(0,0,0,.55); color: #fff; }
+.applt-card-update { flex-shrink: 0; }
+
 .applt-wash {
   position: absolute;
   inset: 0;
