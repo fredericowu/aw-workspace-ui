@@ -337,7 +337,10 @@ button, [role="button"] { cursor: pointer; }
 
 .applt-stage {
   width: min(1200px, 94vw);
-  max-height: 88vh;
+  /* Fixed height (not max-height) — switching category tabs or toggling the
+     error banner used to resize the panel and shove the buttons around
+     under the cursor. Content scrolls internally instead. */
+  height: 80vh;
   overflow-y: auto;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
