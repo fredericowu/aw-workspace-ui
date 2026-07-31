@@ -297,9 +297,9 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
             <h2 className="applt-title">
               Apps
             </h2>
-            <p className="applt-sub">
-              {apps.length ? `${runningCount} running · ${apps.length} available` : 'Install apps from the Marketplace'}
-            </p>
+            {apps.length > 0 && (
+              <p className="applt-sub">{`${runningCount} running · ${apps.length} available`}</p>
+            )}
           </div>
           <div className="applt-head-actions">
             <button
@@ -347,10 +347,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
 
         {/* Legacy aw.json workspace_apps live-tile grid. */}
         <section className="applt-section">
-          <h3 className="applt-section-title">Workspace apps</h3>
-          {apps.length === 0 ? (
-            <p className="applt-empty">No apps registered yet.</p>
-          ) : (
+          {apps.length > 0 && (
             <div className="applt-grid">
               {apps.map((app, i) => (
                 <AppCard key={app.id} app={app} index={i} onOpen={() => onOpenApp(app.id)} />
