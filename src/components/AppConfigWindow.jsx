@@ -95,6 +95,12 @@ export default function AppConfigWindow({ app, onClose, onSaved, onMore }) {
       if (spec.default !== undefined) init[key] = spec.default;
     }
     Object.assign(init, app?.config || {});
+    // A locked field (e.g. "public" on a non-standalone managed app) always
+    // reads as its default — stale persisted config from before the lock
+    // can't override what the disabled toggle shows.
+    for (const [key, spec] of Object.entries(props)) {
+      if (spec['x-disabled']) init[key] = spec.default;
+    }
     return init;
   });
   const [saving, setSaving] = useState(false);
@@ -180,8 +186,10 @@ export default function AppConfigWindow({ app, onClose, onSaved, onMore }) {
                             id={id}
                             role="switch"
                             aria-checked={!!values[key]}
-                            className={`appcfg-switch ${values[key] ? 'is-on' : ''}`}
-                            onClick={() => setValue(key, !values[key])}
+                            disabled={!!spec['x-disabled']}
+                            title={spec['x-disabled'] ? spec.description : undefined}
+                            className={`appcfg-switch ${values[key] ? 'is-on' : ''} ${spec['x-disabled'] ? 'is-locked' : ''}`}
+                            onClick={() => { if (!spec['x-disabled']) setValue(key, !values[key]); }}
                           >
                             <span />
                           </button>

@@ -100,6 +100,38 @@ describe('AppConfigWindow — schema-driven config window', () => {
     });
   });
 
+  it('locks the "Public" toggle true/disabled for a non-standalone managed app (x-disabled)', async () => {
+    apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    render(<AppConfigWindow app={{
+      slug: 'notes',
+      name: 'Notes',
+      version: '1.0.0',
+      managed_app: true,
+      // Stale persisted config from before this app was locked — the
+      // disabled toggle must not honor it.
+      config: { auto_start: true, auth_required: true, public: false },
+      config_schema: {
+        type: 'object',
+        properties: {
+          auto_start: { type: 'boolean', title: 'Auto-start', default: true },
+          auth_required: { type: 'boolean', title: 'Authentication required', default: true },
+          public: {
+            type: 'boolean', title: 'Public', default: true, 'x-disabled': true,
+            description: "This app has no standalone process/subdomain of its own.",
+          },
+        },
+      },
+    }} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const publicSwitch = screen.getByRole('switch', { name: 'Public' });
+    expect(publicSwitch).toHaveAttribute('aria-checked', 'true');
+    expect(publicSwitch).toBeDisabled();
+
+    fireEvent.click(publicSwitch);
+    expect(publicSwitch).toHaveAttribute('aria-checked', 'true'); // click is a no-op while locked
+  });
+
   it('adds managed-app toggles in the app settings modal when the backend schema only has app fields', async () => {
     apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
     render(<AppConfigWindow app={{
