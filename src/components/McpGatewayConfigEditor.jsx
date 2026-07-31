@@ -11,6 +11,11 @@ function sourceLabel(source) {
   return source.app ? `scanned: ${source.app}` : 'scanned';
 }
 
+function maskToken(token) {
+  if (!token) return '';
+  return '•'.repeat(Math.min(token.length, 40));
+}
+
 export default function McpGatewayConfigEditor({ onSaved }) {
   const [data, setData] = useState(null);
   const [customText, setCustomText] = useState(pretty({ mcpServers: {} }));
@@ -18,6 +23,8 @@ export default function McpGatewayConfigEditor({ onSaved }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [tokenVisible, setTokenVisible] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   const finalServers = data?.final?.mcpServers || {};
   const sources = data?.sources || {};
@@ -71,6 +78,18 @@ export default function McpGatewayConfigEditor({ onSaved }) {
     }
   };
 
+  const copyToken = async () => {
+    if (!data?.token) return;
+    try {
+      await navigator.clipboard.writeText(data.token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 1500);
+    } catch {
+      // Clipboard API unavailable (e.g. non-secure context) — silently no-op,
+      // the reveal toggle still lets the user select+copy manually.
+    }
+  };
+
   return (
     <section className="mcpgw" data-testid="mcpgw-editor">
       <div className="mcpgw-head">
@@ -90,6 +109,37 @@ export default function McpGatewayConfigEditor({ onSaved }) {
           {message && (
             <div className={`mcpgw-msg ${message.ok ? 'is-ok' : 'is-err'}`} data-testid="mcpgw-msg">
               {message.text}
+            </div>
+          )}
+
+          {data?.token && (
+            <div className="mcpgw-token" data-testid="mcpgw-token">
+              <div className="mcpgw-token-head">
+                <span className="mcpgw-token-label">Gateway token</span>
+                <span className="mcpgw-token-hint">Bearer token for /mcp and /link-tokens — treat as a secret</span>
+              </div>
+              <div className="mcpgw-token-row">
+                <code className="mcpgw-token-value" data-testid="mcpgw-token-value">
+                  {tokenVisible ? data.token : maskToken(data.token)}
+                </code>
+                <button
+                  type="button"
+                  className="mcpgw-token-btn"
+                  onClick={() => setTokenVisible((v) => !v)}
+                  aria-label={tokenVisible ? 'Hide gateway token' : 'Reveal gateway token'}
+                  data-testid="mcpgw-token-toggle"
+                >
+                  {tokenVisible ? 'Hide' : 'Show'}
+                </button>
+                <button
+                  type="button"
+                  className="mcpgw-token-btn"
+                  onClick={copyToken}
+                  data-testid="mcpgw-token-copy"
+                >
+                  {tokenCopied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
             </div>
           )}
 
