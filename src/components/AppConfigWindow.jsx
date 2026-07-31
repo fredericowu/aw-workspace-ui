@@ -50,7 +50,7 @@ function isManagedApp(app) {
   return !!(app?.managed_app || app?.tier === 'container');
 }
 
-export default function AppConfigWindow({ app, onClose, onSaved }) {
+export default function AppConfigWindow({ app, onClose, onSaved, onMore }) {
   const isMcpGateway = app?.slug === 'mcp-gateway';
   const props = useMemo(() => {
     const appProps = app?.config_schema?.properties || {};
@@ -141,7 +141,14 @@ export default function AppConfigWindow({ app, onClose, onSaved }) {
             <h3 className="appcfg-title">{app.name} settings</h3>
             <p className="appcfg-sub">{app.slug} · v{app.version}</p>
           </div>
-          <button type="button" className="appcfg-close" onClick={onClose} aria-label="Close">✕</button>
+          <div className="appcfg-head-actions">
+            {onMore && (
+              <button type="button" className="appcfg-more" onClick={onMore}>
+                More
+              </button>
+            )}
+            <button type="button" className="appcfg-close" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </header>
 
         {resolving ? (

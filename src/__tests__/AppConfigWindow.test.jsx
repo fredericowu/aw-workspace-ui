@@ -214,6 +214,20 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(await screen.findByText(/no configurable settings/i)).toBeInTheDocument();
   });
 
+  it('renders a "More" button when onMore is provided, and calls it with no args', async () => {
+    const onMore = vi.fn();
+    render(<AppConfigWindow app={GIT_APP} onClose={() => {}} onMore={onMore} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(onMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the "More" button when onMore is not provided', async () => {
+    render(<AppConfigWindow app={GIT_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  });
+
   it('shows a spinner instead of the empty state while resolving whether the app has a settings window', () => {
     // Regression: the panel used to render the fields.length===0 "no
     // configurable settings" message immediately, then pop to the real

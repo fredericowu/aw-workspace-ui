@@ -128,6 +128,10 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   const [installedError, setInstalledError] = useState(null);
   const [rowBusy, setRowBusy] = useState({});
   const [showMarketplace, setShowMarketplace] = useState(false);
+  // Slug to pre-select in the Marketplace's detail view — set when "More" is
+  // clicked from an app's settings window, so the Marketplace opens straight
+  // to that app's listing instead of the catalog grid.
+  const [marketplaceAppId, setMarketplaceAppId] = useState(null);
   const [configApp, setConfigApp] = useState(null);
   const [versionApp, setVersionApp] = useState(null);
   const [reconciling, setReconciling] = useState(false);
@@ -421,7 +425,8 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
           installedApps={installed || []}
           onInstalled={onInstalled}
           onUninstall={onMarketplaceUninstall}
-          onClose={() => setShowMarketplace(false)}
+          onClose={() => { setShowMarketplace(false); setMarketplaceAppId(null); }}
+          initialAppId={marketplaceAppId}
         />
       )}
       {configApp && (
@@ -433,6 +438,11 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
             // flag a pending reload if this app's settings can change nav/slot
             // contributions (see ../apps/uiRefresh), same as a fresh install.
             if (configApp?.requires_ui_refresh) markUiRefreshNeeded();
+          }}
+          onMore={() => {
+            setMarketplaceAppId(configApp.slug);
+            setShowMarketplace(true);
+            setConfigApp(null);
           }}
         />
       )}

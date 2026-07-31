@@ -86,6 +86,23 @@ describe('AppLauncher — F5 Apps view', () => {
     expect(await screen.findByRole('dialog', { name: /settings/i })).toBeInTheDocument();
   });
 
+  it('"More" in the config window closes settings and opens the Marketplace on that app', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    fetchCatalog.mockResolvedValue({
+      apps: [{ id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch', repo: 'x/git', ref: 'main', has_config: true }],
+    });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Git + GitHub CLI' }));
+    await screen.findByRole('dialog', { name: /settings/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'More' }));
+
+    expect(screen.queryByRole('dialog', { name: /settings/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Marketplace' })).toBeInTheDocument();
+    // Detail view (not the catalog list) — "← Back" only renders there.
+    expect(await screen.findByRole('button', { name: '← Back' })).toBeInTheDocument();
+  });
+
   it('Marketplace button opens the marketplace panel with the catalog', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     fetchCatalog.mockResolvedValue({ apps: [{ id: 'notes', name: 'Notes', description: 'notes app', icon: 'notebook', repo: 'x/notes', ref: 'main', has_config: false }] });

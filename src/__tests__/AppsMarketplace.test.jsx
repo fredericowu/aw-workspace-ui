@@ -232,6 +232,20 @@ describe('AppsMarketplace', () => {
     expect(screen.getByText('Essentials')).toBeInTheDocument();
   });
 
+  it('opens straight to the detail view when initialAppId is set (the settings-window "More" flow)', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(
+      <AppsMarketplace
+        installedApps={[{ slug: 'essentials', version: '0.1.0' }]}
+        onInstalled={vi.fn()}
+        onClose={() => {}}
+        initialAppId="essentials"
+      />,
+    );
+    expect(await screen.findByText('What you get')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Essentials' })).toBeInTheDocument();
+  });
+
   it('shows Uninstall in the detail view for an already-installed app', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);

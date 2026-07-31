@@ -663,6 +663,12 @@ button, [role="button"] { cursor: pointer; }
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .appmkt-close:hover, .appcfg-close:hover { background: rgba(245,166,35,.15); color: var(--color-accent); }
+.appcfg-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.appcfg-more {
+  padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff;
+  background: #3b82f6; border: 1px solid #3b82f6; cursor: pointer; transition: background .12s;
+}
+.appcfg-more:hover { background: #2563eb; }
 .appmkt-search {
   width: 100%; box-sizing: border-box; margin-bottom: 12px; padding: 8px 12px; font-size: 13px;
   border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-secondary);

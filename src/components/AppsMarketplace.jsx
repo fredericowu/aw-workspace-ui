@@ -79,7 +79,7 @@ export function pollInstallStatus(appId, alive) {
   });
 }
 
-export default function AppsMarketplace({ installedApps, onInstalled, onUninstall, onClose }) {
+export default function AppsMarketplace({ installedApps, onInstalled, onUninstall, onClose, initialAppId = null }) {
   // Seeded from the last-known cached catalog (stale-while-revalidate, same
   // cache AppLauncher writes) so opening the Marketplace panel paints the
   // catalog immediately instead of a blank panel while GET
@@ -89,7 +89,9 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState({}); // slug -> true while installing
   const [query, setQuery] = useState('');
-  const [selectedApp, setSelectedApp] = useState(null);
+  // Pre-selects a catalog app's detail view — e.g. the "More" button on an
+  // installed app's settings window jumps straight here instead of the list.
+  const [selectedApp, setSelectedApp] = useState(initialAppId);
   const alive = useRef(true);
   const errorDialogRef = useRef(null);
 
