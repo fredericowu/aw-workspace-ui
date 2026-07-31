@@ -87,6 +87,23 @@ describe('AppLauncher — F5 Apps view', () => {
     expect(screen.queryByText('Git + GitHub CLI')).toBeNull();
   });
 
+  it('a framework app with category "Service" (singular, as aw-app-proxy ships it) shows under Services', async () => {
+    const withService = [
+      ...INSTALLED,
+      { slug: 'proxy', name: 'AW Proxy', version: '0.1.0', icon: 'shield', signed: true,
+        has_config: true, has_windows: true, category: 'Service', config_schema: {}, frontend: {} },
+    ];
+    listInstalledApps.mockResolvedValue(withService);
+    renderLauncher();
+
+    // Not under UI (default tab) despite has_windows: true.
+    await screen.findByText('Git + GitHub CLI');
+    expect(screen.queryByText('AW Proxy')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Services/ }));
+    expect(await screen.findByText('AW Proxy')).toBeInTheDocument();
+  });
+
   it('UI tab shows the visual (has_windows) card grid; Runnables tab shows the command-only list', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     renderLauncher();

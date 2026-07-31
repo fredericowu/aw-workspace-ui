@@ -296,17 +296,23 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
   // split with a single categorized view: UI (framework apps with an
   // interactive window), Services (legacy aw.json workspace_apps, each
   // backed by a docker component — same "component window" the workspace
-  // has always opened for these), Runnables (framework command-only apps,
-  // e.g. CLIs — nothing to open, no service running), Tools (a manifest
-  // opts in via aw-app.json's top-level "category": "Tools" — pulled out of
-  // the UI/Runnables split regardless of has_windows).
-  const toolsApps = (installed || []).filter((a) => a.category === 'Tools');
-  const toolsIds = new Set(toolsApps.map((a) => a.slug));
-  const uiApps = (installed || []).filter((a) => !!a.has_windows && !toolsIds.has(a.slug));
-  const runnableApps = (installed || []).filter((a) => !a.has_windows && !toolsIds.has(a.slug));
+  // has always opened for these — PLUS any framework app opting in via
+  // aw-app.json's top-level "category": "Services", e.g. aw-app-proxy),
+  // Runnables (framework command-only apps, e.g. CLIs — nothing to open,
+  // no service running), Tools (opt in via "category": "Tools"). A manifest
+  // category pulls a framework app out of the has_windows-based UI/Runnables
+  // split regardless of has_windows.
+  // Singular/plural/case-tolerant — manifests in the wild already disagree
+  // ("Service" vs "Services"; aw-app-proxy ships "Service").
+  const isCategory = (app, name) => (app.category || '').trim().toLowerCase().replace(/s$/, '') === name;
+  const toolsApps = (installed || []).filter((a) => isCategory(a, 'tool'));
+  const servicesFrameworkApps = (installed || []).filter((a) => isCategory(a, 'service'));
+  const categorizedIds = new Set([...toolsApps, ...servicesFrameworkApps].map((a) => a.slug));
+  const uiApps = (installed || []).filter((a) => !!a.has_windows && !categorizedIds.has(a.slug));
+  const runnableApps = (installed || []).filter((a) => !a.has_windows && !categorizedIds.has(a.slug));
   const CATEGORIES = [
     { key: 'ui', label: 'UI', count: uiApps.length },
-    { key: 'services', label: 'Services', count: apps.length },
+    { key: 'services', label: 'Services', count: apps.length + servicesFrameworkApps.length },
     { key: 'runnables', label: 'Runnables', count: runnableApps.length },
     { key: 'tools', label: 'Tools', count: toolsApps.length },
   ];
@@ -352,8 +358,10 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
         </header>
 
         {/* Category tabs — UI (framework apps with a window), Services
-            (legacy workspace_apps, each backed by a docker component),
-            Runnables (framework command-only apps, e.g. CLIs). */}
+            (legacy workspace_apps, each backed by a docker component, plus
+            any framework app opting in via category: "Services"),
+            Runnables (framework command-only apps, e.g. CLIs), Tools
+            (category: "Tools"). */}
         <div className="applt-cats" role="tablist" aria-label="App categories">
           {CATEGORIES.map((c) => (
             <button
@@ -403,6 +411,18 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
               <div className="applt-grid">
                 <StartBuildingCard index={0} starting={!!starting} onStart={onStartBuilding} />
               </div>
+            )}
+            {servicesFrameworkApps.length > 0 && (
+              <InstalledApps
+                apps={servicesFrameworkApps}
+                busy={rowBusy}
+                catalogVersions={catalogVersions}
+                onOpen={onOpenInstalledApp}
+                onConfig={setConfigApp}
+                onVersion={setVersionApp}
+                onUninstall={onUninstall}
+                onUpdate={onUpdate}
+              />
             )}
           </section>
         )}
