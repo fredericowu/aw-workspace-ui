@@ -751,7 +751,7 @@ button, [role="button"] { cursor: pointer; }
 .appmkt-wyg-title { margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); }
 .appmkt-wyg-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--color-text-primary); }
 .appmkt-wyg-empty { margin: 0; font-size: 12px; color: var(--color-text-muted); font-style: italic; }
-.appmkt-detail-actions { display: flex; justify-content: flex-end; }
+.appmkt-detail-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
 .appmkt-install {
   padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; flex-shrink: 0; cursor: pointer;
   background: var(--color-accent); color: #1a1205; border: 1px solid var(--color-accent);
@@ -765,6 +765,11 @@ button, [role="button"] { cursor: pointer; }
   border-color: #ef4444;
 }
 .appmkt-uninstall:hover { background: #dc2626; }
+.appmkt-other-releases {
+  padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; flex-shrink: 0; cursor: pointer;
+  background: transparent; color: var(--color-text-primary); border: 1px solid var(--color-border);
+}
+.appmkt-other-releases:hover { background: rgba(255,255,255,.08); }
 /* Update available — blue instead of the default accent (amber, same as
    Install), so it reads as a distinct "action needed" state at a glance. */
 .appmkt-update { background: #3b82f6; color: #fff; border-color: #3b82f6; }
@@ -1045,7 +1050,8 @@ button, [role="button"] { cursor: pointer; }
   .appmkt-install, .appmkt-installed { width: 100%; text-align: center; }
   .appmkt-detail-top { flex-wrap: wrap; }
   .appmkt-detail-actions { justify-content: stretch; }
-  .appmkt-detail-actions .appmkt-install, .appmkt-detail-actions .appmkt-installed { width: 100%; }
+  .appmkt-detail-actions .appmkt-install, .appmkt-detail-actions .appmkt-installed,
+  .appmkt-detail-actions .appmkt-other-releases { width: 100%; }
   .applt-installed-row { flex-wrap: wrap; }
   .applt-installed-name { flex-wrap: wrap; }
   .applt-installed-actions { width: 100%; justify-content: flex-end; }

@@ -103,6 +103,25 @@ describe('AppLauncher — F5 Apps view', () => {
     expect(await screen.findByRole('button', { name: '← Back' })).toBeInTheDocument();
   });
 
+  it('"Other Releases" in the Marketplace detail closes it and opens the pin/rollback window', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    fetchCatalog.mockResolvedValue({
+      apps: [{ id: 'git', name: 'Git + GitHub CLI', description: 'git & gh', icon: 'git-branch', repo: 'x/git', ref: 'main', has_config: true, version: '0.1.0' }],
+    });
+    getAppVersions.mockResolvedValue({ slug: 'git', installed_version: '0.1.0', catalog_version: '0.1.0', versions: [] });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Marketplace' }));
+    await screen.findByRole('dialog', { name: 'Marketplace' });
+    const catalogItem = document.querySelector('.appmkt-item');
+    fireEvent.click(catalogItem);
+    fireEvent.click(await screen.findByRole('button', { name: 'Other Releases' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Marketplace' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: /versions/i })).toBeInTheDocument();
+    await waitFor(() => expect(getAppVersions).toHaveBeenCalledWith('git'));
+  });
+
   it('Marketplace button opens the marketplace panel with the catalog', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     fetchCatalog.mockResolvedValue({ apps: [{ id: 'notes', name: 'Notes', description: 'notes app', icon: 'notebook', repo: 'x/notes', ref: 'main', has_config: false }] });

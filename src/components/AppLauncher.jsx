@@ -427,6 +427,13 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
           onUninstall={onMarketplaceUninstall}
           onClose={() => { setShowMarketplace(false); setMarketplaceAppId(null); }}
           initialAppId={marketplaceAppId}
+          onOtherReleases={(catalogApp) => {
+            const inst = (installed || []).find((a) => installedAppId(a) === catalogApp.id)
+              || { slug: catalogApp.id, name: catalogApp.name, version: catalogApp.version };
+            setVersionApp(inst);
+            setShowMarketplace(false);
+            setMarketplaceAppId(null);
+          }}
         />
       )}
       {configApp && (

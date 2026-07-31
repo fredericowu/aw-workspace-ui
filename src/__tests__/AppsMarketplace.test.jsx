@@ -257,6 +257,42 @@ describe('AppsMarketplace', () => {
     expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
   });
 
+  it('shows "Other Releases" next to Uninstall for an installed app and calls onOtherReleases', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const onOtherReleases = vi.fn();
+    render(
+      <AppsMarketplace
+        installedApps={[{ slug: 'essentials', version: '0.1.0' }]}
+        onInstalled={vi.fn()}
+        onClose={() => {}}
+        onOtherReleases={onOtherReleases}
+      />,
+    );
+    await screen.findByText('Essentials');
+    fireEvent.click(screen.getByText('Essentials'));
+
+    const btn = await screen.findByRole('button', { name: 'Other Releases' });
+    fireEvent.click(btn);
+    expect(onOtherReleases).toHaveBeenCalledWith(expect.objectContaining({ id: 'essentials' }));
+  });
+
+  it('omits "Other Releases" for an app that is not installed', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(
+      <AppsMarketplace
+        installedApps={[{ slug: 'essentials', version: '0.1.0' }]}
+        onInstalled={vi.fn()}
+        onClose={() => {}}
+        onOtherReleases={vi.fn()}
+      />,
+    );
+    await screen.findByText('Git + GitHub CLI');
+    fireEvent.click(screen.getByText('Git + GitHub CLI'));
+
+    await screen.findByRole('button', { name: 'Install' });
+    expect(screen.queryByRole('button', { name: 'Other Releases' })).toBeNull();
+  });
+
   it('calls onUninstall from the installed app detail action', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     const onUninstall = vi.fn().mockResolvedValue({});
