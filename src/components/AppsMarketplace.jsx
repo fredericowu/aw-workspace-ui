@@ -79,7 +79,7 @@ export function pollInstallStatus(appId, alive) {
   });
 }
 
-export default function AppsMarketplace({ installedApps, onInstalled, onClose }) {
+export default function AppsMarketplace({ installedApps, onInstalled, onUninstall, onClose }) {
   // Seeded from the last-known cached catalog (stale-while-revalidate, same
   // cache AppLauncher writes) so opening the Marketplace panel paints the
   // catalog immediately instead of a blank panel while GET
@@ -218,6 +218,19 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
     }
   };
 
+  const doUninstall = async (app) => {
+    if (busy[app.id]) return;
+    setBusy((b) => ({ ...b, [app.id]: true }));
+    setError(null);
+    try {
+      await onUninstall?.({ slug: app.id, name: app.name, id: app.id });
+    } catch (e) {
+      if (alive.current) setError(`Uninstall of ${app.name} failed: ${String(e.message || e)}`);
+    } finally {
+      if (alive.current) setBusy((b) => ({ ...b, [app.id]: false }));
+    }
+  };
+
   const allApps = catalog?.apps || [];
   const q = query.trim().toLowerCase();
   const apps = q
@@ -231,11 +244,24 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
 
   const dismissError = () => setError(null);
 
-  const installButton = (app) => {
+  const installButton = (app, { detail = false } = {}) => {
     const isInstalled = installed.has(app.id);
     if (isInstalled) {
       const installedVersion = installedVersions.get(app.id);
       const outdated = app.version && installedVersion && semverGt(app.version, installedVersion);
+      if (detail) {
+        return (
+          <button
+            type="button"
+            className="appmkt-install appmkt-uninstall"
+            onClick={(e) => { e.stopPropagation(); doUninstall(app); }}
+            disabled={!!busy[app.id]}
+            aria-label={`Uninstall ${app.name}`}
+          >
+            {busy[app.id] ? 'Uninstalling…' : 'Uninstall'}
+          </button>
+        );
+      }
       if (!outdated) {
         return <span className="appmkt-installed" aria-label={`${app.name} installed`}>Installed</span>;
       }
@@ -299,7 +325,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onClose })
                 </div>
               ) : null}
 
-              <div className="appmkt-detail-actions">{installButton(detailApp)}</div>
+              <div className="appmkt-detail-actions">{installButton(detailApp, { detail: true })}</div>
             </div>
           </>
         ) : (

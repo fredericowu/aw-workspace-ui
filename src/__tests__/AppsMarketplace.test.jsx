@@ -232,15 +232,36 @@ describe('AppsMarketplace', () => {
     expect(screen.getByText('Essentials')).toBeInTheDocument();
   });
 
-  it('shows Installed (not an Install button) in the detail view for an already-installed app', async () => {
+  it('shows Uninstall in the detail view for an already-installed app', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     render(<AppsMarketplace installedApps={[{ slug: 'essentials', version: '0.1.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);
     await screen.findByText('Essentials');
 
     fireEvent.click(screen.getByText('Essentials'));
     expect(await screen.findByText('What you get')).toBeInTheDocument();
-    expect(screen.getByLabelText('Essentials installed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Uninstall Essentials' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+  });
+
+  it('calls onUninstall from the installed app detail action', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const onUninstall = vi.fn().mockResolvedValue({});
+    render(
+      <AppsMarketplace
+        installedApps={[{ slug: 'essentials', version: '0.1.0' }]}
+        onInstalled={vi.fn()}
+        onUninstall={onUninstall}
+        onClose={() => {}}
+      />,
+    );
+    await screen.findByText('Essentials');
+
+    fireEvent.click(screen.getByText('Essentials'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall Essentials' }));
+
+    await waitFor(() => expect(onUninstall).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'essentials', name: 'Essentials' }),
+    ));
   });
 
   it('treats app_id from the installed registry as installed', async () => {
@@ -249,7 +270,7 @@ describe('AppsMarketplace', () => {
 
     await screen.findByText('Git + GitHub CLI');
     fireEvent.click(screen.getByText('Git + GitHub CLI'));
-    expect(screen.getByLabelText('Git + GitHub CLI installed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Uninstall Git + GitHub CLI' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
   });
 });

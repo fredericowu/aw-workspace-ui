@@ -226,6 +226,21 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
     }
   }, [rowBusy, refreshInstalled]);
 
+  const onMarketplaceUninstall = useCallback(async (app) => {
+    const slug = installedAppId(app);
+    if (!slug || rowBusy[slug]) return;
+    setRowBusy((b) => ({ ...b, [slug]: true }));
+    try {
+      await uninstallApp(slug);
+      await refreshInstalled();
+    } catch (e) {
+      setInstalledError(`Uninstall of ${app.name} failed: ${String(e.message || e)}`);
+      throw e;
+    } finally {
+      setRowBusy((b) => ({ ...b, [slug]: false }));
+    }
+  }, [rowBusy, refreshInstalled]);
+
   // Update button on the Installed row — POST /api/apps/{slug}/update, same
   // async job/status contract as install, then refresh the installed list
   // (app-update-mechanism ADR).
@@ -351,6 +366,7 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
         <AppsMarketplace
           installedApps={installed || []}
           onInstalled={onInstalled}
+          onUninstall={onMarketplaceUninstall}
           onClose={() => setShowMarketplace(false)}
         />
       )}
