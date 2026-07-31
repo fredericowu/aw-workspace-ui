@@ -26,7 +26,7 @@ export default function Sidebar({ components, openWindows, onToggleWindow, colla
 
   // Group components by category from the API
   const HIDDEN_CATEGORIES = new Set(['System']);
-  const CATEGORY_ORDER = ['Platform', 'APIs', 'Apps', 'Docker', 'Tools'];
+  const CATEGORY_ORDER = ['Platform', 'APIs', 'Apps', 'Docker', 'Service', 'Tools'];
   const groups = {};
   components.forEach((c) => {
     const cat = c.category || 'Other';

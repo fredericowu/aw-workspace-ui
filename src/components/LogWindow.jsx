@@ -3,6 +3,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { parseAnsi } from './AnsiParser';
 import ControlButtons from './ControlButtons';
 import StatusDot from './StatusDot';
+import { computeMatches, highlightSearch, countMatches } from './logSearch';
 
 export default function LogWindow({ componentKey, component, maxLines, onClose, onAction, onMaximize, isMaximized }) {
   const [lines, setLines] = useState([]);
@@ -35,20 +36,7 @@ export default function LogWindow({ componentKey, component, maxLines, onClose, 
   }, [currentStatus]);
 
   // Compute all search matches: [{lineIdx, startIdx}]
-  const matches = useMemo(() => {
-    if (!searchQuery) return [];
-    const q = searchQuery.toLowerCase();
-    const result = [];
-    lines.forEach((line, lineIdx) => {
-      const lower = line.toLowerCase();
-      let pos = 0;
-      while ((pos = lower.indexOf(q, pos)) !== -1) {
-        result.push({ lineIdx, startIdx: pos });
-        pos += q.length;
-      }
-    });
-    return result;
-  }, [lines, searchQuery]);
+  const matches = useMemo(() => computeMatches(lines, searchQuery), [lines, searchQuery]);
 
   // Reset active match when query changes
   useEffect(() => {
@@ -176,13 +164,7 @@ export default function LogWindow({ componentKey, component, maxLines, onClose, 
         {spans.map((span, i) => {
           if (searchQuery && span.text.toLowerCase().includes(searchQuery.toLowerCase())) {
             const parts = highlightSearch(span.text, searchQuery, lineIdx, globalMatchCounter, activeMatchIdx, matchRefs);
-            // Count how many matches are in this span
-            const q = searchQuery.toLowerCase();
-            let count = 0;
-            let pos = 0;
-            const lower = span.text.toLowerCase();
-            while ((pos = lower.indexOf(q, pos)) !== -1) { count++; pos += q.length; }
-            globalMatchCounter += count;
+            globalMatchCounter += countMatches(span.text, searchQuery);
             return (
               <span key={i} className={span.className}>
                 {parts}
@@ -373,33 +355,4 @@ export default function LogWindow({ componentKey, component, maxLines, onClose, 
       </div>
     </div>
   );
-}
-
-function highlightSearch(text, query, lineIdx, matchOffset, activeMatchIdx, matchRefs) {
-  const parts = [];
-  const lower = text.toLowerCase();
-  const q = query.toLowerCase();
-  let lastIdx = 0;
-  let idx = lower.indexOf(q);
-  let localMatch = 0;
-
-  while (idx !== -1) {
-    if (idx > lastIdx) parts.push(text.slice(lastIdx, idx));
-    const globalIdx = matchOffset + localMatch;
-    const isActive = globalIdx === activeMatchIdx;
-    parts.push(
-      <mark
-        key={`${lineIdx}-${idx}`}
-        ref={(el) => { if (el) matchRefs.current[globalIdx] = el; }}
-        className={isActive ? 'search-hit search-hit-active' : 'search-hit'}
-      >
-        {text.slice(idx, idx + query.length)}
-      </mark>
-    );
-    localMatch++;
-    lastIdx = idx + query.length;
-    idx = lower.indexOf(q, lastIdx);
-  }
-  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
-  return parts;
 }

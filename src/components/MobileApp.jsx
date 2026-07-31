@@ -12,7 +12,13 @@ import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
 
 const API_BASE = '';
-const CATEGORY_ORDER = ['Platform', 'APIs'];
+// NOTE: any category not listed here is silently dropped from the mobile
+// Components list (grouped[cat] is only ever rendered for keys in this
+// array — pre-existing behavior, not something this change introduces).
+// 'Tools'/'Docker'/'Apps' were already invisible on mobile before this;
+// 'Service' is added so the (re-categorized) proxy component doesn't
+// regress further, but the broader mobile-parity gap is out of scope here.
+const CATEGORY_ORDER = ['Platform', 'APIs', 'Service'];
 
 // Preset resolutions for the iframe-app resolution picker.
 // "Auto" (null) fills the available viewport; the others render the

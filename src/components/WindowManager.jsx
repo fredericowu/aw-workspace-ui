@@ -677,7 +677,17 @@ function AppProxyWindow({
           )}
         </div>
         <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
-          {app.component && (
+          {/* Start/Stop/Restart only make sense when the backing component
+              is a STANDALONE process the framework can independently
+              start/stop/restart (a docker/podman container, or a
+              `tier: inprocess` app that declares `runtime.standalone`).
+              `standalone_app` defaults to true when the component entry
+              doesn't carry the field (older/legacy docker components) so
+              this is backward-compatible — only apps that explicitly
+              report `standalone_app: false` (e.g. aw-app-proxy, whose
+              routes register directly inside the aw-workspace process)
+              lose the trio. See src.apps.manifest.Manifest.standalone_app. */}
+          {app.component && componentMap[app.component]?.standalone_app !== false && (
             <DockerControls
               componentKey={app.component}
               status={componentMap[app.component]?.status || 'off'}

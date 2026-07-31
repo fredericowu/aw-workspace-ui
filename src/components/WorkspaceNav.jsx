@@ -24,7 +24,7 @@ import AppSlot from '../apps/AppSlot';
  */
 
 const HIDDEN_CATEGORIES = new Set(['System']);
-const CATEGORY_ORDER = ['Platform', 'APIs', 'Apps', 'Docker', 'Tools'];
+const CATEGORY_ORDER = ['Platform', 'APIs', 'Apps', 'Docker', 'Service', 'Tools'];
 
 // ---- Tiny inline icons ------------------------------------------------------
 
