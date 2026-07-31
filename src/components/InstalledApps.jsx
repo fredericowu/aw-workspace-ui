@@ -133,7 +133,7 @@ function InstalledAppCard({ app, busy, hasUpdate, catalogVersion, onOpen, onConf
   );
 }
 
-export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
+export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate, only = 'all' }) {
   if (!apps) {
     return <InstalledSkeleton />;
   }
@@ -145,8 +145,16 @@ export default function InstalledApps({ apps, busy, catalogVersions, onOpen, onC
     );
   }
 
-  const visualApps = apps.filter((a) => !!a.has_windows);
-  const commandApps = apps.filter((a) => !a.has_windows);
+  const visualApps = only === 'commands' ? [] : apps.filter((a) => !!a.has_windows);
+  const commandApps = only === 'visual' ? [] : apps.filter((a) => !a.has_windows);
+
+  if (visualApps.length === 0 && commandApps.length === 0) {
+    return (
+      <p className="applt-installed-empty" data-testid="installed-empty">
+        {only === 'visual' ? 'No UI apps installed yet.' : 'No runnable apps installed yet.'}
+      </p>
+    );
+  }
 
   return (
     <div data-testid="installed-list">

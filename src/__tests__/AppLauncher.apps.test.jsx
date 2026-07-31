@@ -49,28 +49,34 @@ describe('AppLauncher — F5 Apps view', () => {
     localStorage.clear(); // AppLauncher now seeds installed/catalogVersions from the apps cache
   });
 
-  it('renders the installed framework apps from GET /api/apps with a config gear', async () => {
+  it('renders the installed framework apps from GET /api/apps with a config gear (UI tab default)', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     renderLauncher();
 
     expect(await screen.findByTestId('installed-list')).toBeInTheDocument();
     expect(screen.getByText('Git + GitHub CLI')).toBeInTheDocument();
-    expect(screen.getByText('Essentials')).toBeInTheDocument();
     // gear only for the has_config app
     expect(screen.getByRole('button', { name: 'Configure Git + GitHub CLI' })).toBeInTheDocument();
+
+    // Essentials (command-only) lives under the Runnables tab, not UI.
+    expect(screen.queryByText('Essentials')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: /Runnables/ }));
+    expect(await screen.findByText('Essentials')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Configure Essentials' })).toBeNull();
   });
 
-  it('splits visual (has_windows) apps into the card grid and command-only apps into the list below', async () => {
+  it('UI tab shows the visual (has_windows) card grid; Runnables tab shows the command-only list', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     renderLauncher();
 
     const grid = await screen.findByTestId('installed-grid');
-    const commands = await screen.findByTestId('installed-commands');
     expect(grid).toHaveTextContent('Git + GitHub CLI');
-    expect(grid).not.toHaveTextContent('Essentials');
+    expect(screen.queryByTestId('installed-commands')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Runnables/ }));
+    const commands = await screen.findByTestId('installed-commands');
     expect(commands).toHaveTextContent('Essentials');
-    expect(commands).not.toHaveTextContent('Git + GitHub CLI');
+    expect(screen.queryByTestId('installed-grid')).toBeNull();
   });
 
   it('gear opens the config window for a has_config app', async () => {
@@ -114,8 +120,8 @@ describe('AppLauncher — F5 Apps view', () => {
     fetchCatalog.mockResolvedValue({ apps: [{ id: 'essentials', name: 'Essentials', version: '0.2.0' }] });
     renderLauncher();
 
+    fireEvent.click(await screen.findByRole('tab', { name: /Runnables/ }));
     expect(await screen.findByTestId('update-badge-essentials')).toHaveTextContent('Update available v0.2.0');
-    expect(screen.queryByTestId('update-badge-git')).toBeNull();
     expect(await screen.findByRole('button', { name: 'Update Essentials' })).toBeInTheDocument();
   });
 
@@ -124,6 +130,7 @@ describe('AppLauncher — F5 Apps view', () => {
     fetchCatalog.mockResolvedValue({ apps: [{ id: 'essentials', name: 'Essentials', version: '0.1.0' }] });
     renderLauncher();
 
+    fireEvent.click(await screen.findByRole('tab', { name: /Runnables/ }));
     await screen.findByTestId('installed-list');
     expect(screen.queryByTestId('update-badge-essentials')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Update Essentials' })).toBeNull();
@@ -138,6 +145,7 @@ describe('AppLauncher — F5 Apps view', () => {
     getInstallStatus.mockResolvedValue({ status: 'installed' });
     renderLauncher();
 
+    fireEvent.click(await screen.findByRole('tab', { name: /Runnables/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Update Essentials' }));
     await waitFor(() => expect(updateApp).toHaveBeenCalledWith('essentials'));
     await waitFor(() => expect(screen.queryByTestId('update-badge-essentials')).toBeNull());
@@ -173,6 +181,7 @@ describe('AppLauncher — F5 Apps view', () => {
     });
     renderLauncher();
 
+    fireEvent.click(await screen.findByRole('tab', { name: /Runnables/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Essentials version' }));
     expect(await screen.findByRole('dialog', { name: /versions/i })).toBeInTheDocument();
     await waitFor(() => expect(getAppVersions).toHaveBeenCalledWith('essentials'));

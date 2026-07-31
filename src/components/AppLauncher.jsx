@@ -288,6 +288,21 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
 
   const runningCount = apps.filter((a) => a.hasStatus && a.running).length;
 
+  // Category tabs — replace the old "Installed" / "Workspace apps" section
+  // split with a single categorized view: UI (framework apps with an
+  // interactive window), Services (legacy aw.json workspace_apps, each
+  // backed by a docker component — same "component window" the workspace
+  // has always opened for these), Runnables (framework command-only apps,
+  // e.g. CLIs — nothing to open, no service running).
+  const uiApps = (installed || []).filter((a) => !!a.has_windows);
+  const runnableApps = (installed || []).filter((a) => !a.has_windows);
+  const CATEGORIES = [
+    { key: 'ui', label: 'UI', count: uiApps.length },
+    { key: 'services', label: 'Services', count: apps.length },
+    { key: 'runnables', label: 'Runnables', count: runnableApps.length },
+  ];
+  const [category, setCategory] = useState('ui');
+
   return (
     <>
     <div className="applt-overlay" onClick={onClose}>
@@ -327,35 +342,77 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
           </div>
         </header>
 
-        {/* Framework (decoupled-apps) installed section — F5. */}
-        <section className="applt-section">
-          <h3 className="applt-section-title">Installed</h3>
-          {installedError && (
-            <p className="applt-installed-error" data-testid="installed-error">{installedError}</p>
-          )}
-          <InstalledApps
-            apps={installed}
-            busy={rowBusy}
-            catalogVersions={catalogVersions}
-            onOpen={onOpenInstalledApp}
-            onConfig={setConfigApp}
-            onVersion={setVersionApp}
-            onUninstall={onUninstall}
-            onUpdate={onUpdate}
-          />
-        </section>
+        {/* Category tabs — UI (framework apps with a window), Services
+            (legacy workspace_apps, each backed by a docker component),
+            Runnables (framework command-only apps, e.g. CLIs). */}
+        <div className="applt-cats" role="tablist" aria-label="App categories">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              role="tab"
+              aria-selected={category === c.key}
+              className={`applt-cat ${category === c.key ? 'is-active' : ''}`}
+              onClick={() => setCategory(c.key)}
+            >
+              {c.label}
+              <span className="applt-cat-count">{c.count}</span>
+            </button>
+          ))}
+        </div>
 
-        {/* Legacy aw.json workspace_apps live-tile grid. */}
-        <section className="applt-section">
-          {apps.length > 0 && (
-            <div className="applt-grid">
-              {apps.map((app, i) => (
-                <AppCard key={app.id} app={app} index={i} onOpen={() => onOpenApp(app.id)} />
-              ))}
-              <StartBuildingCard index={apps.length} starting={!!starting} onStart={onStartBuilding} />
-            </div>
-          )}
-        </section>
+        {installedError && (
+          <p className="applt-installed-error" data-testid="installed-error">{installedError}</p>
+        )}
+
+        {category === 'ui' && (
+          <section className="applt-section">
+            <InstalledApps
+              apps={installed}
+              busy={rowBusy}
+              catalogVersions={catalogVersions}
+              onOpen={onOpenInstalledApp}
+              onConfig={setConfigApp}
+              onVersion={setVersionApp}
+              onUninstall={onUninstall}
+              onUpdate={onUpdate}
+              only="visual"
+            />
+          </section>
+        )}
+
+        {category === 'services' && (
+          <section className="applt-section">
+            {apps.length > 0 ? (
+              <div className="applt-grid">
+                {apps.map((app, i) => (
+                  <AppCard key={app.id} app={app} index={i} onOpen={() => onOpenApp(app.id)} />
+                ))}
+                <StartBuildingCard index={apps.length} starting={!!starting} onStart={onStartBuilding} />
+              </div>
+            ) : (
+              <div className="applt-grid">
+                <StartBuildingCard index={0} starting={!!starting} onStart={onStartBuilding} />
+              </div>
+            )}
+          </section>
+        )}
+
+        {category === 'runnables' && (
+          <section className="applt-section">
+            <InstalledApps
+              apps={installed}
+              busy={rowBusy}
+              catalogVersions={catalogVersions}
+              onOpen={onOpenInstalledApp}
+              onConfig={setConfigApp}
+              onVersion={setVersionApp}
+              onUninstall={onUninstall}
+              onUpdate={onUpdate}
+              only="commands"
+            />
+          </section>
+        )}
       </div>
     </div>
 

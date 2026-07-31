@@ -552,6 +552,23 @@ button, [role="button"] { cursor: pointer; }
 .applt-btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: #1a1205; }
 .applt-btn-primary:hover { background: var(--color-accent-hover); }
 
+.applt-cats { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.applt-cat {
+  display: flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--color-text-muted);
+  background: rgba(255,255,255,.05); border: 1px solid var(--color-border); cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.applt-cat:hover { background: rgba(255,255,255,.1); color: var(--color-text-primary); }
+.applt-cat.is-active {
+  background: var(--color-accent); border-color: var(--color-accent); color: #1a1205;
+}
+.applt-cat-count {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+  background: rgba(255,255,255,.12); color: inherit;
+}
+.applt-cat.is-active .applt-cat-count { background: rgba(0,0,0,.18); }
+
 .applt-section { margin-bottom: 26px; }
 .applt-section-title {
   margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: .04em;
