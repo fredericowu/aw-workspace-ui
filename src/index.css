@@ -834,10 +834,7 @@ button, [role="button"] { cursor: pointer; }
 .mcpgw-head p {
   margin: 4px 0 0; font-size: 11px; line-height: 1.4; color: var(--color-text-muted);
 }
-.mcpgw-stats {
-  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 172px;
-}
-.mcpgw-stats span, .mcpgw-badge {
+.mcpgw-badge {
   display: inline-flex; align-items: center; min-height: 20px; padding: 2px 7px;
   border-radius: 6px; font-size: 10px; font-weight: 700; color: var(--color-text-muted);
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.07);
@@ -897,7 +894,6 @@ button, [role="button"] { cursor: pointer; }
 
 @media (max-width: 680px) {
   .mcpgw-head { flex-direction: column; }
-  .mcpgw-stats { flex: 1 1 auto; justify-content: flex-start; }
   .mcpgw-grid { grid-template-columns: 1fr; }
 }
 

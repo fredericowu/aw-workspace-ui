@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../auth';
 
-function serverCount(cfg) {
-  return Object.keys(cfg?.mcpServers || {}).length;
-}
-
 function pretty(data) {
   return JSON.stringify(data || { mcpServers: {} }, null, 2);
 }
@@ -82,13 +78,6 @@ export default function McpGatewayConfigEditor({ onSaved }) {
           <h4>MCP configuration</h4>
           <p>Scanned app mcp.json files are merged with mcp.custom.json into the generated mcp.json.</p>
         </div>
-        {data && (
-          <div className="mcpgw-stats" aria-label="MCP server counts">
-            <span>Final {serverCount(data.final)}</span>
-            <span>Scanned {serverCount(data.scanned)}</span>
-            <span>Custom {serverCount(data.custom)}</span>
-          </div>
-        )}
       </div>
 
       {loading ? (
