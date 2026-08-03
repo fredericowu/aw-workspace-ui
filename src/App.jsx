@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import WindowManager from './components/WindowManager';
 // SettingsPanel is now rendered inside WindowManager as a floating panel
 import PresentationNav from './components/PresentationNav';
-import AgentsNav from './components/AgentsNav';
 import WorkspaceNav from './components/WorkspaceNav';
 import AppsNav from './components/AppsNav';
 import VpnNav from './components/VpnNav';
@@ -916,10 +915,6 @@ function AuthenticatedApp() {
   // Agent sessions — all AI CLIs (claude, copilot, cursor, etc.) unified; stubborn separate
   const [agentSessions, setAgentSessions] = useState([]);
   const [stubbornSessions, setStubbornSessions] = useState([]);
-  // Keyed by agent type — populated by WS push (agent_sessions_update) and seeded
-  // by AgentsNav's one-time REST fetch on first flyout open.  Replaces the old
-  // agentPickerRefreshToken→REST-refetch polling pattern.
-  const [agentSessionsMap, setAgentSessionsMap] = useState({});
 
   const applyTerminalUpdate = useCallback((data) => {
     const alive = asArray(data).filter((t) => t.alive);
@@ -1004,18 +999,6 @@ function AuthenticatedApp() {
     window.addEventListener('aw-terminals-update', handler);
     return () => window.removeEventListener('aw-terminals-update', handler);
   }, [applyTerminalUpdate]);
-
-  // Keep agentSessionsMap in sync with server-pushed session lists.
-  useEffect(() => {
-    const handler = (e) => {
-      const { agent_type, sessions } = e.detail || {};
-      if (agent_type && Array.isArray(sessions)) {
-        setAgentSessionsMap((prev) => ({ ...prev, [agent_type]: sessions }));
-      }
-    };
-    window.addEventListener('aw-agent-sessions-update', handler);
-    return () => window.removeEventListener('aw-agent-sessions-update', handler);
-  }, []);
 
   // When the status WebSocket reconnects after a server restart, bump every
   // terminal's reconnect signal so their WebSockets retry — regardless of
@@ -1596,22 +1579,26 @@ function AuthenticatedApp() {
             >
               Home
             </button>
-            <ErrorBoundary label="Agents">
-            <AgentsNav
-              aiAgents={aiAgents}
-              agentSessions={agentSessions}
-              terminals={terminals}
-              agentSessionsMap={agentSessionsMap}
-              onAgentSessionsCached={(type, sessions) =>
-                setAgentSessionsMap((prev) => ({ ...prev, [type]: sessions }))
-              }
-              onCreateAgent={createAgent}
-              onCreateTerminal={createTerminal}
-              onToggleAgent={toggleTerminal}
-              onCloseAgent={deleteAgent}
-              onToggleTerminal={toggleTerminal}
-              onCloseTerminal={deleteTerminal}
-            />
+            {/* Agents nav menu (launch/resume claude/codex/copilot/cursor
+                sessions) is contributed by the code-agent-clis app into the
+                core.nav slot — decoupled from core per the 2026-08-03
+                architecture decision (was a hardcoded <AgentsNav> import).
+                Empty until that app is installed and its bundle loads. */}
+            <ErrorBoundary label="Agents" silent>
+              <AppSlot
+                slot="core.nav"
+                props={{
+                  aiAgents,
+                  agentSessions,
+                  terminals,
+                  onCreateAgent: createAgent,
+                  onCreateTerminal: createTerminal,
+                  onToggleAgent: toggleTerminal,
+                  onCloseAgent: deleteAgent,
+                  onToggleTerminal: toggleTerminal,
+                  onCloseTerminal: deleteTerminal,
+                }}
+              />
             </ErrorBoundary>
             <ErrorBoundary label="Presentations">
             <PresentationNav
@@ -1653,12 +1640,6 @@ function AuthenticatedApp() {
               onOpenApp={openApp}
               onOpenInstalledApp={openInstalledApp}
             />
-            </ErrorBoundary>
-            {/* Decoupled-apps (F6 Cap 2): nav entries registered by installed
-                apps into the core.nav slot render here. Empty until an app
-                contributes → no visual change. */}
-            <ErrorBoundary label="AppNav" silent>
-              <AppSlot slot="core.nav" />
             </ErrorBoundary>
             {/* Legacy: dynamic top-bar buttons for workspace_apps with menu: "top".
                 Kept for back-compat with configs that still use the old slot — new

@@ -686,7 +686,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
                         if (rect) setPickerPos({ top: rect.bottom + 4, left: rect.left });
                         setClaudeSessions([]);
                         setPickerOpen(true);
-                        apiFetch(`${API_BASE}/api/v2/agent-sessions?type=${agentType || 'claude'}`).then((r) => r.json()).then(setClaudeSessions);
+                        apiFetch(`${API_BASE}/api/apps/code-agent-clis/agent-sessions?type=${agentType || 'claude'}`).then((r) => r.json()).then(setClaudeSessions);
                       }
                     }}
                     title={

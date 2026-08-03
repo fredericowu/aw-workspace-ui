@@ -1123,7 +1123,7 @@ export default function MobileApp() {
                         setAvailableSessions([]);
                         setSessionsLoading(true);
                         setSessionPickerOpen(true);
-                        apiFetch(`${API_BASE}/api/v2/agent-sessions?type=${agentType}`)
+                        apiFetch(`${API_BASE}/api/apps/code-agent-clis/agent-sessions?type=${agentType}`)
                           .then(r => r.json())
                           .then(data => setAvailableSessions(Array.isArray(data) ? data : []))
                           .catch(() => setAvailableSessions([]))
