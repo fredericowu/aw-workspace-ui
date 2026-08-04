@@ -1,4 +1,4 @@
-# aw-frontend
+# aw-workspace-ui
 
 React dashboard for Agentic Workspace.
 

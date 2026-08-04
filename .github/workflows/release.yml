@@ -1,4 +1,4 @@
-name: Release aw-frontend static assets
+name: Release aw-workspace-ui static assets
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-aw-frontend-static
+  group: release-aw-workspace-ui-static
   cancel-in-progress: false
 
 permissions:
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      ARTIFACT_NAME: aw-frontend-dist
-      AW_CONSOLE_DEPLOY_URL: https://console.aw.tekflox.com/api/deploy/aw-frontend
+      ARTIFACT_NAME: aw-workspace-ui-dist
+      AW_CONSOLE_DEPLOY_URL: https://console.aw.tekflox.com/api/deploy/aw-workspace-ui
     steps:
       - uses: actions/checkout@v4
 
@@ -79,7 +79,7 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "## aw-frontend static release"
+            echo "## aw-workspace-ui static release"
             echo ""
             echo "| | |"
             echo "|---|---|"

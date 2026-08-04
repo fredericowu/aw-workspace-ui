@@ -11,7 +11,7 @@ WORKDIR /app
 # Deps installed at image build time as a fallback for a clean container
 # build; the running container's /app is bind-mounted from the host repo
 # (see aw.json volumes), so in practice the host's own node_modules
-# (installed via `npm install` in repos/aw-frontend) is what's used.
+# (installed via `npm install` in repos/aw-workspace-ui) is what's used.
 COPY package.json package-lock.json* /tmp/frontend/
 RUN cd /tmp/frontend && npm install --no-audit --no-fund && \
     mv node_modules /app/node_modules
