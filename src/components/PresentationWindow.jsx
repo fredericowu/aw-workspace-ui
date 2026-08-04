@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../auth';
+import { apiUrl } from '../apiBase';
 
 const API_BASE = '';
 
@@ -14,7 +15,11 @@ export default function PresentationWindow({ presentation, onClose, onDelete, on
   const [shareLink, setShareLink] = useState(null);
   const [shareCopied, setShareCopied] = useState(false);
 
-  const htmlUrl = presentation?.id ? `${API_BASE}/api/presentations/${presentation.id}/html` : null;
+  // Absolute (scheme+host-qualified) URL required here — <iframe src> and
+  // window.open() are resolved directly by the browser, bypassing the
+  // fetch/XHR-only apiBase.js rewrite shim a relative API_BASE path depends
+  // on (same class of bug fixed in aw-app-whiteboard's plugin.jsx, 2026-08-04).
+  const htmlUrl = presentation?.id ? apiUrl(`/api/presentations/${presentation.id}/html`) : null;
 
   const handleExport = useCallback(async () => {
     if (!iframeRef.current) return;

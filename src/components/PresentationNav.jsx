@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-
-const API_BASE = '';
+import { apiUrl } from '../apiBase';
 
 /**
  * Top-bar nav entry for Presentation. Hovering opens a gallery of presentation thumbnails
@@ -134,7 +133,10 @@ function PresentationThumbnail({ presentation, onClick, onDelete }) {
         style={{ width: '100%', paddingTop: `${ASPECT * 100}%`, overflow: 'hidden' }}
       >
         <iframe
-          src={`${API_BASE}/api/presentations/${presentation.id}/html`}
+          // Absolute URL required — <iframe src> is resolved directly by the
+          // browser, bypassing the fetch/XHR-only apiBase.js rewrite shim a
+          // relative path depends on.
+          src={apiUrl(`/api/presentations/${presentation.id}/html`)}
           sandbox="allow-same-origin"
           tabIndex={-1}
           aria-hidden
