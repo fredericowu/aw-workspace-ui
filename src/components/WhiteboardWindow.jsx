@@ -8,7 +8,7 @@ import { apiFetch } from '../auth';
  * save-to-presentation / export / pop-out affordances (mirrors PresentationWindow).
  */
 export default function WhiteboardWindow({ boardId = 'main', windowKey, onClose, onMaximize, isMaximized }) {
-  const viewUrl = `/api/whiteboards/${encodeURIComponent(boardId)}/view`;
+  const viewUrl = `/api/apps/whiteboard/view/${encodeURIComponent(boardId)}`;
   const iframeRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -20,7 +20,7 @@ export default function WhiteboardWindow({ boardId = 'main', windowKey, onClose,
     setNote(null);
     try {
       const body = asNew && presId.trim() ? { presentation_id: presId.trim() } : {};
-      const res = await apiFetch(`/api/whiteboards/${encodeURIComponent(boardId)}/save_presentation`, {
+      const res = await apiFetch(`/api/apps/whiteboard/boards/${encodeURIComponent(boardId)}/save_presentation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

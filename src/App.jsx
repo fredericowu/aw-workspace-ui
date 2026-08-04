@@ -565,6 +565,9 @@ function AuthenticatedApp() {
   // and raise it to the front, so a "load X in the whiteboard" command surfaces
   // it without the user hunting for the menu. The window's own iframe handles
   // the content reload; this listener only owns the open+focus behavior.
+  // Subscribes to aw-app-whiteboard's own /api/apps/whiteboard/ws (the
+  // monolith's core /ws/whiteboard doesn't exist in aw-workspace — that
+  // route never got ported here, only into the app).
   useEffect(() => {
     let ws, reconnectTimer, closed = false;
     const bringToFront = () => {
@@ -575,7 +578,7 @@ function AuthenticatedApp() {
     };
     const connect = () => {
       try {
-        ws = new WebSocket(wsUrl('/ws/whiteboard'));
+        ws = new WebSocket(wsUrl('/api/apps/whiteboard/ws'));
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
@@ -1517,7 +1520,7 @@ function AuthenticatedApp() {
 
   // Workspace > Whiteboard: open the persistent whiteboard as a floating
   // window (mirrors Tasks/Plans). The panel embeds the live viewer, which
-  // owns the /ws/whiteboard subscription and reloads on every update.
+  // owns the /api/apps/whiteboard/ws subscription and reloads on every update.
   const openWhiteboardPanel = useCallback(() => {
     const key = 'panel:whiteboard';
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
@@ -1525,6 +1528,13 @@ function AuthenticatedApp() {
     setFocusedWindowKey(key);
     setWhiteboardPanelFocusTrigger((n) => n + 1);
   }, []);
+  // Expose as a global so aw-app-whiteboard's own component-mode nav row
+  // (registered into core.nav.workspace) can open the panel without prop
+  // drilling — mirrors __awOpenTasksPanel above.
+  useEffect(() => {
+    window.__awOpenWhiteboardPanel = openWhiteboardPanel;
+    return () => { delete window.__awOpenWhiteboardPanel; };
+  }, [openWhiteboardPanel]);
 
   // Workspace > Remote Desktop: open the VNC client window (mirrors
   // Whiteboard) — RemoteDesktopWindow owns connection selection/management.
@@ -1612,7 +1622,6 @@ function AuthenticatedApp() {
               onAction={refetch}
               onOpenSettings={openSettingsPanel}
               onOpenTests={openTestsPanel}
-              onOpenWhiteboard={openWhiteboardPanel}
               onOpenRemoteDesktop={openRemoteDesktopPanel}
               workspaceApps={enabledApps}
               onOpenApp={openApp}
