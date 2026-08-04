@@ -14,7 +14,7 @@ import * as ReactDOM from 'react-dom';
 
 import { slotRegistry as defaultRegistry } from './slotRegistry';
 import { makeSdk, PLUGIN_API_VERSION } from './sdk';
-import { wsBaseUrl } from '../apiBase';
+import { wsBaseUrl, apiUrl as absoluteApiUrl } from '../apiBase';
 
 // Default fetch used by the SDK — relative `/api/*` is rewritten to the BYOD
 // workspace API by the apiBase.js global shim, so a plain fetch is correct.
@@ -84,6 +84,14 @@ export function hostForApp(host, app) {
     // `sdk.api.fetch`/`wsUrl` so the BYOD apiBase.js rewrite still applies.
     app: {
       apiUrl: (sub) => `/api/apps/${slug}${sub}`,
+      // Absolute (scheme+host-qualified) equivalent of apiUrl() — REQUIRED
+      // for any DOM attribute the browser resolves directly (<iframe src>,
+      // <a href>, window.open(...)) instead of through JS fetch/XHR. A
+      // relative apiUrl() there resolves against the SPA's own host, not
+      // the workspace API host, and 404s on BYOD (see the 2026-08-04
+      // whiteboard iframe bug — apiBase.js's apiUrl() already solves this
+      // for core code; plugins need it exposed too).
+      absoluteApiUrl: (sub) => absoluteApiUrl(`/api/apps/${slug}${sub}`),
       fetch: (sub, init) => host.sdk.api.fetch(`/api/apps/${slug}${sub}`, init),
       wsUrl: (sub) => host.sdk.api.wsUrl(`/api/apps/${slug}${sub}`),
     },
