@@ -13,6 +13,7 @@ import TopNotifications from './components/TopNotifications';
 import ErrorBoundary from './components/ErrorBoundary';
 import { asArray } from './lib/asArray';
 import AppSlot from './apps/AppSlot';
+import IconStack from './components/IconStack';
 import { installPluginHost } from './apps/pluginHost';
 import { fetchContributions } from './apps/appsApi';
 import { wireContributions, findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
@@ -1710,6 +1711,15 @@ function AuthenticatedApp() {
             </svg>
           </button>
           )}
+          {/* Decoupled-apps: nav entries an installed app registers into
+              core.nav.right render here, right before the mic — the
+              top-right counterpart of core.nav (left side, next to Home).
+              Meant for small, fixed-footprint status indicators (e.g. the
+              devctl [dev] pill) that shouldn't shift neighboring icons
+              when their content changes. Empty until an app contributes. */}
+          <ErrorBoundary label="core.nav.right" silent>
+            <AppSlot slot="core.nav.right" />
+          </ErrorBoundary>
           {/* Mic button — push-to-talk for Claude */}
           {view === 'home' && (
             <button
@@ -1749,42 +1759,51 @@ function AuthenticatedApp() {
             </svg>
           </button>
 
-          {/* Layout buttons — only on Home */}
+          {/* Layout buttons — only on Home. Collapsed to the last-picked
+              one via IconStack; hover reveals all three, and picking any
+              one (collapsed or expanded) applies that layout and becomes
+              the new collapsed default. */}
           {view === 'home' && hasWindows && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => applyLayout('horizontal')}
-                className="p-1 rounded hover:bg-white/10 transition-colors"
-                title="Side by side"
-              >
-                <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="3" width="9" height="18" rx="1" />
-                  <rect x="13" y="3" width="9" height="18" rx="1" />
-                </svg>
-              </button>
-              <button
-                onClick={() => applyLayout('vertical')}
-                className="p-1 rounded hover:bg-white/10 transition-colors"
-                title="Stacked"
-              >
-                <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="2" width="18" height="9" rx="1" />
-                  <rect x="3" y="13" width="18" height="9" rx="1" />
-                </svg>
-              </button>
-              <button
-                onClick={() => applyLayout('grid')}
-                className="p-1 rounded hover:bg-white/10 transition-colors"
-                title="Grid"
-              >
-                <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="2" width="9" height="9" rx="1" />
-                  <rect x="13" y="2" width="9" height="9" rx="1" />
-                  <rect x="2" y="13" width="9" height="9" rx="1" />
-                  <rect x="13" y="13" width="9" height="9" rx="1" />
-                </svg>
-              </button>
-            </div>
+            <IconStack
+              selectedId={layout}
+              items={[
+                {
+                  id: 'horizontal',
+                  title: 'Side by side',
+                  onClick: () => applyLayout('horizontal'),
+                  icon: (
+                    <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="2" y="3" width="9" height="18" rx="1" />
+                      <rect x="13" y="3" width="9" height="18" rx="1" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: 'vertical',
+                  title: 'Stacked',
+                  onClick: () => applyLayout('vertical'),
+                  icon: (
+                    <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="2" width="18" height="9" rx="1" />
+                      <rect x="3" y="13" width="18" height="9" rx="1" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: 'grid',
+                  title: 'Grid',
+                  onClick: () => applyLayout('grid'),
+                  icon: (
+                    <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="2" y="2" width="9" height="9" rx="1" />
+                      <rect x="13" y="2" width="9" height="9" rx="1" />
+                      <rect x="2" y="13" width="9" height="9" rx="1" />
+                      <rect x="13" y="13" width="9" height="9" rx="1" />
+                    </svg>
+                  ),
+                },
+              ]}
+            />
           )}
 
           {/* VPN — shield icon, hover for status / connect / disconnect */}
