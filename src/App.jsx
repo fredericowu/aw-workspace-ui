@@ -18,7 +18,6 @@ import { installPluginHost } from './apps/pluginHost';
 import { fetchContributions } from './apps/appsApi';
 import { wireContributions, findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
-// import NinjaBuddy from './components/NinjaBuddy';
 import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
 import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keyboardMode';
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
@@ -304,23 +303,6 @@ function AuthenticatedApp() {
   const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
   const [presentationFocusTrigger, setPresentationFocusTrigger] = useState({ key: '', counter: 0 });
 
-  // Ninja patrol zone — measures the gap between nav and Log Out so the ninja
-  // fills whatever free space the top bar has. <50px → no ninja.
-  // const ninjaSpaceRef = useRef(null);
-  // const [ninjaWidth, setNinjaWidth] = useState(0);
-  // useEffect(() => {
-  //   const el = ninjaSpaceRef.current;
-  //   if (!el || typeof ResizeObserver === 'undefined') return;
-  //   const ro = new ResizeObserver((entries) => {
-  //     for (const entry of entries) {
-  //       // contentRect.width excludes padding — exactly the patrol width
-  //       setNinjaWidth(Math.max(0, Math.floor(entry.contentRect.width)));
-  //     }
-  //   });
-  //   ro.observe(el);
-  //   return () => ro.disconnect();
-  // }, []);
-
   // Speech recognition for push-to-talk
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
@@ -405,7 +387,6 @@ function AuthenticatedApp() {
   const [terminals, setTerminals] = useState([]);
   const [presentations, setPresentations] = useState([]);
   const [diffs, setDiffs] = useState({});
-  const [stubbornUi, setStubbornUi] = useState(false);
   const [aiAgents, setAiAgents] = useState([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
     { type: 'copilot', label: 'Copilot', command: 'copilot', color: '#2ea043', icon: 'copilot' },
@@ -415,7 +396,6 @@ function AuthenticatedApp() {
   // Load aw config to check feature flags and agent list
   useEffect(() => {
     getAwConfig().then(cfg => {
-      if (cfg.stubborn_ui !== undefined) setStubbornUi(!!cfg.stubborn_ui);
       if (cfg.ai_agents?.length) setAiAgents(cfg.ai_agents);
       if (cfg.log_tail_lines) setMaxLines(Number(cfg.log_tail_lines));
     }).catch(() => {});
@@ -427,7 +407,6 @@ function AuthenticatedApp() {
       getAwConfig().then(cfg => {
         if (cfg.log_tail_lines) setMaxLines(Number(cfg.log_tail_lines));
         if (cfg.ai_agents?.length) setAiAgents(cfg.ai_agents);
-        if (cfg.stubborn_ui !== undefined) setStubbornUi(!!cfg.stubborn_ui);
       }).catch(() => {});
     };
     window.addEventListener('aw-config-changed', handler);
@@ -799,7 +778,6 @@ function AuthenticatedApp() {
       apiFetch(`${API_BASE}/api/terminals/${sessionId}`, { method: 'DELETE' });
       setTerminals((prev) => prev.filter((t) => t.id !== sessionId));
       setAgentSessions((prev) => prev.filter((t) => t.id !== sessionId));
-      setStubbornSessions((prev) => prev.filter((t) => t.id !== sessionId));
     }
   }, []);
 
@@ -915,18 +893,19 @@ function AuthenticatedApp() {
     setView('home');
   }, []);
 
-  // Agent sessions — all AI CLIs (claude, copilot, cursor, etc.) unified; stubborn separate
+  // Agent sessions — all AI CLIs (claude, copilot, cursor, etc.) unified.
+  // Sessions of type='stubborn' (the aw-persistent Brain MCP's sessions) are
+  // no longer surfaced in this dashboard — manage them via the aw-persistent
+  // MCP tools instead (create_session/push/status/...).
   const [agentSessions, setAgentSessions] = useState([]);
-  const [stubbornSessions, setStubbornSessions] = useState([]);
 
   const applyTerminalUpdate = useCallback((data) => {
     const alive = asArray(data).filter((t) => t.alive);
-    // type='terminal' = plain terminals; type='stubborn' = stubborn; everything else = AI agent
+    // type='terminal' = plain terminals; everything else (excluding
+    // 'stubborn', intentionally hidden) = AI agent.
     const agentOnes = alive.filter((t) => t.type !== 'terminal' && t.type !== 'stubborn');
-    const stubbornOnes = alive.filter((t) => t.type === 'stubborn');
     const termOnes = alive.filter((t) => t.type === 'terminal');
     setAgentSessions(agentOnes);
-    setStubbornSessions(stubbornOnes);
     setTerminals(termOnes);
     const insecure = {};
     const resume = {};
@@ -1010,7 +989,7 @@ function AuthenticatedApp() {
     const handler = () => {
       setTerminalReconnectSignals((prev) => {
         const next = { ...prev };
-        // Bump every known terminal (agents + plain + stubborn)
+        // Bump every known terminal (agents + plain)
         // We use a single shared counter keyed by '__all__' that TerminalWindow
         // reads alongside its per-session signal, so we don't need the full list here.
         next['__server_restart__'] = (next['__server_restart__'] || 0) + 1;
@@ -1137,33 +1116,6 @@ function AuthenticatedApp() {
   const deleteAgent = useCallback(async (sessionId) => {
     await apiFetch(`${API_BASE}/api/terminals/${sessionId}`, { method: 'DELETE' });
     setOpenWindows((prev) => { const next = new Set(prev); next.delete(`terminal:${sessionId}`); return next; });
-  }, []);
-
-  const createStubborn = useCallback(async () => {
-    const count = stubbornSessions.length + 1;
-    const sessionId = crypto.randomUUID();
-    const name = `Stubborn ${count}`;
-    const res = await apiFetch(`${API_BASE}/api/terminals`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, command: `claude --session-id ${sessionId} --dangerously-skip-permissions "/aw-persistent"`, type: 'stubborn' }),
-    });
-    const data = await res.json();
-    setOpenWindows((prev) => {
-      const next = new Set(prev);
-      next.add(`terminal:${data.id}`);
-      return next;
-    });
-    setView('home');
-  }, [stubbornSessions]);
-
-  const deleteStubborn = useCallback(async (sessionId) => {
-    await apiFetch(`${API_BASE}/api/terminals/${sessionId}`, { method: 'DELETE' });
-    setOpenWindows((prev) => {
-      const next = new Set(prev);
-      next.delete(`terminal:${sessionId}`);
-      return next;
-    });
   }, []);
 
   // insecureMap is populated on mount by the /api/terminals fetch (via applyTerminalUpdate)
@@ -1594,12 +1546,6 @@ function AuthenticatedApp() {
           </div>
         </div>
 
-        {/* Ninja patrol zone — fills all space between Desktop and Log Out */}
-        {/* <div ref={ninjaSpaceRef} className="flex-1 min-w-0 mx-3 self-center" style={{ height: 20 }}>
-          {ninjaWidth >= 50 && (
-            <NinjaBuddy width={ninjaWidth} height={20} offset={0} />
-          )}
-        </div> */}
         <div className="flex-1 min-w-0 mx-3 self-center" style={{ height: 20 }} />
 
         <div className="flex items-center gap-4 shrink-0">
@@ -1812,7 +1758,7 @@ function AuthenticatedApp() {
             openWindows={openWindows}
             components={components}
             aiAgents={aiAgents}
-            terminals={[...terminals, ...agentSessions, ...stubbornSessions]}
+            terminals={[...terminals, ...agentSessions]}
             maxLines={maxLines}
             onCloseWindow={closeWindow}
             onReopenWindow={toggleWindow}

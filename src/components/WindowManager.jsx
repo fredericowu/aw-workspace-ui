@@ -7,7 +7,6 @@ import PresentationWindow from './PresentationWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
 import DiffWindow from './DiffWindow';
 import BasicWindow from './BasicWindow';
-import StubbornWindow from './StubbornWindow';
 import PlansPanel from './PlansPanel';
 import TestsPanel from './TestsPanel';
 import SettingsPanel from './SettingsPanel';
@@ -1361,31 +1360,6 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   maximizedKey={maximizedKey}
                   bringToFront={() => bringToFront(key)}
                   isFocused={zOrder[zOrder.length - 1] === key}
-                />
-              ) : key.startsWith('terminal:') && (terminals || []).find((t) => `terminal:${t.id}` === key)?.type === 'stubborn' ? (
-                <StubbornWindow
-                  sessionId={key.replace('terminal:', '')}
-                  name={(terminals || []).find((t) => `terminal:${t.id}` === key)?.name || key}
-                  presentations={presentations}
-                  onOpenPresentation={(presentationId) => {
-                    if (onReopenWindow) onReopenWindow(`presentation:${presentationId}`);
-                  }}
-                  terminalProps={{
-                    sessionId: key.replace('terminal:', ''),
-                    name: (terminals || []).find((t) => `terminal:${t.id}` === key)?.name || key,
-                    windowKey: key,
-                    onClose: () => onCloseWindow(key),
-                    onMinimize: () => onMinimizeWindow?.(key),
-                    onMaximize,
-                    isMaximized: maximizedKey === key,
-                    onRename: onRenameTerminal,
-                    agentType: 'claude',
-                    onSessionSwitch,
-                    insecure: (insecureMap || {})[key.replace('terminal:', '')] || false,
-                    onToggleInsecure,
-                    reconnectSignal: ((terminalReconnectSignals || {})[key.replace('terminal:', '')] || 0)
-                      + ((terminalReconnectSignals || {})['__server_restart__'] || 0),
-                  }}
                 />
               ) : key.startsWith('terminal:') ? (
                 <TerminalWindow

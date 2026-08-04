@@ -2,9 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch, wsUrl } from '../auth';
 
 /**
- * Top-right floating notification stack — replaces the NinjaBuddy speech-
- * bubble system. Consumes the same `/ws/notifications` feed and renders
- * stacked cards in the same corner as PromptNotifications.
+ * Top-right floating notification stack. Consumes the `/ws/notifications`
+ * feed and renders stacked cards in the same corner as PromptNotifications.
  *
  * For notifications with `source: "task"`, clicking the card opens the
  * Tasks floating window (via window.__awOpenAppWindow('tasks.main'),
@@ -27,7 +26,6 @@ export default function TopNotifications() {
   const [hoveredId, setHoveredId] = useState(null);
   const wsRef = useRef(null);
 
-  // Connect WS — mirrors the NinjaBuddy logic but renders elsewhere.
   useEffect(() => {
     let closed = false;
     const connect = () => {

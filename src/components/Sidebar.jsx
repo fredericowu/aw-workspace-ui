@@ -3,7 +3,7 @@ import StatusDot from './StatusDot';
 import SidebarPreview from './SidebarPreview';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
 
-export default function Sidebar({ components, openWindows, onToggleWindow, collapsed, onToggleCollapse, stubbornUi, stubbornSessions, onCreateStubborn, onToggleStubborn, onCloseStubborn }) {
+export default function Sidebar({ components, openWindows, onToggleWindow, collapsed, onToggleCollapse }) {
 
   // Hover preview state
   const [hoverItem, setHoverItem] = useState(null); // { key, type, name, component, rect }
@@ -44,7 +44,6 @@ export default function Sidebar({ components, openWindows, onToggleWindow, colla
 
   // Search filtering
   const sq = searchQuery.toLowerCase();
-  const filteredStubbornSessions = (stubbornSessions || []).filter((t) => !sq || t.name?.toLowerCase().includes(sq) || 'stubborn'.includes(sq));
 
   if (collapsed) {
     return (
@@ -104,66 +103,6 @@ export default function Sidebar({ components, openWindows, onToggleWindow, colla
 
       {/* Sections */}
       <div className="flex-1 overflow-y-auto py-2">
-        {/* Stubborn section — gated by stubborn_ui flag in aw.json */}
-        {stubbornUi && (!sq || filteredStubbornSessions.length > 0 || 'stubborn'.includes(sq)) && (
-          <div className="mb-2">
-            <div
-              className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] flex items-center justify-between cursor-pointer hover:text-[var(--color-text-secondary)] transition-colors"
-              onClick={() => setCollapsedCategories((prev) => {
-                const next = new Set(prev);
-                if (next.has('Stubborn')) next.delete('Stubborn');
-                else next.add('Stubborn');
-                return next;
-              })}
-            >
-              <span>Stubborn</span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCollapsedCategories((prev) => { const next = new Set(prev); next.delete('Stubborn'); return next; });
-                    onCreateStubborn();
-                  }}
-                  className="p-0.5 rounded hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors cursor-pointer"
-                  title="New Stubborn session"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-                <svg className={`w-3 h-3 transition-transform ${collapsedCategories.has('Stubborn') ? '-rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </div>
-            </div>
-            {(!!sq || !collapsedCategories.has('Stubborn')) && filteredStubbornSessions.map((t) => (
-              <div
-                key={t.id}
-                className={`group w-full flex items-center gap-2 px-3 py-2 text-left text-[15px] transition-colors cursor-pointer ${
-                  openWindows.has(`terminal:${t.id}`)
-                    ? 'bg-white/[0.06] text-[var(--color-text-primary)]'
-                    : 'text-[var(--color-text-secondary)] hover:bg-white/[0.04] hover:text-[var(--color-text-primary)]'
-                }`}
-                onClick={() => onToggleStubborn(t.id)}
-                onMouseEnter={(e) => handleItemHover(`terminal:${t.id}`, 'terminal', t.name, null, e)}
-                onMouseLeave={handleItemLeave}
-              >
-                <svg className="w-3.5 h-3.5 text-[#e53e3e] shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 23c-1.1 0-1.99-.89-1.99-1.99h3.98C13.99 22.11 13.1 23 12 23zm8-4v-7c0-4.12-2.73-7.44-6.5-8.32V2.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v1.18C6.73 4.56 4 7.88 4 12v7l-2 2v1h20v-1l-2-2z" />
-                </svg>
-                <span className="truncate flex-1">{t.name}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onCloseStubborn(t.id); }}
-                  className="hidden group-hover:block p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors shrink-0"
-                  title="Close Stubborn session"
-                >
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* Component categories */}
         {sortedCategories.map((category) => ({ category, items: groups[category] })).filter(({ items }) => {
           if (!searchQuery) return true;
