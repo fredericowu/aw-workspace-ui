@@ -9,12 +9,12 @@ const ITEMS = [
   { id: 'c', title: 'C', icon: <span>C-icon</span>, onClick: vi.fn() },
 ];
 
-describe('IconStack — collapsed row with hover-reveal', () => {
-  it('shows only the selected item when collapsed', () => {
+describe('IconStack — single trigger, downward dropdown on hover', () => {
+  it('shows only the selected trigger and no dropdown when collapsed', () => {
     render(<IconStack items={ITEMS} selectedId="b" />);
     expect(screen.getByTitle('B')).toBeInTheDocument();
-    expect(screen.queryByTitle('A')).not.toBeInTheDocument();
-    expect(screen.queryByTitle('C')).not.toBeInTheDocument();
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
+    expect(screen.queryByText('C')).not.toBeInTheDocument();
   });
 
   it('falls back to the first item when selectedId matches nothing', () => {
@@ -22,39 +22,49 @@ describe('IconStack — collapsed row with hover-reveal', () => {
     expect(screen.getByTitle('A')).toBeInTheDocument();
   });
 
-  it('reveals every item on hover, including the selected one', () => {
+  it('opens a dropdown below the trigger on hover, listing every item', () => {
     render(<IconStack items={ITEMS} selectedId="b" />);
     fireEvent.mouseEnter(screen.getByTitle('B').parentElement);
-    expect(screen.getByTitle('A')).toBeInTheDocument();
-    expect(screen.getByTitle('B')).toBeInTheDocument();
-    expect(screen.getByTitle('C')).toBeInTheDocument();
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.getByText('C')).toBeInTheDocument();
   });
 
-  it('clicking the collapsed (visible) icon runs its own action without expanding', () => {
+  it('clicking the collapsed trigger runs its own action without opening the dropdown', () => {
     const items = ITEMS.map((i) => ({ ...i, onClick: vi.fn() }));
     render(<IconStack items={items} selectedId="b" />);
     fireEvent.click(screen.getByTitle('B'));
     expect(items[1].onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
   });
 
-  it('picking a different item while expanded calls its action and onSelect with its id', () => {
+  it('picking a different item from the dropdown calls its action and onSelect with its id', () => {
     const items = ITEMS.map((i) => ({ ...i, onClick: vi.fn() }));
     const onSelect = vi.fn();
     render(<IconStack items={items} selectedId="b" onSelect={onSelect} />);
     fireEvent.mouseEnter(screen.getByTitle('B').parentElement);
-    fireEvent.click(screen.getByTitle('C'));
+    fireEvent.click(screen.getByText('C'));
     expect(items[2].onClick).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith('c');
   });
 
-  it('collapses back to one icon after picking while expanded', () => {
+  it('closes the dropdown after picking an item', () => {
     render(<IconStack items={ITEMS} selectedId="b" />);
-    const row = screen.getByTitle('B').parentElement;
-    fireEvent.mouseEnter(row);
-    fireEvent.click(screen.getByTitle('C'));
-    // Still showing "b" as selectedId (parent owns that state — this test
-    // doesn't re-render with a new selectedId) but the row must have
-    // collapsed out of the open/expanded state regardless.
-    expect(screen.queryByTitle('A')).not.toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByTitle('B').parentElement);
+    fireEvent.click(screen.getByText('C'));
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
+  });
+
+  it('closes on click-outside', () => {
+    render(
+      <div>
+        <IconStack items={ITEMS} selectedId="b" />
+        <button type="button">outside</button>
+      </div>,
+    );
+    fireEvent.mouseEnter(screen.getByTitle('B').parentElement);
+    expect(screen.getByText('A')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByText('outside'));
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
   });
 });
