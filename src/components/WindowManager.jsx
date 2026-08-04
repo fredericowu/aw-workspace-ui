@@ -4,10 +4,9 @@ import LogWindow from './LogWindow';
 import LogStream from './LogStream';
 import TerminalWindow from './TerminalWindow';
 import PresentationWindow from './PresentationWindow';
-import WhiteboardWindow from './WhiteboardWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
 import DiffWindow from './DiffWindow';
-import AppDeclarativeWindow from './AppDeclarativeWindow';
+import BasicWindow from './BasicWindow';
 import StubbornWindow from './StubbornWindow';
 import TasksTab from './TasksTab';
 import PlansPanel from './PlansPanel';
@@ -1198,7 +1197,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   isFocused={zOrder[zOrder.length - 1] === key}
                 />
               ) : key.startsWith('appwin:') ? (
-                <AppDeclarativeWindow
+                <BasicWindow
                   title={appWindowSpec?.title}
                   spec={appWindowSpec?.spec}
                   windowSpec={appWindowSpec}
@@ -1207,14 +1206,6 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   onMaximize={onMaximize}
                   isMaximized={maximizedKey === key}
                   onFocus={() => bringToFront(key)}
-                />
-              ) : key === 'panel:whiteboard' ? (
-                <WhiteboardWindow
-                  boardId="main"
-                  windowKey={key}
-                  onClose={() => onCloseWindow(key)}
-                  onMaximize={onMaximize}
-                  isMaximized={maximizedKey === key}
                 />
               ) : key === 'panel:remote-desktop' ? (
                 <RemoteDesktopWindow

@@ -1,19 +1,28 @@
 import AppWindow from './AppWindow';
 import ErrorBoundary from './ErrorBoundary';
 import AppIcon from './AppIcon';
+import AppSlot from '../apps/AppSlot';
+import { windowBodySlot } from '../apps/slotRegistry';
 
 // Real WindowManager-integrated chrome (drag/resize/maximize/close, same
-// header pattern as DiffWindow/PresentationWindow) for a decoupled app's
-// declarative window (aw-app.json's contributes.windows[].body: {type:
-// "declarative", spec: "windows/main.json"}).
+// header pattern as DiffWindow/PresentationWindow) for ANY decoupled app's
+// window (aw-app.json's contributes.windows[].body.type: "declarative" |
+// "managed_app" | "component"). aw-workspace-ui owns this generic shell
+// ONLY — no app-specific window ever lives here (2026-08-04 decision): a
+// WhiteboardWindow.jsx or TasksWindow.jsx belongs in that app's own repo,
+// registered via host.registerWindow(windowId, Component) into this
+// window's core.window.body:<id> slot, rendered below for "component" mode.
+// declarative/managed_app modes render via AppWindow's spec-driven widgets
+// instead — no app code enters the SPA for those two.
 //
-// Before this existed, opening one of these (via a nav entry's onOpenWindow,
-// or an Installed Apps row click) rendered a small ad-hoc centered modal in
-// App.jsx instead — no drag, no resize, no maximize, not part of the
-// window-manager's z-order/persisted-position system every other window
-// type gets for free. That modal was originally built for tiny single-action
-// popups (e.g. aw-app-git's "Sign in with GitHub"), not a full app UI —
-// confirmed as the wrong fit for aw-app-whiteboard's window (2026-07-28).
+// Before this existed, opening a declarative window (via a nav entry's
+// onOpenWindow, or an Installed Apps row click) rendered a small ad-hoc
+// centered modal in App.jsx instead — no drag, no resize, no maximize, not
+// part of the window-manager's z-order/persisted-position system every
+// other window type gets for free. That modal was originally built for
+// tiny single-action popups (e.g. aw-app-git's "Sign in with GitHub"), not
+// a full app UI — confirmed as the wrong fit for aw-app-whiteboard's window
+// (2026-07-28).
 export function specFromManagedWindow(windowSpec) {
   const body = windowSpec?.body || {};
   if (body.type !== 'managed_app') return null;
@@ -37,7 +46,8 @@ export function specFromManagedWindow(windowSpec) {
   };
 }
 
-export default function AppDeclarativeWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus }) {
+export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus }) {
+  const isComponent = windowSpec?.body?.type === 'component';
   const resolvedSpec = spec || specFromManagedWindow(windowSpec);
   const icon = windowSpec?.icon || windowSpec?.body?.icon;
   return (
@@ -76,7 +86,9 @@ export default function AppDeclarativeWindow({ title, spec, windowSpec, onClose,
 
       <div className="app-declarative-window-body flex-1 overflow-auto no-drag" onMouseDown={(e) => e.stopPropagation()}>
         <ErrorBoundary label={title || 'App'}>
-          <AppWindow spec={resolvedSpec} />
+          {isComponent
+            ? <AppSlot slot={windowBodySlot(windowSpec.id)} props={{ windowKey, onClose, onMaximize, isMaximized }} />
+            : <AppWindow spec={resolvedSpec} />}
         </ErrorBoundary>
       </div>
     </div>

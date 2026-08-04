@@ -302,7 +302,6 @@ function AuthenticatedApp() {
   const [tasksPanelFocusTrigger, setTasksPanelFocusTrigger] = useState(0);
   const [plansPanelFocusTrigger] = useState(0);
   const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
-  const [whiteboardPanelFocusTrigger, setWhiteboardPanelFocusTrigger] = useState(0);
   const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
   const [presentationFocusTrigger, setPresentationFocusTrigger] = useState({ key: '', counter: 0 });
 
@@ -560,52 +559,6 @@ function AuthenticatedApp() {
     };
   }, []);
 
-  // Whiteboard WebSocket — when the agent pushes new content to a whiteboard
-  // (via MCP show_html / load_presentation), auto-open the Whiteboard window
-  // and raise it to the front, so a "load X in the whiteboard" command surfaces
-  // it without the user hunting for the menu. The window's own iframe handles
-  // the content reload; this listener only owns the open+focus behavior.
-  // Subscribes to aw-app-whiteboard's own /api/apps/whiteboard/ws (the
-  // monolith's core /ws/whiteboard doesn't exist in aw-workspace — that
-  // route never got ported here, only into the app).
-  useEffect(() => {
-    let ws, reconnectTimer, closed = false;
-    const bringToFront = () => {
-      setOpenWindows((prev) => { const next = new Set(prev); next.add('panel:whiteboard'); return next; });
-      setView('home');
-      setFocusedWindowKey('panel:whiteboard');
-      setWhiteboardPanelFocusTrigger((n) => n + 1);
-    };
-    const connect = () => {
-      try {
-        ws = new WebSocket(wsUrl('/api/apps/whiteboard/ws'));
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            // Only `set` (new content) pops the window — `exec_js` overlays and
-            // `init` handshakes must not yank the user's view.
-            if (msg.type === 'whiteboard_update' && msg.action === 'set') bringToFront();
-            // Agent-driven close: dismiss the whiteboard window on every viewer.
-            else if (msg.type === 'whiteboard_close') {
-              setOpenWindows((prev) => { const next = new Set(prev); next.delete('panel:whiteboard'); return next; });
-              setMaximizedKey((k) => (k === 'panel:whiteboard' ? null : k));
-            }
-          } catch {}
-        };
-        ws.onclose = () => { if (!closed) reconnectTimer = setTimeout(connect, 5000); };
-        ws.onerror = () => { try { ws.close(); } catch {} };
-      } catch {
-        if (!closed) reconnectTimer = setTimeout(connect, 5000);
-      }
-    };
-    connect();
-    return () => {
-      closed = true;
-      clearTimeout(reconnectTimer);
-      if (ws) { ws.onclose = null; try { ws.close(); } catch {} }
-    };
-  }, []);
-
   // DAP server WebSocket — track debug stopped state for the Debugger button.
   // Reconnect uses exponential backoff (1s, 2s, 4s, 8s, then capped at 10s)
   // so a missing dap-server doesn't fill the console with retry errors.
@@ -723,7 +676,24 @@ function AuthenticatedApp() {
     const key = `appwin:${found.id}`;
     setAppWindowSpecs((prev) => ({ ...prev, [key]: found }));
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
+    setView('home');
+    setFocusedWindowKey(key);
   }, []);
+  // Generic escape hatch so ANY app's own component-mode contribution (a nav
+  // row, a background WS listener, ...) can open one of ITS OWN windows
+  // without core knowing anything app-specific — mirrors __awOpenTerminal/
+  // __awOpenPresentation. Replaces the old per-app __awOpenTasksPanel/
+  // __awOpenWhiteboardPanel globals (2026-08-04: aw-workspace-ui must not
+  // carry app-specific window logic — see BasicWindow.jsx's header comment).
+  useEffect(() => {
+    window.__awOpenAppWindow = (windowId) => {
+      const found = findWindowSpec(contributionsRef.current, windowId);
+      if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) {
+        openAppWindow(found);
+      }
+    };
+    return () => { delete window.__awOpenAppWindow; };
+  }, [openAppWindow]);
 
   useEffect(() => {
     installPluginHost();
@@ -732,7 +702,7 @@ function AuthenticatedApp() {
 
     const openWindowById = (windowId) => {
       const found = findWindowSpec(contributionsRef.current, windowId);
-      if (found && (found.spec || found.body?.type === 'managed_app')) openAppWindow(found);
+      if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
     };
 
     const load = async (isFirstLoad) => {
@@ -789,7 +759,7 @@ function AuthenticatedApp() {
   // (InstalledApps has no nav entry to click through — see AppLauncher).
   const openInstalledApp = useCallback((appId) => {
     const found = findAppDefaultWindow(contributionsRef.current, appId);
-    if (found && (found.spec || found.body?.type === 'managed_app')) openAppWindow(found);
+    if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
   }, [openAppWindow]);
 
   const toggleWindow = useCallback((key) => {
@@ -1518,24 +1488,6 @@ function AuthenticatedApp() {
     setSettingsPanelFocusTrigger((n) => n + 1);
   }, []);
 
-  // Workspace > Whiteboard: open the persistent whiteboard as a floating
-  // window (mirrors Tasks/Plans). The panel embeds the live viewer, which
-  // owns the /api/apps/whiteboard/ws subscription and reloads on every update.
-  const openWhiteboardPanel = useCallback(() => {
-    const key = 'panel:whiteboard';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    setFocusedWindowKey(key);
-    setWhiteboardPanelFocusTrigger((n) => n + 1);
-  }, []);
-  // Expose as a global so aw-app-whiteboard's own component-mode nav row
-  // (registered into core.nav.workspace) can open the panel without prop
-  // drilling — mirrors __awOpenTasksPanel above.
-  useEffect(() => {
-    window.__awOpenWhiteboardPanel = openWhiteboardPanel;
-    return () => { delete window.__awOpenWhiteboardPanel; };
-  }, [openWhiteboardPanel]);
-
   // Workspace > Remote Desktop: open the VNC client window (mirrors
   // Whiteboard) — RemoteDesktopWindow owns connection selection/management.
   const openRemoteDesktopPanel = useCallback(() => {
@@ -1903,7 +1855,6 @@ function AuthenticatedApp() {
               { key: 'panel:tasks', counter: tasksPanelFocusTrigger },
               { key: 'panel:plans', counter: plansPanelFocusTrigger },
               { key: 'panel:tests', counter: testsPanelFocusTrigger },
-              { key: 'panel:whiteboard', counter: whiteboardPanelFocusTrigger },
               { key: 'panel:remote-desktop', counter: remoteDesktopFocusTrigger },
               ...Object.entries(appFocusTriggers).map(([id, counter]) => ({
                 key: `app:${id}`,

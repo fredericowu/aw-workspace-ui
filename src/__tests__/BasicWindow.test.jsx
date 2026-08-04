@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-import { specFromManagedWindow } from '../components/AppDeclarativeWindow';
+import { specFromManagedWindow } from '../components/BasicWindow';
 
-describe('AppDeclarativeWindow managed_app contract', () => {
+describe('BasicWindow managed_app contract', () => {
   it('turns a managed app window declaration into a core-owned app iframe spec', () => {
     const spec = specFromManagedWindow({
       app: 'browser',
