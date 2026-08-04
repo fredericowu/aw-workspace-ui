@@ -252,12 +252,12 @@ function ScheduleRow({ value, error, onChange, onRemove, nextFireAt }) {
 function ScheduleEditor({ schedules, onChange }) {
   const [preview, setPreview] = useState(null);
 
-  // Live preview: 300ms debounced POST to /api/tasks/preview-schedules.
+  // Live preview: 300ms debounced POST to /api/apps/tasks/preview-schedules.
   useEffect(() => {
     if (!schedules.length) { setPreview(null); return; }
     const t = setTimeout(async () => {
       try {
-        const r = await apiFetch('/api/tasks/preview-schedules', {
+        const r = await apiFetch('/api/apps/tasks/preview-schedules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ schedules }),
         });
@@ -397,7 +397,7 @@ function TaskEditor({ task, onClose, onSaved }) {
     }
     setBusy(true);
     try {
-      const url = isNew ? '/api/tasks' : `/api/tasks/${task.id}`;
+      const url = isNew ? '/api/apps/tasks/tasks' : `/api/apps/tasks/tasks/${task.id}`;
       const method = isNew ? 'POST' : 'PUT';
       const r = await apiFetch(url, {
         method, headers: { 'Content-Type': 'application/json' },
@@ -798,12 +798,8 @@ function RunHistory({ task, onOpen }) {
       </div>
     );
   }
-  // Clicking a run row opens the task's agent session via the same resolver
-  // the row-action [⊢] button uses (`/api/tasks/{id}/open`). The previous
-  // behavior — opening the per-run `session_id` directly — was unreliable
-  // because that terminal may have died since the run completed; the
-  // resolver finds whichever live terminal hosts the agent UUID or spawns
-  // a fresh one with --resume.
+  // Clicking a run row would open the task's agent session — disabled for
+  // now, aw-app-tasks doesn't port the open-session resolver yet.
   return (
     <div className="border-t border-[var(--color-border)]">
       {runs.map((r) => (
@@ -835,7 +831,7 @@ export default function TasksTab() {
 
   const reload = useCallback(async () => {
     try {
-      const r = await apiFetch('/api/tasks');
+      const r = await apiFetch('/api/apps/tasks/tasks');
       const data = await r.json();
       setTasks(data.tasks || []);
     } catch (e) {
@@ -935,7 +931,7 @@ export default function TasksTab() {
 
   const runNow = async (id) => {
     try {
-      await apiFetch(`/api/tasks/${id}/run`, { method: 'POST' });
+      await apiFetch(`/api/apps/tasks/tasks/${id}/run`, { method: 'POST' });
       reload();
     } catch (e) {
       setError(String(e));
@@ -945,7 +941,7 @@ export default function TasksTab() {
   const remove = async (id) => {
     if (!confirm('Delete this task and its bound terminal session?')) return;
     try {
-      await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/apps/tasks/tasks/${id}`, { method: 'DELETE' });
       reload();
     } catch (e) {
       setError(String(e));
@@ -954,7 +950,7 @@ export default function TasksTab() {
 
   const toggleEnabled = async (task) => {
     try {
-      await apiFetch(`/api/tasks/${task.id}`, {
+      await apiFetch(`/api/apps/tasks/tasks/${task.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !task.enabled }),
       });
@@ -964,24 +960,10 @@ export default function TasksTab() {
     }
   };
 
-  // Resolve via backend: the canonical identity of a "task session" is the
-  // agent's conversation UUID (agent_session_id), not the screen-session id. The
-  // /open endpoint finds any live terminal already running this UUID,
-  // spawning one with --resume if none exists, then we open that terminal
-  // in the home view.
-  const openSession = async (task) => {
-    try {
-      const res = await apiFetch(`/api/tasks/${task.id}/open`, { method: 'POST' });
-      const data = await res.json();
-      if (data.session_id && window.__awOpenTerminal) {
-        window.__awOpenTerminal(data.session_id);
-      } else if (data.error) {
-        setError(data.error);
-      }
-    } catch (e) {
-      setError(String(e));
-    }
-  };
+  // The aw-app-tasks port doesn't carry the monolith's /open route yet (no
+  // agent-session-id-open machinery — see the app's manager.py docstring),
+  // so this button stays disabled below rather than call a route that 404s.
+  const openSession = async (_task) => {};
 
   return (
     <div className="p-4 w-full">
@@ -1104,14 +1086,8 @@ export default function TasksTab() {
                     </button>
                     <button
                       onClick={() => openSession(t)}
-                      title={
-                        t.agent_session_id
-                          ? 'Open agent session (resumes if no terminal is live)'
-                          : t.session_id
-                            ? 'Open bound session (no agent UUID captured yet)'
-                            : 'No session yet — click ▶ to run once'
-                      }
-                      disabled={!t.agent_session_id && !t.session_id}
+                      title="Opening a task's bound session isn't ported yet"
+                      disabled
                       className="p-1 rounded hover:bg-white/10 text-amber-400 disabled:opacity-30"
                     >
                       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

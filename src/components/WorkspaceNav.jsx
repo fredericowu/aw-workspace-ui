@@ -26,6 +26,17 @@ import AppSlot from '../apps/AppSlot';
 const HIDDEN_CATEGORIES = new Set(['System']);
 const CATEGORY_ORDER = ['Platform', 'APIs', 'Apps', 'Docker', 'Service', 'Tools'];
 
+// aw-app-tasks stores a `schedules[]` list (kind: once/daily/weekly/monthly/cron)
+// rather than the monolith's single `cron` string — summarize for the compact row.
+function scheduleSummary(task) {
+  const schedules = task.schedules || [];
+  if (schedules.length === 0) return 'manual';
+  if (schedules.length > 1) return `${schedules.length} schedules`;
+  const s = schedules[0];
+  if (s.kind === 'cron') return s.expr || 'cron';
+  return s.kind || 'scheduled';
+}
+
 // ---- Tiny inline icons ------------------------------------------------------
 
 function ChevronRight() {
@@ -211,7 +222,7 @@ export default function WorkspaceNav({
 
   const refreshTasks = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/tasks');
+      const res = await apiFetch('/api/apps/tasks/tasks');
       const data = await res.json();
       setTasks(data.tasks || []);
       setTasksError(null);
@@ -271,13 +282,13 @@ export default function WorkspaceNav({
   };
   const closeSub = () => setSubmenu(null);
 
-  // Run a task now. POST /api/tasks/{id}/run returns the run row; we
+  // Run a task now. POST /api/apps/tasks/tasks/{id}/run returns the run row; we
   // refresh the list so the user sees the updated last_run_status.
   const runTaskNow = async (task) => {
     setBusyTask(task.id);
     setTasksError(null);
     try {
-      const res = await apiFetch(`/api/tasks/${task.id}/run`, { method: 'POST' });
+      const res = await apiFetch(`/api/apps/tasks/tasks/${task.id}/run`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
         setTasksError(data?.error || `${task.name}: run failed`);
@@ -290,19 +301,11 @@ export default function WorkspaceNav({
     }
   };
 
-  // Open a task's agent conversation. The canonical identifier is the
-  // agent_session_id, not the screen-session id — go through /api/tasks/{id}/open
-  // so the backend can pick an already-live terminal hosting this UUID, or
-  // spawn one with --resume if none exists.
-  const openTaskSession = async (task) => {
-    if (!task.agent_session_id && !task.session_id) return;
-    try {
-      const res = await apiFetch(`/api/tasks/${task.id}/open`, { method: 'POST' });
-      const data = await res.json();
-      if (data.session_id && window.__awOpenTerminal) {
-        window.__awOpenTerminal(data.session_id);
-      }
-    } catch (_) { /* surface via console; popover already closes below */ }
+  // Open a task's bound terminal session. The aw-app-tasks port doesn't
+  // carry the monolith's agent-session-id-open machinery yet (no /open
+  // route — see the app's manager.py docstring), so this just closes the
+  // popover for now instead of 404ing against a route that doesn't exist.
+  const openTaskSession = async (_task) => {
     setOpen(false);
     setSubmenu(null);
   };
@@ -784,7 +787,7 @@ export default function WorkspaceNav({
                           key={t.id}
                           className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.05] cursor-pointer"
                           onClick={() => openTaskSession(t)}
-                          title={t.session_id ? 'Open bound session' : 'No session yet — click ▶ to start'}
+                          title={t.name}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
                           <div className="flex-1 min-w-0">
@@ -795,7 +798,7 @@ export default function WorkspaceNav({
                               )}
                             </div>
                             <div className="text-[10px] text-[var(--color-text-muted)] truncate font-mono">
-                              {t.cli_type} · {t.cron || 'manual'}
+                              {t.cli_type} · {scheduleSummary(t)}
                             </div>
                           </div>
                           <button
