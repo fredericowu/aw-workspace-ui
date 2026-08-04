@@ -136,7 +136,7 @@ function PresentationThumbnail({ presentation, onClick, onDelete }) {
           // Absolute URL required — <iframe src> is resolved directly by the
           // browser, bypassing the fetch/XHR-only apiBase.js rewrite shim a
           // relative path depends on.
-          src={apiUrl(`/api/presentations/${presentation.id}/html`)}
+          src={apiUrl(`/api/apps/presentations/presentations/${presentation.id}/html`)}
           sandbox="allow-same-origin"
           tabIndex={-1}
           aria-hidden

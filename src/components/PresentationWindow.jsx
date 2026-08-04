@@ -2,8 +2,6 @@ import { useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../auth';
 import { apiUrl } from '../apiBase';
 
-const API_BASE = '';
-
 export default function PresentationWindow({ presentation, onClose, onDelete, onMaximize, isMaximized, windowKey, onRename, onFocus }) {
   const iframeRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -19,7 +17,7 @@ export default function PresentationWindow({ presentation, onClose, onDelete, on
   // window.open() are resolved directly by the browser, bypassing the
   // fetch/XHR-only apiBase.js rewrite shim a relative API_BASE path depends
   // on (same class of bug fixed in aw-app-whiteboard's plugin.jsx, 2026-08-04).
-  const htmlUrl = presentation?.id ? apiUrl(`/api/presentations/${presentation.id}/html`) : null;
+  const htmlUrl = presentation?.id ? apiUrl(`/api/apps/presentations/presentations/${presentation.id}/html`) : null;
 
   const handleExport = useCallback(async () => {
     if (!iframeRef.current) return;
@@ -47,14 +45,14 @@ export default function PresentationWindow({ presentation, onClose, onDelete, on
     setShareLoading(true);
     setShareLink(null);
     try {
-      const res = await apiFetch(`${API_BASE}/api/presentations/${presentation.id}/share`, {
+      const res = await apiFetch(`/api/apps/presentations/presentations/${presentation.id}/share`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expires_in: expiresIn }),
       });
       const data = await res.json();
       if (data.success && data.token) {
-        const url = `${window.location.origin}/api/presentations/${presentation.id}/html?token=${data.token}`;
+        const url = `${apiUrl(`/api/apps/presentations/presentations/${presentation.id}/html`)}?token=${data.token}`;
         setShareLink(url);
       }
     } catch (err) {

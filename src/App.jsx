@@ -494,7 +494,9 @@ function AuthenticatedApp() {
     const connect = () => {
       if (closed) return;
       try {
-        ws = new WebSocket(wsUrl('/ws/presentations'));
+        // Owned by aw-app-presentations, mounted at /api/apps/presentations
+        // (routes:register convention) — NOT a core /ws/presentations route.
+        ws = new WebSocket(wsUrl('/api/apps/presentations/ws'));
         ws.onmessage = handleMessage;
         ws.onopen = () => {
           // Heartbeat every 25s to detect silently-dropped TCP connections
@@ -608,12 +610,14 @@ function AuthenticatedApp() {
     return () => { clearTimeout(reconnectTimer); if (ws) { ws.onclose = null; ws.close(); } };
   }, []);
 
+  // aw-app-presentations owns these — /api/apps/presentations/presentations/*,
+  // not the legacy monolith's /api/presentations/* (dead in aw-workspace).
   const deletePresentation = useCallback(async (presentationId) => {
-    await apiFetch(`${API_BASE}/api/presentations/${presentationId}`, { method: 'DELETE' });
+    await apiFetch(`/api/apps/presentations/presentations/${presentationId}`, { method: 'DELETE' });
   }, []);
 
   const renamePresentation = useCallback(async (presentationId, newTitle) => {
-    await apiFetch(`${API_BASE}/api/presentations/${presentationId}`, {
+    await apiFetch(`/api/apps/presentations/presentations/${presentationId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: newTitle }),

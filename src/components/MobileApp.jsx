@@ -320,7 +320,8 @@ export default function MobileApp() {
   const [presentations, setPresentations] = useState([]);
   const [diffs, setDiffs] = useState({});
   useEffect(() => {
-    const ws = new WebSocket(wsUrl('/ws/presentations'));
+    // aw-app-presentations owns this — /api/apps/presentations/ws.
+    const ws = new WebSocket(wsUrl('/api/apps/presentations/ws'));
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'presentation_init') {
@@ -439,7 +440,8 @@ export default function MobileApp() {
   }, [activeWindow, closeActiveWindow]);
 
   const deletePresentation = useCallback(async (presentationId) => {
-    await apiFetch(`${API_BASE}/api/presentations/${presentationId}`, { method: 'DELETE' });
+    // aw-app-presentations owns this — /api/apps/presentations/presentations/*.
+    await apiFetch(`/api/apps/presentations/presentations/${presentationId}`, { method: 'DELETE' });
     if (activeWindow?.id === presentationId) closeActiveWindow();
   }, [activeWindow, closeActiveWindow]);
 

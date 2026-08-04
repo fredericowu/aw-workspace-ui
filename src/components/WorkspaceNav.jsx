@@ -287,7 +287,7 @@ export default function WorkspaceNav({
   };
 
   // Up-arrow: ask the server to build a diff presentation. On success the new
-  // presentation arrives over /ws/presentations and App.jsx auto-opens + maximizes it —
+  // presentation arrives over /api/apps/presentations/ws and App.jsx auto-opens + maximizes it —
   // but only visibly on the 'home' view, so we switch there and close the
   // popover only AFTER we know we have a presentation to show. On failure we keep
   // the popover open and surface the error inline (e.g. "No changes found"),
