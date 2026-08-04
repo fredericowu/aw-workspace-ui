@@ -290,7 +290,7 @@ function AuthenticatedApp() {
   }, []);
 
   const [focusedWindowKey, setFocusedWindowKey] = useState(null);
-  const [debuggerFocusTrigger, setDebuggerFocusTrigger] = useState(0);
+  const [debuggerFocusTrigger] = useState(0);
   // Counter-style focus triggers for the workspace-menu floating panels.
   // WindowManager listens via the `focusTriggers` prop; bumping the counter
   // bringsthe matching window key to the top of zOrder. Without these, a
@@ -299,7 +299,7 @@ function AuthenticatedApp() {
   // whatever was on top.
   const [settingsPanelFocusTrigger, setSettingsPanelFocusTrigger] = useState(0);
   const [tasksPanelFocusTrigger, setTasksPanelFocusTrigger] = useState(0);
-  const [plansPanelFocusTrigger, setPlansPanelFocusTrigger] = useState(0);
+  const [plansPanelFocusTrigger] = useState(0);
   const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
   const [knowledgeBaseFocusTrigger, setKnowledgeBaseFocusTrigger] = useState(0);
   const [whiteboardPanelFocusTrigger, setWhiteboardPanelFocusTrigger] = useState(0);
@@ -613,7 +613,7 @@ function AuthenticatedApp() {
   // browser tries to connect to its OWN 127.0.0.1, which is not
   // the AW host, and floods the console with errors.  Skip the
   // connection unless we're actually running on localhost.
-  const [debugStopped, setDebugStopped] = useState(false);
+  const [, setDebugStopped] = useState(false);
   const [debugStoppedService, setDebugStoppedService] = useState('');
   useEffect(() => {
     const onLocalhost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
@@ -1464,20 +1464,6 @@ function AuthenticatedApp() {
     return () => { delete window.__awOpenTasksPanel; };
   }, [openTasksPanel]);
 
-  // Workspace > Plans: open the Plans floating window. Mirrors the
-  // Tasks/Debugger pattern — no separate top-level view, just a
-  // draggable panel managed by WindowManager. PlansPanel itself owns
-  // the agent picker, flow picker, and embedded terminal.
-  const openPlansPanel = useCallback(() => {
-    const key = 'panel:plans';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    setFocusedWindowKey(key);
-    // Bump the focus trigger so a click on Workspace > Plans raises
-    // the panel even when it's already open behind another window.
-    setPlansPanelFocusTrigger((n) => n + 1);
-  }, []);
-
   // Workspace > Tests: open the Architecture Namespace traceability matrix
   // as a floating window (mirrors Plans/Knowledge Base). TestsPanel itself
   // owns the fetch against GET /api/architecture/matrix.
@@ -1527,21 +1513,6 @@ function AuthenticatedApp() {
     setFocusedWindowKey(key);
     setRemoteDesktopFocusTrigger((n) => n + 1);
   }, []);
-
-  // Workspace > Debugger: open the debugger window, auto-start dap-server
-  // if it isn't running, then push focus.
-  const openDebugger = useCallback(async () => {
-    const key = 'debugger:dap';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    setFocusedWindowKey(key);
-    const dap = components.find((c) => c.key === 'dap-server');
-    if (dap && dap.status !== 'running' && dap.status !== 'boot') {
-      await startComponent('dap-server');
-      refetch();
-    }
-    setDebuggerFocusTrigger((n) => n + 1);
-  }, [components, refetch]);
 
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
@@ -1618,15 +1589,11 @@ function AuthenticatedApp() {
               onToggleWindow={toggleWindow}
               onAction={refetch}
               onOpenSettings={openSettingsPanel}
-              onOpenDebugger={openDebugger}
               onOpenTasks={openTasksPanel}
-              onOpenPlans={openPlansPanel}
               onOpenTests={openTestsPanel}
               onOpenKnowledgeBase={openKnowledgeBasePanel}
               onOpenWhiteboard={openWhiteboardPanel}
               onOpenRemoteDesktop={openRemoteDesktopPanel}
-              debugStopped={debugStopped}
-              debugStoppedService={debugStoppedService}
               workspaceApps={enabledApps}
               onOpenApp={openApp}
             />

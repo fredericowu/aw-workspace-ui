@@ -128,16 +128,6 @@ function KbIcon() {
   );
 }
 
-function BugIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="8" y="6" width="8" height="14" rx="4" />
-      <path d="M14 6V4a2 2 0 0 0-4 0v2" />
-      <path d="M2 13h6m8 0h6M3 5l3 3m12-3l-3 3M3 21l3-3m12 3l-3-3" />
-    </svg>
-  );
-}
-
 function StackIcon() {
   return (
     <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -157,21 +147,8 @@ function TasksIcon() {
   );
 }
 
-// Compass-with-checkmark glyph reads as "spec → execution plan", which
-// is what the Plans tab is — a planning surface that drives a
-// downstream agent run. Distinct from TasksIcon (clock = scheduled
-// task) and ReposIcon (grid = source code).
-function PlansIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 11l3 3L22 4" />
-      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-    </svg>
-  );
-}
-
 // Clipboard-with-checkmark — reads as "test/verification record", distinct
-// from TasksIcon's clock (scheduled) and BugIcon's insect (a live bug).
+// from TasksIcon's clock (scheduled).
 function TestsIcon() {
   return (
     <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -199,17 +176,13 @@ export default function WorkspaceNav({
   onToggleWindow,
   onAction,
   onOpenSettings,
-  onOpenDebugger,
   onOpenTasks,
-  onOpenPlans,
   onOpenTests,
   onOpenKnowledgeBase,
   onOpenWhiteboard,
   onOpenRemoteDesktop,
   onOpenApp,
   workspaceApps,
-  debugStopped,
-  debugStoppedService,
 }) {
   const [open, setOpen] = useState(false);
   const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | 'tasks' | null
@@ -629,10 +602,10 @@ export default function WorkspaceNav({
 
           {/* Workspace Apps — dynamic list from aw.json workspace_apps.
               Only entries with menu === "workspace" land here; "apps" goes
-              to the AppsNav popover, "top" goes to the top bar. The fallback
-              below keeps the legacy APIs/Hoppscotch entry visible only when
-              the list is fully empty. */}
-          {(workspaceApps && workspaceApps.length > 0) ? workspaceApps
+              to the AppsNav popover, "top" goes to the top bar. No fallback
+              when the list is empty — the legacy APIs/Hoppscotch entry was
+              removed from this menu. */}
+          {(workspaceApps || [])
             .filter(app => app.menu === 'workspace')
             .map(app => (
               <button
@@ -647,19 +620,7 @@ export default function WorkspaceNav({
                 <WorkspaceAppIcon icon={app.icon} label={app.label} />
                 <span className="text-[13px] text-[var(--color-text-primary)]">{app.label}</span>
               </button>
-            )) : (
-            <button
-              onClick={() => {
-                onToggleWindow('apis:hoppscotch');
-                setOpen(false);
-              }}
-              onMouseEnter={closeSub}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-            >
-              <ApisIcon />
-              <span className="text-[13px] text-[var(--color-text-primary)]">APIs</span>
-            </button>
-          )}
+            ))}
 
           {/* Knowledge Base */}
           <button
@@ -698,19 +659,6 @@ export default function WorkspaceNav({
               <path d="M8 21h8M12 17v4" />
             </svg>
             <span className="text-[13px] text-[var(--color-text-primary)]">Remote Desktop</span>
-          </button>
-
-          {/* Plans — spec-driven planning surface (specs/<slug>/spec.md +
-              plan.md + tasks.md). Opens as a floating window (mirrors
-              the Tasks/Debugger pattern) — PlansPanel itself owns the
-              agent picker, flow picker, and embedded terminal. */}
-          <button
-            onClick={() => { setOpen(false); onOpenPlans?.(); }}
-            onMouseEnter={closeSub}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-          >
-            <PlansIcon />
-            <span className="text-[13px] text-[var(--color-text-primary)]">Plans</span>
           </button>
 
           {/* Tests — the Architecture Namespace traceability matrix: what was
@@ -820,19 +768,6 @@ export default function WorkspaceNav({
               </div>
             )}
           </div>
-
-          {/* Debugger */}
-          <button
-            onClick={() => { setOpen(false); onOpenDebugger?.(); }}
-            onMouseEnter={closeSub}
-            title={debugStopped ? `Stopped: ${debugStoppedService}` : 'Open debugger'}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-          >
-            <BugIcon />
-            <span className={`text-[13px] ${debugStopped ? 'text-red-400 animate-pulse' : 'text-[var(--color-text-primary)]'}`}>
-              {debugStopped ? '⏸ Debugger' : 'Debugger'}
-            </span>
-          </button>
 
           {/* Components */}
           <div className="relative" onMouseEnter={enterSub('components')}>
