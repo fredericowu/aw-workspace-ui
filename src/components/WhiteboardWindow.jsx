@@ -1,14 +1,22 @@
 import { useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../auth';
+import { apiUrl } from '../apiBase';
 
 /**
  * WhiteboardWindow — a floating panel that embeds the persistent, live-synced
- * whiteboard viewer (`/api/whiteboards/{id}/view`). The viewer page owns the
- * websocket subscription, so this component only frames it and adds the
+ * whiteboard viewer (`/api/apps/whiteboard/view/{id}`). The viewer page owns
+ * the websocket subscription, so this component only frames it and adds the
  * save-to-presentation / export / pop-out affordances (mirrors PresentationWindow).
  */
 export default function WhiteboardWindow({ boardId = 'main', windowKey, onClose, onMaximize, isMaximized }) {
-  const viewUrl = `/api/apps/whiteboard/view/${encodeURIComponent(boardId)}`;
+  // apiUrl() rewrites this same-origin /api/* path to the workspace API host
+  // (api.<slug>.workspace.<domain>) — required for an <iframe src>, unlike a
+  // fetch() call: apiBase.js's fetch shim only intercepts fetch/XHR, never
+  // plain browser navigation, so a raw relative src here would resolve
+  // against the current page's origin (the bare SPA host, which serves no
+  // /api/* routes at all) and always 404 — same bug AppWindow.jsx's iframe
+  // widget already guards against with the same call.
+  const viewUrl = apiUrl(`/api/apps/whiteboard/view/${encodeURIComponent(boardId)}`);
   const iframeRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
