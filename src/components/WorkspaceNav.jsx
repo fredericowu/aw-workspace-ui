@@ -18,8 +18,9 @@ import AppSlot from '../apps/AppSlot';
  *   - Components            (submenu — components grouped by category)
  *
  * Submenus open to the right of the parent row. Only one submenu can be
- * open at a time. The popover closes 150ms after the mouse leaves the
- * whole structure (parent button + popover + any submenu).
+ * open at a time. The popover closes on click-outside (or picking an
+ * item) — not on mouse-leave, so it never closes out from under you while
+ * you're still moving toward a submenu.
  */
 
 const HIDDEN_CATEGORIES = new Set(['System']);
@@ -145,7 +146,7 @@ export default function WorkspaceNav({
 }) {
   const [open, setOpen] = useState(false);
   const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | null
-  const closeTimer = useRef(null);
+  const rootRef = useRef(null);
 
   // Floating log/terminal preview, identical to the old sidebar's hover preview.
   // Triggered by hovering a row inside the Components submenu (300 ms grace).
@@ -166,23 +167,30 @@ export default function WorkspaceNav({
   }, []);
 
   const handleEnter = useCallback(() => {
-    clearTimeout(closeTimer.current);
     setOpen(true);
   }, []);
-  const handleLeave = useCallback(() => {
-    clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => {
-      setOpen(false);
-      setSubmenu(null);
-      // Drop any preview when the whole popover closes
-      clearTimeout(hoverTimer.current);
-      setHoverItem(null);
-    }, 150);
-  }, []);
   useEffect(() => () => {
-    clearTimeout(closeTimer.current);
     clearTimeout(hoverTimer.current);
   }, []);
+
+  // Click-outside-to-close, replacing a mouseleave timer that fired even
+  // while genuinely hovering a submenu — absolutely-positioned submenus
+  // (Repos/Components render to the right via left-full) leave a real gap
+  // the pointer crosses on its way there, and no fixed delay reliably
+  // covers every mouse speed/path without either closing prematurely or
+  // lingering open too long.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+        setSubmenu(null);
+        setHoverItem(null);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open]);
 
   const enterSub = (name) => () => {
     setSubmenu(name);
@@ -357,7 +365,7 @@ export default function WorkspaceNav({
   });
 
   return (
-    <div className="relative" onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
+    <div className="relative" ref={rootRef} onMouseEnter={handleEnter}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="px-3 py-1 text-xs rounded transition-colors cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5"
