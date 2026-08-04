@@ -723,7 +723,7 @@ function AuthenticatedApp() {
       if (found && (found.spec || found.body?.type === 'managed_app')) openAppWindow(found);
     };
 
-    const load = async () => {
+    const load = async (isFirstLoad) => {
       let contributions;
       try {
         contributions = await fetchContributions();
@@ -736,9 +736,22 @@ function AuthenticatedApp() {
       dispose = await wireContributions(contributions, window.__AW_PLUGIN_HOST__, {
         onOpenWindow: openWindowById,
       });
+      // Rehydrate any decoupled-app windows a previous page load left open
+      // (persisted in localStorage's openWindows set) — wireContributions
+      // only wires nav CLICK handlers, so without this a reload leaves the
+      // window slot present but appWindowSpecs empty, rendering as a blank
+      // generic "App" window instead of the app's real title/content.
+      // First-load only: a later re-run (focus/aw-apps-changed) reuses this
+      // same closure's `openWindows` snapshot from mount, so doing it every
+      // time could reopen a window the user has since closed.
+      if (isFirstLoad) {
+        for (const key of openWindows) {
+          if (key.startsWith('appwin:')) openWindowById(key.slice('appwin:'.length));
+        }
+      }
     };
 
-    load();
+    load(true);
     const onChanged = () => load();
     window.addEventListener('aw-apps-changed', onChanged);
     window.addEventListener('focus', onChanged);
