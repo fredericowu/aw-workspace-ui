@@ -701,9 +701,17 @@ function AuthenticatedApp() {
   // F5 shipped the frontend plugin runtime as an unwired library; this boots it:
   // install the host, fetch the workspace's contributions, register declarative
   // nav into the core.nav / core.nav.workspace slots, and load component-mode
-  // bundles. Re-runs on app install/uninstall + window refocus. Zero contributing
-  // apps ⇒ zero visual change (safe).
+  // bundles. Re-checks on app install/uninstall + window refocus (catches an
+  // app installed/uninstalled from another tab/session) but only actually
+  // dispose()+rewires when the fetched contributions differ from what's
+  // already mounted (contributionsSignatureRef) — found 2026-08-04: this used
+  // to unconditionally dispose() then re-wire on EVERY focus event (any tab
+  // switch, not just "left and reopened the browser"), so every component-mode
+  // slot (the Agents nav, etc.) visibly vanished and reappeared on every
+  // refocus even though nothing had changed, which was the overwhelmingly
+  // common case. Zero contributing apps ⇒ zero visual change (safe).
   const contributionsRef = useRef(null);
+  const contributionsSignatureRef = useRef(null);
 
   // Opens (or refocuses) a decoupled app's declarative window as a real
   // WindowManager window — see the appWindowSpecs state declaration above.
@@ -733,6 +741,16 @@ function AuthenticatedApp() {
       }
       if (disposed) return;
       contributionsRef.current = contributions;
+
+      // Skip the dispose()+rewire cycle when nothing actually changed since
+      // the last time this ran — see the effect comment above. Still needed
+      // on first load (dispose is null, nothing mounted yet).
+      const signature = JSON.stringify(contributions);
+      if (!isFirstLoad && dispose && signature === contributionsSignatureRef.current) {
+        return;
+      }
+      contributionsSignatureRef.current = signature;
+
       if (dispose) { try { dispose(); } catch {} dispose = null; }
       dispose = await wireContributions(contributions, window.__AW_PLUGIN_HOST__, {
         onOpenWindow: openWindowById,
