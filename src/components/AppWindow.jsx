@@ -91,8 +91,8 @@ function parseCall(call) {
 // in-page navigation (e.g. clicking the github.com/login/device link) would
 // blow away the panel instead of just opening a reference in a new tab.
 // A local string-replace instead of configuring `marked`'s renderer, since
-// `marked` is a shared singleton module (also used by KnowledgeBasePanel)
-// and mutating it globally would affect unrelated markdown elsewhere.
+// `marked` is a shared singleton module and mutating it globally would
+// affect unrelated markdown elsewhere.
 function renderMarkdown(text, inline = false) {
   const html = inline ? marked.parseInline(text || '') : marked.parse(text || '');
   return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');

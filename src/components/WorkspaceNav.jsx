@@ -13,7 +13,6 @@ import AppSlot from '../apps/AppSlot';
  * Layout (top to bottom):
  *   - Settings              (action)
  *   - Repos                 (submenu — repo list + actions)
- *   - Knowledge Base        (action)
  *   - Debugger              (action; pulses red when a debug session is paused)
  *   - ────────
  *   - Components            (submenu — components grouped by category)
@@ -119,15 +118,6 @@ function WorkspaceAppIcon({ icon, label }) {
   );
 }
 
-function KbIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
-  );
-}
-
 function StackIcon() {
   return (
     <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -178,7 +168,6 @@ export default function WorkspaceNav({
   onOpenSettings,
   onOpenTasks,
   onOpenTests,
-  onOpenKnowledgeBase,
   onOpenWhiteboard,
   onOpenRemoteDesktop,
   onOpenApp,
@@ -622,18 +611,8 @@ export default function WorkspaceNav({
               </button>
             ))}
 
-          {/* Knowledge Base */}
-          <button
-            onClick={() => { setOpen(false); onOpenKnowledgeBase?.(); }}
-            onMouseEnter={closeSub}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-          >
-            <KbIcon />
-            <span className="text-[13px] text-[var(--color-text-primary)]">Knowledge Base</span>
-          </button>
-
           {/* Whiteboard — persistent, live-synced canvas. Opens as a floating
-              window (mirrors Knowledge Base / Tasks / Plans). */}
+              window (mirrors Tasks / Plans). */}
           <button
             onClick={() => { setOpen(false); onOpenWhiteboard?.(); }}
             onMouseEnter={closeSub}

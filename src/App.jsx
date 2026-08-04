@@ -301,7 +301,6 @@ function AuthenticatedApp() {
   const [tasksPanelFocusTrigger, setTasksPanelFocusTrigger] = useState(0);
   const [plansPanelFocusTrigger] = useState(0);
   const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
-  const [knowledgeBaseFocusTrigger, setKnowledgeBaseFocusTrigger] = useState(0);
   const [whiteboardPanelFocusTrigger, setWhiteboardPanelFocusTrigger] = useState(0);
   const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
   const [presentationFocusTrigger, setPresentationFocusTrigger] = useState({ key: '', counter: 0 });
@@ -1484,15 +1483,6 @@ function AuthenticatedApp() {
     setSettingsPanelFocusTrigger((n) => n + 1);
   }, []);
 
-  // Workspace > Knowledge Base: open as a floating window (mirrors Tasks/Plans).
-  const openKnowledgeBasePanel = useCallback(() => {
-    const key = 'panel:knowledge-base';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    setFocusedWindowKey(key);
-    setKnowledgeBaseFocusTrigger((n) => n + 1);
-  }, []);
-
   // Workspace > Whiteboard: open the persistent whiteboard as a floating
   // window (mirrors Tasks/Plans). The panel embeds the live viewer, which
   // owns the /ws/whiteboard subscription and reloads on every update.
@@ -1591,7 +1581,6 @@ function AuthenticatedApp() {
               onOpenSettings={openSettingsPanel}
               onOpenTasks={openTasksPanel}
               onOpenTests={openTestsPanel}
-              onOpenKnowledgeBase={openKnowledgeBasePanel}
               onOpenWhiteboard={openWhiteboardPanel}
               onOpenRemoteDesktop={openRemoteDesktopPanel}
               workspaceApps={enabledApps}
@@ -1856,7 +1845,6 @@ function AuthenticatedApp() {
               { key: 'panel:tasks', counter: tasksPanelFocusTrigger },
               { key: 'panel:plans', counter: plansPanelFocusTrigger },
               { key: 'panel:tests', counter: testsPanelFocusTrigger },
-              { key: 'panel:knowledge-base', counter: knowledgeBaseFocusTrigger },
               { key: 'panel:whiteboard', counter: whiteboardPanelFocusTrigger },
               { key: 'panel:remote-desktop', counter: remoteDesktopFocusTrigger },
               ...Object.entries(appFocusTriggers).map(([id, counter]) => ({
