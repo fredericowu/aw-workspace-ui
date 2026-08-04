@@ -299,7 +299,6 @@ function AuthenticatedApp() {
   // re-open with no visible effect — the window stayed buried under
   // whatever was on top.
   const [settingsPanelFocusTrigger, setSettingsPanelFocusTrigger] = useState(0);
-  const [tasksPanelFocusTrigger, setTasksPanelFocusTrigger] = useState(0);
   const [plansPanelFocusTrigger] = useState(0);
   const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
   const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
@@ -1448,26 +1447,6 @@ function AuthenticatedApp() {
 
   const hasWindows = openWindows.size > 0;
 
-  // Workspace > Tasks: open the Tasks floating window in the home view.
-  // Mirrors the Debugger pattern — no separate top-level view, just a
-  // draggable panel managed by WindowManager.
-  const openTasksPanel = useCallback(() => {
-    const key = 'panel:tasks';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    setFocusedWindowKey(key);
-    // Bump the focus trigger so a click on Workspace > Tasks raises
-    // the panel even when it's already open behind another window.
-    setTasksPanelFocusTrigger((n) => n + 1);
-  }, []);
-  // Expose as a global so TopNotifications (task-completion cards) can
-  // open the panel without prop drilling. Mirrors __awOpenTerminal /
-  // __awOpenPresentation already set up elsewhere in this file.
-  useEffect(() => {
-    window.__awOpenTasksPanel = openTasksPanel;
-    return () => { delete window.__awOpenTasksPanel; };
-  }, [openTasksPanel]);
-
   // Workspace > Tests: open the Architecture Namespace traceability matrix
   // as a floating window (mirrors Plans/Knowledge Base). TestsPanel itself
   // owns the fetch against GET /api/architecture/matrix.
@@ -1852,7 +1831,6 @@ function AuthenticatedApp() {
             focusTriggers={[
               { key: 'debugger:dap', counter: debuggerFocusTrigger },
               { key: 'panel:settings', counter: settingsPanelFocusTrigger },
-              { key: 'panel:tasks', counter: tasksPanelFocusTrigger },
               { key: 'panel:plans', counter: plansPanelFocusTrigger },
               { key: 'panel:tests', counter: testsPanelFocusTrigger },
               { key: 'panel:remote-desktop', counter: remoteDesktopFocusTrigger },

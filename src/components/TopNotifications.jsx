@@ -7,8 +7,9 @@ import { apiFetch, wsUrl } from '../auth';
  * stacked cards in the same corner as PromptNotifications.
  *
  * For notifications with `source: "task"`, clicking the card opens the
- * Tasks floating window (via window.__awOpenTasksPanel) and broadcasts
- * `aw-focus-task` so TasksTab can scroll-to and auto-expand the row.
+ * Tasks floating window (via window.__awOpenAppWindow('tasks.main'),
+ * aw-app-tasks's own component-mode window body) and broadcasts
+ * `aw-focus-task` so it can scroll-to and auto-expand the row.
  *
  * Per-notification color follows level (info / success / warning / error).
  * Auto-dismisses after 30s unless hovered.
@@ -121,11 +122,12 @@ export default function TopNotifications() {
 
   const onCardClick = useCallback((notif) => {
     if (notif.source === 'task' && notif.external_id) {
-      // external_id is the task id; open the Tasks window and ask TasksTab
-      // to focus this task. Defer the focus event with a microtask so the
-      // newly-mounted TasksTab has registered its 'aw-focus-task' listener
-      // before we dispatch — otherwise the event fires into the void.
-      if (window.__awOpenTasksPanel) window.__awOpenTasksPanel();
+      // external_id is the task id; open the Tasks window and ask its
+      // window body to focus this task. Defer the focus event with a
+      // microtask so the newly-mounted window body has registered its
+      // 'aw-focus-task' listener before we dispatch — otherwise the event
+      // fires into the void.
+      window.__awOpenAppWindow?.('tasks.main');
       const tid = notif.external_id;
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('aw-focus-task', { detail: { taskId: tid } }));
