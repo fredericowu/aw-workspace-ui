@@ -1579,7 +1579,6 @@ function AuthenticatedApp() {
               onToggleWindow={toggleWindow}
               onAction={refetch}
               onOpenSettings={openSettingsPanel}
-              onOpenTasks={openTasksPanel}
               onOpenTests={openTestsPanel}
               onOpenWhiteboard={openWhiteboardPanel}
               onOpenRemoteDesktop={openRemoteDesktopPanel}

@@ -25,17 +25,6 @@ import AppSlot from '../apps/AppSlot';
 const HIDDEN_CATEGORIES = new Set(['System']);
 const CATEGORY_ORDER = ['Platform', 'APIs', 'Apps', 'Docker', 'Service', 'Tools'];
 
-// aw-app-tasks stores a `schedules[]` list (kind: once/daily/weekly/monthly/cron)
-// rather than the monolith's single `cron` string — summarize for the compact row.
-function scheduleSummary(task) {
-  const schedules = task.schedules || [];
-  if (schedules.length === 0) return 'manual';
-  if (schedules.length > 1) return `${schedules.length} schedules`;
-  const s = schedules[0];
-  if (s.kind === 'cron') return s.expr || 'cron';
-  return s.kind || 'scheduled';
-}
-
 // ---- Tiny inline icons ------------------------------------------------------
 
 function ChevronRight() {
@@ -128,31 +117,13 @@ function StackIcon() {
   );
 }
 
-function TasksIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  );
-}
-
-// Clipboard-with-checkmark — reads as "test/verification record", distinct
-// from TasksIcon's clock (scheduled).
+// Clipboard-with-checkmark — reads as "test/verification record".
 function TestsIcon() {
   return (
     <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 2h6a1 1 0 011 1v2H8V3a1 1 0 011-1z" />
       <path d="M8 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2" />
       <path d="M9 12l2 2 4-4" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M8 5v14l11-7z" />
     </svg>
   );
 }
@@ -166,7 +137,6 @@ export default function WorkspaceNav({
   onToggleWindow,
   onAction,
   onOpenSettings,
-  onOpenTasks,
   onOpenTests,
   onOpenWhiteboard,
   onOpenRemoteDesktop,
@@ -174,32 +144,8 @@ export default function WorkspaceNav({
   workspaceApps,
 }) {
   const [open, setOpen] = useState(false);
-  const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | 'tasks' | null
+  const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | null
   const closeTimer = useRef(null);
-
-  // ---- Tasks: fetched lazily when popover opens, refreshed on submenu hover --
-  const [tasks, setTasks] = useState([]);
-  const [tasksError, setTasksError] = useState(null);
-  const [busyTask, setBusyTask] = useState(null);
-
-  const refreshTasks = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/apps/tasks/tasks');
-      const data = await res.json();
-      setTasks(data.tasks || []);
-      setTasksError(null);
-    } catch (e) {
-      setTasksError(String(e));
-    }
-  }, []);
-
-  // Initial load + refresh on task_update WS events (cron fires, manual runs, edits).
-  useEffect(() => {
-    refreshTasks();
-    const handler = () => refreshTasks();
-    window.addEventListener('aw-task-update', handler);
-    return () => window.removeEventListener('aw-task-update', handler);
-  }, [refreshTasks]);
 
   // Floating log/terminal preview, identical to the old sidebar's hover preview.
   // Triggered by hovering a row inside the Components submenu (300 ms grace).
@@ -240,37 +186,8 @@ export default function WorkspaceNav({
 
   const enterSub = (name) => () => {
     setSubmenu(name);
-    if (name === 'tasks') refreshTasks();
   };
   const closeSub = () => setSubmenu(null);
-
-  // Run a task now. POST /api/apps/tasks/tasks/{id}/run returns the run row; we
-  // refresh the list so the user sees the updated last_run_status.
-  const runTaskNow = async (task) => {
-    setBusyTask(task.id);
-    setTasksError(null);
-    try {
-      const res = await apiFetch(`/api/apps/tasks/tasks/${task.id}/run`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        setTasksError(data?.error || `${task.name}: run failed`);
-      }
-      refreshTasks();
-    } catch (e) {
-      setTasksError(`${task.name}: ${e.message}`);
-    } finally {
-      setBusyTask(null);
-    }
-  };
-
-  // Open a task's bound terminal session. The aw-app-tasks port doesn't
-  // carry the monolith's agent-session-id-open machinery yet (no /open
-  // route — see the app's manager.py docstring), so this just closes the
-  // popover for now instead of 404ing against a route that doesn't exist.
-  const openTaskSession = async (_task) => {
-    setOpen(false);
-    setSubmenu(null);
-  };
 
   // ---- Repos: WS subscription, lives as long as WorkspaceNav is mounted -----
   const [repos, setRepos] = useState([]);
@@ -651,102 +568,11 @@ export default function WorkspaceNav({
             <span className="text-[13px] text-[var(--color-text-primary)]">Tests</span>
           </button>
 
-          {/* Tasks */}
-          <div className="relative" onMouseEnter={enterSub('tasks')}>
-            <div
-              onClick={() => {
-                // Click opens the Tasks floating window; hover keeps the
-                // quick-list submenu behavior intact.
-                setOpen(false);
-                setSubmenu(null);
-                onOpenTasks?.();
-              }}
-              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer"
-            >
-              <TasksIcon />
-              <span className="flex-1 text-[13px] text-[var(--color-text-primary)]">Tasks</span>
-              {tasks.length > 0 && (
-                <span className="text-[10px] text-[var(--color-text-muted)]">{tasks.length}</span>
-              )}
-              <ChevronRight />
-            </div>
-            {submenu === 'tasks' && (
-              <div
-                className="absolute left-full top-0 ml-1 z-50 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-2xl p-2"
-                style={{ minWidth: 320, maxWidth: 420 }}
-              >
-                <div className="flex items-center justify-between px-2 py-1 mb-1">
-                  <span className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
-                    Tasks · {tasks.length}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setOpen(false);
-                      setSubmenu(null);
-                      onOpenTasks?.();
-                    }}
-                    className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors"
-                    title="Open Tasks window"
-                  >
-                    Open all →
-                  </button>
-                </div>
-                {tasksError && (
-                  <div className="mx-1 mb-2 px-2 py-1 text-[11px] rounded bg-[var(--color-danger)]/10 text-[var(--color-danger)] border border-[var(--color-danger)]/30">
-                    {tasksError}
-                  </div>
-                )}
-                {tasks.length === 0 ? (
-                  <div className="px-3 py-6 text-center text-xs text-[var(--color-text-muted)] italic">
-                    No tasks yet. Click "Open all →" to create one.
-                  </div>
-                ) : (
-                  <div className="overflow-y-auto" style={{ maxHeight: '70vh' }}>
-                    {tasks.map((t) => {
-                      const busy = busyTask === t.id;
-                      const dotColor =
-                        t.last_run_status === 'ok' ? 'bg-green-400' :
-                        t.last_run_status === 'error' ? 'bg-red-400' :
-                        t.last_run_status === 'running' ? 'bg-blue-400' :
-                        'bg-white/20';
-                      return (
-                        <div
-                          key={t.id}
-                          className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.05] cursor-pointer"
-                          onClick={() => openTaskSession(t)}
-                          title={t.name}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[13px] text-[var(--color-text-primary)] truncate">{t.name}</span>
-                              {!t.enabled && (
-                                <span className="px-1 py-0.5 rounded text-[9px] bg-white/5 text-[var(--color-text-muted)] shrink-0">off</span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-[var(--color-text-muted)] truncate font-mono">
-                              {t.cli_type} · {scheduleSummary(t)}
-                            </div>
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); runTaskNow(t); }}
-                            disabled={busy}
-                            className="p-1 rounded hover:bg-white/10 text-green-400 disabled:opacity-50 shrink-0"
-                            title="Run now"
-                          >
-                            {busy
-                              ? <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.25" /><path d="M4 12a8 8 0 0 1 8-8" /></svg>
-                              : <PlayIcon />
-                            }
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Tasks: contributed by aw-app-tasks into the core.nav.workspace
+              slot (see the <AppSlot slot="core.nav.workspace" /> mount near
+              Settings above) — decoupled from core per the same 2026-08-04
+              decision that moved the Agents nav into aw-app-code-agent-clis.
+              Empty until that app is installed and its bundle loads. */}
 
           {/* Components */}
           <div className="relative" onMouseEnter={enterSub('components')}>
