@@ -184,7 +184,12 @@ describe('AppLauncher — F5 Apps view', () => {
     await waitFor(() => expect(screen.queryByText('Essentials')).toBeNull());
   });
 
-  it('Install My Apps triggers the reconcile flow', async () => {
+  // The "Install My Apps" button is commented out in AppLauncher.jsx
+  // (2026-07-27, per Frederico — it errors and isn't a priority; see
+  // Kanban card feature:install-my-apps-fix). Skipped until it's
+  // re-enabled, rather than failing CI for an intentionally-disabled
+  // feature.
+  it.skip('Install My Apps triggers the reconcile flow', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     installMyApps.mockResolvedValue({ changed: [] });
     renderLauncher();
