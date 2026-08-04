@@ -18,9 +18,12 @@ import AppSlot from '../apps/AppSlot';
  *   - Components            (submenu — components grouped by category)
  *
  * Submenus open to the right of the parent row. Only one submenu can be
- * open at a time. The popover closes on click-outside (or picking an
- * item) — not on mouse-leave, so it never closes out from under you while
- * you're still moving toward a submenu.
+ * open at a time. The popover closes CLOSE_DELAY_MS after the mouse
+ * genuinely leaves everything (root, popover, and any submenu — each
+ * explicitly cancels the pending close on mouseenter, not just via
+ * bubbling, so it never closes mid-move while crossing the dead-zone gaps
+ * between rows and their submenus), on click-outside, or on picking an
+ * item.
  */
 
 const HIDDEN_CATEGORIES = new Set(['System']);
@@ -147,6 +150,13 @@ export default function WorkspaceNav({
   const [open, setOpen] = useState(false);
   const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | null
   const rootRef = useRef(null);
+  const closeTimer = useRef(null);
+  // CLOSE_DELAY_MS must comfortably outlast the time it takes to move the
+  // pointer across the dead-zone gaps between the button and the popover
+  // (mt-2) and between a row and its submenu (ml-1) — those gaps aren't
+  // covered by any element, so the pointer is briefly over neither during a
+  // normal diagonal move, and a too-short delay closed the menu mid-move.
+  const CLOSE_DELAY_MS = 500;
 
   // Floating log/terminal preview, identical to the old sidebar's hover preview.
   // Triggered by hovering a row inside the Components submenu (300 ms grace).
@@ -166,23 +176,34 @@ export default function WorkspaceNav({
     setHoverItem(null);
   }, []);
 
+  // Cancels any pending auto-close — called on mouseenter of the root AND,
+  // explicitly, of every submenu popover (not just relying on bubbling from
+  // the root), so re-entering after crossing a dead-zone gap always keeps
+  // the menu open regardless of how long that crossing takes.
   const handleEnter = useCallback(() => {
+    clearTimeout(closeTimer.current);
     setOpen(true);
   }, []);
+  const scheduleClose = useCallback(() => {
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => {
+      setOpen(false);
+      setSubmenu(null);
+      setHoverItem(null);
+    }, CLOSE_DELAY_MS);
+  }, []);
   useEffect(() => () => {
+    clearTimeout(closeTimer.current);
     clearTimeout(hoverTimer.current);
   }, []);
 
-  // Click-outside-to-close, replacing a mouseleave timer that fired even
-  // while genuinely hovering a submenu — absolutely-positioned submenus
-  // (Repos/Components render to the right via left-full) leave a real gap
-  // the pointer crosses on its way there, and no fixed delay reliably
-  // covers every mouse speed/path without either closing prematurely or
-  // lingering open too long.
+  // Click-outside-to-close as a second, independent path — e.g. clicking
+  // straight into the page instead of moving the mouse away.
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (e) => {
       if (rootRef.current && !rootRef.current.contains(e.target)) {
+        clearTimeout(closeTimer.current);
         setOpen(false);
         setSubmenu(null);
         setHoverItem(null);
@@ -365,7 +386,7 @@ export default function WorkspaceNav({
   });
 
   return (
-    <div className="relative" ref={rootRef} onMouseEnter={handleEnter}>
+    <div className="relative" ref={rootRef} onMouseEnter={handleEnter} onMouseLeave={scheduleClose}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="px-3 py-1 text-xs rounded transition-colors cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5"
@@ -405,6 +426,7 @@ export default function WorkspaceNav({
             </div>
             {submenu === 'repos' && (
               <div
+                onMouseEnter={handleEnter}
                 className="absolute left-full top-0 ml-1 z-50 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-2xl p-2"
                 style={{ minWidth: 360, maxWidth: 520 }}
               >
@@ -591,6 +613,7 @@ export default function WorkspaceNav({
             </div>
             {submenu === 'components' && (
               <div
+                onMouseEnter={handleEnter}
                 className="absolute left-full top-0 ml-1 z-50 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-2xl p-2"
                 style={{ minWidth: 280, maxWidth: 360 }}
               >
