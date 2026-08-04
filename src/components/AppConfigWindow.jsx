@@ -13,6 +13,7 @@ import { apiFetch } from '../auth';
 import { fetchContributions } from '../apps/appsApi';
 import AppWindow from './AppWindow';
 import McpGatewayConfigEditor from './McpGatewayConfigEditor';
+import JsonConfigEditor from './JsonConfigEditor';
 
 function fieldType(spec) {
   if (spec['x-secret']) return 'secret';
@@ -52,6 +53,7 @@ function isManagedApp(app) {
 
 export default function AppConfigWindow({ app, onClose, onSaved, onMore }) {
   const isMcpGateway = app?.slug === 'mcp-gateway';
+  const isMcpTools = app?.slug === 'mcp-tools';
   const props = useMemo(() => {
     const appProps = app?.config_schema?.properties || {};
     if (!isManagedApp(app)) return appProps;
@@ -162,11 +164,11 @@ export default function AppConfigWindow({ app, onClose, onSaved, onMore }) {
             <span className="appcfg-spinner" aria-hidden="true" />
             <span>Loading settings…</span>
           </div>
-        ) : fields.length === 0 && !settingsWindowSpec && !isMcpGateway ? (
+        ) : fields.length === 0 && !settingsWindowSpec && !isMcpGateway && !isMcpTools ? (
           <p className="appcfg-empty">This app has no configurable settings.</p>
         ) : (
           <>
-            {fields.length > 0 && (
+            {fields.length > 0 && !isMcpTools && (
               <form className="appcfg-form" onSubmit={submit}>
                 {fields.map(([key, spec]) => {
                   const type = fieldType(spec);
@@ -236,6 +238,9 @@ export default function AppConfigWindow({ app, onClose, onSaved, onMore }) {
             )}
             {isMcpGateway && (
               <McpGatewayConfigEditor onSaved={onSaved} />
+            )}
+            {isMcpTools && (
+              <JsonConfigEditor app={app} onSaved={onSaved} />
             )}
           </>
         )}

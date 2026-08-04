@@ -216,6 +216,78 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(await screen.findByTestId('mcpgw-msg')).toHaveTextContent(/restart MCP Gateway/i);
   });
 
+  it('renders a raw JSON editor for mcp-tools instead of the generated form, and saves valid JSON', async () => {
+    apiFetch.mockImplementation((url, opts = {}) => {
+      if (url === '/api/apps/-/contributions') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ settings: [], windows: [] }) });
+      }
+      if (url === '/api/apps/mcp-tools/config' && opts.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, config: body.config }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    });
+
+    render(<AppConfigWindow app={{
+      slug: 'mcp-tools',
+      name: 'MCP Tools',
+      version: '0.5.1',
+      config: { tool_playwright_enabled: true, tool_echo_enabled: false },
+      config_schema: {
+        type: 'object',
+        properties: {
+          tool_playwright_enabled: { type: 'boolean', default: true },
+          tool_echo_enabled: { type: 'boolean', default: true },
+        },
+      },
+    }} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    expect(screen.getByTestId('appcfg-json-editor')).toBeInTheDocument();
+    // The generated boolean-toggle form must NOT render for this app.
+    expect(screen.queryByRole('switch')).toBeNull();
+
+    fireEvent.change(document.getElementById('appcfg-json-text'), {
+      target: { value: JSON.stringify({ tool_playwright_enabled: false, tool_echo_enabled: true }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/apps/mcp-tools/config',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    const saveCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/mcp-tools/config');
+    expect(JSON.parse(saveCall[1].body)).toMatchObject({
+      config: { tool_playwright_enabled: false, tool_echo_enabled: true },
+    });
+    expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent('Saved');
+  });
+
+  it('shows a JSON parse error for mcp-tools and does not call the save route', async () => {
+    render(<AppConfigWindow app={{
+      slug: 'mcp-tools',
+      name: 'MCP Tools',
+      version: '0.5.1',
+      config: { tool_playwright_enabled: true },
+      config_schema: {
+        type: 'object',
+        properties: { tool_playwright_enabled: { type: 'boolean', default: true } },
+      },
+    }} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    fireEvent.change(document.getElementById('appcfg-json-text'), {
+      target: { value: '{ not valid json' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent(/Invalid JSON/i);
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      '/api/apps/mcp-tools/config',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
   it('falls back to the legacy app settings route when the framework config route is missing', async () => {
     apiFetch
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })
