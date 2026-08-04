@@ -1,8 +1,7 @@
 /**
  * PlansPanel — the floating-window flavour of Workspace > Plans.
  *
- * Same role as WorkspacePlans.jsx (the previous full-view variant) but
- * shaped to live inside a draggable WindowManager panel, mirroring the
+ * Shaped to live inside a draggable WindowManager panel, mirroring the
  * Debugger / Tasks pattern. Layout:
  *
  *   ┌───────── header (drag handle, maximise, close) ─────────┐
@@ -15,7 +14,7 @@
  *   │              │      `/spec-kit:<flow> <slug>` prompt    │
  *   └──────────────┴──────────────────────────────────────────┘
  *
- * The vscode iframe of the old WorkspacePlans is gone — users that
+ * There's no vscode iframe here — users that
  * still want the editor pop it open via the Repos > code-server tile,
  * or the Workspace > Plans floating window's "Open in VSCode" button
  * (TODO: phase-2; deliberately omitted here to keep the first cut tight).
@@ -84,7 +83,7 @@ function StatusBadge({ status }) {
   );
 }
 
-// ── new-plan modal (lifted from WorkspacePlans, unchanged behavior) ───
+// ── new-plan modal ──────────────────────────────────────────────────
 
 function slugify(s) {
   return s
