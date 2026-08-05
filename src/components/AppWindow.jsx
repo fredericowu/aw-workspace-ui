@@ -106,7 +106,10 @@ function renderMarkdown(text, inline = false) {
 // loggedIn: null (unknown/loading) | true | false — set by whichever
 // `auth_status` widget in this window resolves first (there's normally at
 // most one per window).
-const RefreshContext = createContext({ counter: 0, bump: () => {}, loggedIn: null });
+const RefreshContext = createContext({
+  counter: 0, bump: () => {}, loggedIn: null,
+  onFocus: () => {}, isFocused: true,
+});
 
 function Widget({ widget }) {
   const { loggedIn } = useContext(RefreshContext);
@@ -123,7 +126,7 @@ function WidgetBody({ widget }) {
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const pollState = useRef({ timer: null, deadline: 0, intervalMs: null });
-  const { bump } = useContext(RefreshContext);
+  const { bump, onFocus, isFocused } = useContext(RefreshContext);
 
   useEffect(() => () => clearTimeout(pollState.current.timer), []);
 
@@ -281,25 +284,38 @@ function WidgetBody({ widget }) {
       // file-serves no /api, so a relative src would 404. apiUrl() leaves
       // absolute/non-/api srcs untouched. Lets a container app embed its own UI
       // (e.g. the AW Browser's noVNC screen at /api/apps/browser/…).
+      //
+      // The invisible overlay (only present while !isFocused) is what makes
+      // a click land on the window at all — mousedown INSIDE an iframe's own
+      // document never reaches the parent page's listeners (separate
+      // document), so without this a click on the window BODY (title bar
+      // excluded) silently did nothing (reported live 2026-08-05). Same
+      // pattern as WindowManager.jsx's AppIframe/DebuggerIframe.
       return (
-        <iframe
-          className="appwin-iframe"
-          title={widget.title || 'app'}
-          src={apiUrl(widget.src)}
-          sandbox="allow-scripts allow-forms allow-same-origin"
-        />
+        <div className="appwin-iframe-wrap relative w-full h-full" onMouseDown={onFocus}>
+          <iframe
+            className="appwin-iframe"
+            title={widget.title || 'app'}
+            src={apiUrl(widget.src)}
+            sandbox="allow-scripts allow-forms allow-same-origin"
+          />
+          {!isFocused && <div className="absolute inset-0 z-10" onMouseDown={onFocus} />}
+        </div>
       );
 
     case 'app_iframe': {
       const base = appSubdomainUrl(widget.app_id);
       if (!base) return null; // non-workspace host — no slug to derive the subdomain from
       return (
-        <iframe
-          className="appwin-iframe"
-          title={widget.title || 'app'}
-          src={widget.path ? `${base}${widget.path}` : base}
-          sandbox="allow-scripts allow-forms allow-same-origin"
-        />
+        <div className="appwin-iframe-wrap relative w-full h-full" onMouseDown={onFocus}>
+          <iframe
+            className="appwin-iframe"
+            title={widget.title || 'app'}
+            src={widget.path ? `${base}${widget.path}` : base}
+            sandbox="allow-scripts allow-forms allow-same-origin"
+          />
+          {!isFocused && <div className="absolute inset-0 z-10" onMouseDown={onFocus} />}
+        </div>
       );
     }
 
@@ -500,14 +516,18 @@ function AuthStatus({ widget }) {
 }
 
 // spec: a parsed windows/main.json ({ title, regions: [{ id, widgets: [] }] }).
-export default function AppWindow({ spec }) {
+// onFocus/isFocused: threaded through context (not props) so any widget
+// nested arbitrarily deep (e.g. inside a "collapsible") can reach them
+// without prop-drilling every level — see the iframe/app_iframe cases
+// below, the ones that actually need it.
+export default function AppWindow({ spec, onFocus, isFocused = true }) {
   const [counter, setCounter] = useState(0);
   const [loggedIn, setLoggedIn] = useState(null);
   const bump = () => setCounter((c) => c + 1);
   if (!spec) return null;
   const regions = spec.regions || [];
   return (
-    <RefreshContext.Provider value={{ counter, bump, loggedIn, setLoggedIn }}>
+    <RefreshContext.Provider value={{ counter, bump, loggedIn, setLoggedIn, onFocus, isFocused }}>
       <div className="app-window" data-app-window>
         {spec.title && <h3 className="app-window-title">{spec.title}</h3>}
         {regions.map((region) => (

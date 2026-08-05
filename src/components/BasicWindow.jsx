@@ -46,7 +46,7 @@ export function specFromManagedWindow(windowSpec) {
   };
 }
 
-export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, onTitleChange }) {
+export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, isFocused = true, onTitleChange }) {
   const isComponent = windowSpec?.body?.type === 'component';
   const resolvedSpec = spec || specFromManagedWindow(windowSpec);
   const icon = windowSpec?.icon || windowSpec?.body?.icon;
@@ -88,7 +88,7 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
         <ErrorBoundary label={title || 'App'}>
           {isComponent
             ? <AppSlot slot={windowBodySlot(windowSpec.id)} props={{ windowKey, onClose, onMaximize, isMaximized, instanceId: windowSpec.instanceId, onTitleChange }} />
-            : <AppWindow spec={resolvedSpec} />}
+            : <AppWindow spec={resolvedSpec} onFocus={onFocus} isFocused={isFocused} />}
         </ErrorBoundary>
       </div>
     </div>

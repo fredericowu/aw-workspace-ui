@@ -60,6 +60,41 @@ describe('AppWindow (declarative renderer)', () => {
   });
 });
 
+describe('AppWindow iframe widget focus overlay', () => {
+  // Regression (reported live 2026-08-05): clicking a window's iframe BODY
+  // didn't focus/bring the window forward, only clicking the title bar did.
+  // Root cause — a mousedown INSIDE an iframe's own document never reaches
+  // the parent page's listeners at all (separate document), so the
+  // WindowManager's outer bringToFront handler silently never fired. The
+  // fix mirrors AppIframe.jsx: an invisible overlay div sits over the
+  // iframe ONLY while unfocused, catching the click as a normal DOM
+  // mousedown; it's gone once focused so the iframe itself stays usable.
+  const IFRAME_SPEC = {
+    regions: [{ id: 'main', widgets: [{ type: 'iframe', src: '/api/apps/kb/', title: 'kb' }] }],
+  };
+
+  it('an unfocused iframe window has a click-catching overlay that calls onFocus', () => {
+    const onFocus = vi.fn();
+    const { container } = render(<AppWindow spec={IFRAME_SPEC} onFocus={onFocus} isFocused={false} />);
+    const overlay = container.querySelector('.appwin-iframe-wrap > .absolute.inset-0');
+    expect(overlay).toBeInTheDocument();
+    fireEvent.mouseDown(overlay);
+    expect(onFocus).toHaveBeenCalled();
+  });
+
+  it('a focused iframe window has no overlay blocking iframe interaction', () => {
+    const { container } = render(<AppWindow spec={IFRAME_SPEC} onFocus={vi.fn()} isFocused={true} />);
+    expect(container.querySelector('.appwin-iframe-wrap > .absolute.inset-0')).not.toBeInTheDocument();
+  });
+
+  it('clicking the iframe wrap itself (not just the overlay) also calls onFocus', () => {
+    const onFocus = vi.fn();
+    const { container } = render(<AppWindow spec={IFRAME_SPEC} onFocus={onFocus} isFocused={true} />);
+    fireEvent.mouseDown(container.querySelector('.appwin-iframe-wrap'));
+    expect(onFocus).toHaveBeenCalled();
+  });
+});
+
 describe('AppWindow button auto-poll (device-flow-style)', () => {
   const POLL_SPEC = {
     title: 'Git',

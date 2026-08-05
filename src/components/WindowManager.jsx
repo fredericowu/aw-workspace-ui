@@ -1185,6 +1185,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   onMaximize={onMaximize}
                   isMaximized={maximizedKey === key}
                   onFocus={() => bringToFront(key)}
+                  isFocused={zOrder[zOrder.length - 1] === key}
                   onTitleChange={(title) => onUpdateAppWindowTitle?.(key, title)}
                 />
               ) : key === 'panel:remote-desktop' ? (
