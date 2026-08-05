@@ -3,7 +3,6 @@ import { Rnd } from 'react-rnd';
 import LogWindow from './LogWindow';
 import LogStream from './LogStream';
 import TerminalWindow from './TerminalWindow';
-import PresentationWindow from './PresentationWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
 import DiffWindow from './DiffWindow';
 import BasicWindow from './BasicWindow';
@@ -877,7 +876,7 @@ function loadFromStorage(key, fallback) {
   } catch { return fallback; }
 }
 
-export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTrigger, focusTriggers, presentations, onRenamePresentation, onDeletePresentation, diffs, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs }) {
+export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, diffs, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, onUpdateAppWindowTitle }) {
   // Derive agentType from terminals array for any session key
   const _getAgentType = (key) => {
     const sessionId = key.replace('terminal:', '');
@@ -1010,13 +1009,6 @@ export default function WindowManager({ openWindows, components, terminals, maxL
     });
   }, []);
 
-
-  // External focus trigger — bring a window to front when the counter changes
-  useEffect(() => {
-    if (focusTrigger && focusTrigger.counter > 0) {
-      bringToFront(focusTrigger.key);
-    }
-  }, [focusTrigger?.counter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multiple focus triggers — bring a window to front when any trigger counter changes
   const prevTriggersRef = useRef({});
@@ -1170,17 +1162,6 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   isMaximized={maximizedKey === key}
                   onFocus={() => bringToFront(key)}
                 />
-              ) : key.startsWith('presentation:') ? (
-                <PresentationWindow
-                  presentation={(presentations || []).find((c) => c.id === key.replace('presentation:', ''))}
-                  windowKey={key}
-                  onClose={() => onCloseWindow(key)}
-                  onDelete={() => onDeletePresentation?.(key.replace('presentation:', ''))}
-                  onMaximize={onMaximize}
-                  isMaximized={maximizedKey === key}
-                  onRename={onRenamePresentation}
-                  onFocus={() => bringToFront(key)}
-                />
               ) : key.startsWith('appwin:') && managedApp ? (
                 <AppProxyWindow
                   appId={managedApp.id}
@@ -1204,6 +1185,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   onMaximize={onMaximize}
                   isMaximized={maximizedKey === key}
                   onFocus={() => bringToFront(key)}
+                  onTitleChange={(title) => onUpdateAppWindowTitle?.(key, title)}
                 />
               ) : key === 'panel:remote-desktop' ? (
                 <RemoteDesktopWindow

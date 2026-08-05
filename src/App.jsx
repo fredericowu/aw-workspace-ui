@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import WindowManager from './components/WindowManager';
 // SettingsPanel is now rendered inside WindowManager as a floating panel
-import PresentationNav from './components/PresentationNav';
 import WorkspaceNav from './components/WorkspaceNav';
 import AppsNav from './components/AppsNav';
 import VpnNav from './components/VpnNav';
@@ -301,7 +300,6 @@ function AuthenticatedApp() {
   const [plansPanelFocusTrigger] = useState(0);
   const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
   const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
-  const [presentationFocusTrigger, setPresentationFocusTrigger] = useState({ key: '', counter: 0 });
 
   // Speech recognition for push-to-talk
   const [isListening, setIsListening] = useState(false);
@@ -336,8 +334,11 @@ function AuthenticatedApp() {
     try {
       const saved = localStorage.getItem('aw-open-windows');
       if (!saved) return new Set();
-      // Filter out presentation windows — they should not reopen on refresh
-      return new Set(JSON.parse(saved).filter((k) => !k.startsWith('presentation:')));
+      // Filter out presentation windows — they should not reopen on refresh.
+      // Covers both the legacy `presentation:<id>` key shape and the
+      // decoupled app's `appwin:presentations.viewer:<id>` instance keys.
+      return new Set(JSON.parse(saved).filter((k) =>
+        !k.startsWith('presentation:') && !k.startsWith('appwin:presentations.viewer:')));
     } catch { return new Set(); }
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -385,7 +386,6 @@ function AuthenticatedApp() {
   // each one's {id, title, spec} for WindowManager to render.
   const [appWindowSpecs, setAppWindowSpecs] = useState({});
   const [terminals, setTerminals] = useState([]);
-  const [presentations, setPresentations] = useState([]);
   const [diffs, setDiffs] = useState({});
   const [aiAgents, setAiAgents] = useState([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
@@ -430,9 +430,17 @@ function AuthenticatedApp() {
 
   // (Settings is now a floating window — no hash-based view routing needed)
 
-  // Presentation WebSocket for real-time updates from Claude MCP
-  // Reconnects automatically on drop — VPN hiccups, laptop sleep, server restarts
-  // would otherwise silently leave the browser deaf to presentation updates.
+  // NOTE (2026-08-05): this WS's presentation_init/presentation_update
+  // handling moved into aw-app-presentations' own plugin.jsx (decoupling).
+  // What's left — diff_open/test_finished — turns out to be PRE-EXISTING
+  // DEAD CODE: this connects to aw-app-presentations' /ws (its only real
+  // message types are presentation_init/presentation_update, confirmed by
+  // reading presentations_app/routes.py), so diff_open/test_finished have
+  // never actually fired since this app moved off the monolith's combined
+  // /ws/presentations endpoint. Left as-is (not this task's scope) — flagged
+  // to Frederico as a separate gap: DiffWindow/`diffs` state and the
+  // /api/tests/state test-runner integration have no working backend push
+  // in aw-workspace at all right now.
   useEffect(() => {
     let ws;
     let reconnectTimer;
@@ -441,41 +449,7 @@ function AuthenticatedApp() {
 
     const handleMessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'presentation_init') {
-        // Just load the presentation list — don't auto-open on page refresh
-        setPresentations(msg.presentations);
-      } else if (msg.type === 'presentation_update') {
-        // Notify any tab listening for presentation changes (e.g. Settings > Tasks
-        // GeneratedAssets panel, which refetches its tag-filtered slice).
-        try { window.dispatchEvent(new CustomEvent('aw-presentation-update', { detail: msg })); } catch (_) {}
-        if (msg.action === 'create') {
-          setPresentations((prev) => [...prev.filter((c) => c.id !== msg.presentation.id), msg.presentation]);
-          // Auto-open the new presentation unless:
-          //   - visible=false (stubborn / thumbnail-only presentations), or
-          //   - silent=true (transport hint from the producer — e.g. presentations
-          //     generated inside a background task; they should show in the
-          //     Presentation menu but not yank the user out of their current view).
-          if (msg.presentation.visible !== false && !msg.silent) {
-            setOpenWindows((prev) => { const next = new Set(prev); next.add(`presentation:${msg.presentation.id}`); return next; });
-            setMaximizedKey(`presentation:${msg.presentation.id}`);
-            setPresentationFocusTrigger({ key: `presentation:${msg.presentation.id}`, counter: Date.now() });
-            setView('home');
-          }
-        } else if (msg.action === 'update') {
-          setPresentations((prev) => prev.map((c) => c.id === msg.presentation.id ? msg.presentation : c));
-          // Re-open and maximize on update is the "claude tweaked it, surface
-          // it" behavior. Skipped for silent updates (task-driven changes).
-          if (!msg.silent) {
-            setOpenWindows((prev) => { const next = new Set(prev); next.add(`presentation:${msg.presentation.id}`); return next; });
-            setMaximizedKey(`presentation:${msg.presentation.id}`);
-            setPresentationFocusTrigger({ key: `presentation:${msg.presentation.id}`, counter: Date.now() });
-            setView('home');
-          }
-        } else if (msg.action === 'delete') {
-          setPresentations((prev) => prev.filter((c) => c.id !== msg.id));
-          setOpenWindows((prev) => { const next = new Set(prev); next.delete(`presentation:${msg.id}`); return next; });
-        }
-      } else if (msg.type === 'diff_open') {
+      if (msg.type === 'diff_open') {
         const diff = msg.diff;
         setDiffs((prev) => ({ ...prev, [diff.id]: diff }));
         setOpenWindows((prev) => { const next = new Set(prev); next.add(`diff:${diff.id}`); return next; });
@@ -494,8 +468,6 @@ function AuthenticatedApp() {
     const connect = () => {
       if (closed) return;
       try {
-        // Owned by aw-app-presentations, mounted at /api/apps/presentations
-        // (routes:register convention) — NOT a core /ws/presentations route.
         ws = new WebSocket(wsUrl('/api/apps/presentations/ws'));
         ws.onmessage = handleMessage;
         ws.onopen = () => {
@@ -610,30 +582,9 @@ function AuthenticatedApp() {
     return () => { clearTimeout(reconnectTimer); if (ws) { ws.onclose = null; ws.close(); } };
   }, []);
 
-  // aw-app-presentations owns these — /api/apps/presentations/presentations/*,
-  // not the legacy monolith's /api/presentations/* (dead in aw-workspace).
-  const deletePresentation = useCallback(async (presentationId) => {
-    await apiFetch(`/api/apps/presentations/presentations/${presentationId}`, { method: 'DELETE' });
-  }, []);
-
-  const renamePresentation = useCallback(async (presentationId, newTitle) => {
-    await apiFetch(`/api/apps/presentations/presentations/${presentationId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTitle }),
-    });
-  }, []);
-
-  const togglePresentation = useCallback((presentationId) => {
-    const key = `presentation:${presentationId}`;
-    setOpenWindows((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-    setView('home');
-  }, []);
+  // Presentation delete/rename/open — owned by aw-app-presentations' own
+  // plugin.jsx now (2026-08-05 decoupling), including its window body's own
+  // DELETE/PUT calls and window.__awOpenAppWindow('presentations.viewer', id).
 
   // ---- Decoupled-apps plugin host (F6 Cap 2) --------------------------------
   // F5 shipped the frontend plugin runtime as an unwired library; this boots it:
@@ -653,10 +604,24 @@ function AuthenticatedApp() {
 
   // Opens (or refocuses) a decoupled app's declarative window as a real
   // WindowManager window — see the appWindowSpecs state declaration above.
-  const openAppWindow = useCallback((found) => {
+  //
+  // `instanceId` (2026-08-05) supports apps whose window represents a
+  // per-record instance rather than a singleton (aw-app-presentations: one
+  // "presentations.viewer" window SPEC, but N simultaneously open windows —
+  // one per presentation id). When present, the window key becomes
+  // `appwin:<windowSpecId>:<instanceId>` so each instance gets its own
+  // openWindows/maximizedKey/z-order entry for free (they're just plain
+  // Set/string state keyed by the full key already); `instanceId` is also
+  // threaded into the stored spec so BasicWindow can pass it to the app's
+  // registered component as a prop. Singleton apps (Whiteboard, Tasks) never
+  // pass this — their key shape is unchanged.
+  const openAppWindow = useCallback((found, instanceId, title) => {
     if (!found?.id) return;
-    const key = `appwin:${found.id}`;
-    setAppWindowSpecs((prev) => ({ ...prev, [key]: found }));
+    const key = instanceId ? `appwin:${found.id}:${instanceId}` : `appwin:${found.id}`;
+    setAppWindowSpecs((prev) => ({
+      ...prev,
+      [key]: instanceId ? { ...found, instanceId, title: title || found.title } : found,
+    }));
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
     setFocusedWindowKey(key);
@@ -667,11 +632,12 @@ function AuthenticatedApp() {
   // __awOpenPresentation. Replaces the old per-app __awOpenTasksPanel/
   // __awOpenWhiteboardPanel globals (2026-08-04: aw-workspace-ui must not
   // carry app-specific window logic — see BasicWindow.jsx's header comment).
+  // Second arg `instanceId` — see openAppWindow's doc above.
   useEffect(() => {
-    window.__awOpenAppWindow = (windowId) => {
+    window.__awOpenAppWindow = (windowId, instanceId, title) => {
       const found = findWindowSpec(contributionsRef.current, windowId);
       if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) {
-        openAppWindow(found);
+        openAppWindow(found, instanceId, title);
       }
     };
     return () => { delete window.__awOpenAppWindow; };
@@ -783,6 +749,27 @@ function AuthenticatedApp() {
       setTerminals((prev) => prev.filter((t) => t.id !== sessionId));
       setAgentSessions((prev) => prev.filter((t) => t.id !== sessionId));
     }
+    // Multi-instance appwin: entries (e.g. one presentation window per id)
+    // would otherwise accumulate in appWindowSpecs forever across a long
+    // session — singleton appwin: keys (Whiteboard/Tasks) just get re-added
+    // identically next open, so dropping them here is harmless either way.
+    if (key.startsWith('appwin:')) {
+      setAppWindowSpecs((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }, []);
+
+  // Lets a component-mode window body update its OWN chrome title after a
+  // successful rename (e.g. aw-app-presentations, one window per record —
+  // core has no idea what "rename" means for a given app's data, it only
+  // owns displaying whatever title the app reports). Generic, not
+  // presentation-specific — any future multi-instance app reuses this.
+  const updateAppWindowTitle = useCallback((key, title) => {
+    setAppWindowSpecs((prev) => (prev[key] ? { ...prev, [key]: { ...prev[key], title } } : prev));
   }, []);
 
   const [maximizedKey, setMaximizedKey] = useState(() => {
@@ -815,18 +802,10 @@ function AuthenticatedApp() {
       setOpenWindows((prev) => { const next = new Set(prev); next.add(`terminal:${sessionId}`); return next; });
       setView('home');
     };
-    // Settings > Tasks > GeneratedAssets calls this to surface a tagged presentation
-    // in the home view without round-tripping through the WS broadcast.
-    window.__awOpenPresentation = (presentationId) => {
-      const key = `presentation:${presentationId}`;
-      setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-      setMaximizedKey(key);
-      setPresentationFocusTrigger({ key, counter: Date.now() });
-      setView('home');
-    };
+    // window.__awOpenPresentation is now registered by aw-app-presentations
+    // itself (2026-08-05 decoupling) — see its plugin.jsx.
     return () => {
       delete window.__awOpenTerminal;
-      delete window.__awOpenPresentation;
     };
   }, []);
 
@@ -1490,16 +1469,10 @@ function AuthenticatedApp() {
                 }}
               />
             </ErrorBoundary>
-            <ErrorBoundary label="Presentations">
-            <PresentationNav
-              presentations={presentations}
-              onSelectPresentation={(id) => {
-                setView('home');
-                togglePresentation(id);
-              }}
-              onDeletePresentation={deletePresentation}
-            />
-            </ErrorBoundary>
+            {/* "Presentation" nav entry is registered by aw-app-presentations
+                into the SAME core.nav slot as "Agents" above (2026-08-05
+                decoupling) — the AppSlot call above already renders it,
+                nothing extra needed here. */}
             <ErrorBoundary label="Workspace">
             <WorkspaceNav
               setView={setView}
@@ -1776,7 +1749,6 @@ function AuthenticatedApp() {
             insecureMap={insecureMap}
             onToggleInsecure={toggleInsecure}
             onWindowFocus={setFocusedWindowKey}
-            focusTrigger={presentationFocusTrigger}
             workspaceApps={workspaceApps}
             focusTriggers={[
               { key: 'debugger:dap', counter: debuggerFocusTrigger },
@@ -1789,14 +1761,12 @@ function AuthenticatedApp() {
                 counter,
               })),
             ]}
-            presentations={presentations}
-            onRenamePresentation={renamePresentation}
-            onDeletePresentation={deletePresentation}
             diffs={diffs}
             layout={layout}
             layoutTrigger={layoutTrigger}
             terminalReconnectSignals={terminalReconnectSignals}
             appWindowSpecs={appWindowSpecs}
+            onUpdateAppWindowTitle={updateAppWindowTitle}
           />
         </div>
       </div>

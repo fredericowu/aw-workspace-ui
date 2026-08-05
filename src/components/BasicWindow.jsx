@@ -46,7 +46,7 @@ export function specFromManagedWindow(windowSpec) {
   };
 }
 
-export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus }) {
+export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, onTitleChange }) {
   const isComponent = windowSpec?.body?.type === 'component';
   const resolvedSpec = spec || specFromManagedWindow(windowSpec);
   const icon = windowSpec?.icon || windowSpec?.body?.icon;
@@ -87,7 +87,7 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
       <div className="app-declarative-window-body flex-1 overflow-auto no-drag" onMouseDown={(e) => e.stopPropagation()}>
         <ErrorBoundary label={title || 'App'}>
           {isComponent
-            ? <AppSlot slot={windowBodySlot(windowSpec.id)} props={{ windowKey, onClose, onMaximize, isMaximized }} />
+            ? <AppSlot slot={windowBodySlot(windowSpec.id)} props={{ windowKey, onClose, onMaximize, isMaximized, instanceId: windowSpec.instanceId, onTitleChange }} />
             : <AppWindow spec={resolvedSpec} />}
         </ErrorBoundary>
       </div>

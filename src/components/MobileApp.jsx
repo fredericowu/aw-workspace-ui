@@ -4,7 +4,8 @@ import { asArray } from '../lib/asArray';
 import { apiFetch, wsUrl } from '../auth';
 import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
-import PresentationWindow from './PresentationWindow';
+import AppSlot from '../apps/AppSlot';
+import { windowBodySlot } from '../apps/slotRegistry';
 import DiffWindow from './DiffWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
 import SettingsPanel from './SettingsPanel';
@@ -1336,12 +1337,21 @@ export default function MobileApp() {
               />
             </div>
           ) : activeWindow.type === 'presentation' ? (
+            // Owned by aw-app-presentations now (core.window.body:presentations.viewer,
+            // 2026-08-05 decoupling) — same slot the desktop BasicWindow renders,
+            // just mounted directly here since mobile has its own single-active-
+            // window chrome instead of WindowManager's draggable windows.
             <div className="h-full mobile-presentation-view">
-              <PresentationWindow
-                presentation={presentations.find(c => c.id === activeWindow.id) || { id: activeWindow.id, title: activeWindow.name, html: '' }}
-                onClose={closeActiveWindow}
-                onDelete={() => deletePresentation(activeWindow.id)}
-                windowKey={activeWindow.key}
+              <AppSlot
+                slot={windowBodySlot('presentations.viewer')}
+                props={{
+                  windowKey: activeWindow.key,
+                  instanceId: activeWindow.id,
+                  onClose: closeActiveWindow,
+                  onMaximize: () => {},
+                  isMaximized: false,
+                  onTitleChange: () => {},
+                }}
               />
             </div>
           ) : (
