@@ -23,8 +23,11 @@ describe('Auth module', () => {
     expect(url).toBe('/api/test');
   });
 
-  it('apiFetch fires aw-auth-failed on a 401 from the framework API', async () => {
-    fetch.mockResolvedValueOnce({ status: 401, ok: false, json: () => Promise.resolve({}) });
+  it('apiFetch fires aw-auth-failed on a 401 from the framework API, confirmed by getAuthStatus', async () => {
+    fetch
+      .mockResolvedValueOnce({ status: 401, ok: false, json: () => Promise.resolve({}) })
+      // The confirming getAuthStatus() call — also a real 401.
+      .mockResolvedValueOnce({ status: 401, ok: false, json: () => Promise.resolve({}) });
     const { apiFetch } = await import('../auth');
     const onFail = vi.fn();
     window.addEventListener('aw-auth-failed', onFail);
@@ -32,6 +35,26 @@ describe('Auth module', () => {
     await apiFetch('/api/tasks');
 
     expect(onFail).toHaveBeenCalledTimes(1);
+    window.removeEventListener('aw-auth-failed', onFail);
+  });
+
+  it('apiFetch does NOT fire aw-auth-failed on a 401 that getAuthStatus does not confirm', async () => {
+    // The workspace's identity check lazily fetches + caches aw-backend's
+    // public key in-process — right after a container restart, the first
+    // request can 401 a perfectly valid JWT on a momentary network hiccup.
+    // getAuthStatus's own retry+null handling is the source of truth here,
+    // not this one response.
+    fetch
+      .mockResolvedValueOnce({ status: 401, ok: false, json: () => Promise.resolve({}) })
+      // The confirming getAuthStatus() call — this time it succeeds.
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, mode: 'password' }) });
+    const { apiFetch } = await import('../auth');
+    const onFail = vi.fn();
+    window.addEventListener('aw-auth-failed', onFail);
+
+    await apiFetch('/api/tasks');
+
+    expect(onFail).not.toHaveBeenCalled();
     window.removeEventListener('aw-auth-failed', onFail);
   });
 

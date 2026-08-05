@@ -151,8 +151,22 @@ export async function apiFetch(url, options = {}) {
   // invalid. Only a 401 from the framework's own API should force the whole
   // dashboard into a logged-out state; otherwise opening one misbehaving
   // app's settings panel wrongly logs the user out of everything.
+  //
+  // Even then, don't trust a single 401 at face value: the workspace
+  // container's identity check fetches aw-backend's public key lazily and
+  // caches it in-process, so the very first identity-gated request right
+  // after a restart can 401 a perfectly valid, unexpired JWT if that fetch
+  // hits a momentary network hiccup — found live 2026-08-05 as recurring
+  // "login expired" reports that correlated with app install/update/
+  // reinstall cycles (which recreate this container). getAuthStatus()
+  // already has its own retry + a distinct `null` ("couldn't tell") state
+  // for exactly this class of transient failure — defer to it instead of
+  // reacting to this one response.
   if (res.status === 401 && !isAppRoute) {
-    window.dispatchEvent(new Event('aw-auth-failed'));
+    const { authenticated } = await getAuthStatus();
+    if (authenticated === false) {
+      window.dispatchEvent(new Event('aw-auth-failed'));
+    }
   }
   return res;
 }
