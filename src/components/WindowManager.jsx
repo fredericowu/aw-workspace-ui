@@ -4,7 +4,6 @@ import LogWindow from './LogWindow';
 import LogStream from './LogStream';
 import TerminalWindow from './TerminalWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
-import DiffWindow from './DiffWindow';
 import BasicWindow from './BasicWindow';
 import PlansPanel from './PlansPanel';
 import TestsPanel from './TestsPanel';
@@ -876,7 +875,7 @@ function loadFromStorage(key, fallback) {
   } catch { return fallback; }
 }
 
-export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, diffs, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, onUpdateAppWindowTitle }) {
+export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, onUpdateAppWindowTitle }) {
   // Derive agentType from terminals array for any session key
   const _getAgentType = (key) => {
     const sessionId = key.replace('terminal:', '');
@@ -1153,16 +1152,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
               className="w-full h-full"
               onMouseDownCapture={() => bringToFront(key)}
             >
-              {key.startsWith('diff:') ? (
-                <DiffWindow
-                  diff={(diffs || {})[key.replace('diff:', '')]}
-                  windowKey={key}
-                  onClose={() => onCloseWindow(key)}
-                  onMaximize={onMaximize}
-                  isMaximized={maximizedKey === key}
-                  onFocus={() => bringToFront(key)}
-                />
-              ) : key.startsWith('appwin:') && managedApp ? (
+              {key.startsWith('appwin:') && managedApp ? (
                 <AppProxyWindow
                   appId={managedApp.id}
                   workspaceApps={[managedApp, ...(workspaceApps || []).filter((a) => a.id !== managedApp.id)]}

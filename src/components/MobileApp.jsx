@@ -6,7 +6,6 @@ import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
 import { windowBodySlot } from '../apps/slotRegistry';
-import DiffWindow from './DiffWindow';
 import RemoteDesktopWindow from './RemoteDesktopWindow';
 import SettingsPanel from './SettingsPanel';
 import StatusDot from './StatusDot';
@@ -319,7 +318,6 @@ export default function MobileApp() {
 
   // Presentations via WebSocket
   const [presentations, setPresentations] = useState([]);
-  const [diffs, setDiffs] = useState({});
   useEffect(() => {
     // aw-app-presentations owns this — /api/apps/presentations/ws.
     const ws = new WebSocket(wsUrl('/api/apps/presentations/ws'));
@@ -343,14 +341,23 @@ export default function MobileApp() {
         } else if (msg.action === 'delete') {
           setPresentations(prev => prev.filter(c => c.id !== msg.id));
         }
-      } else if (msg.type === 'diff_open') {
-        const diff = msg.diff;
-        setDiffs(prev => ({ ...prev, [diff.id]: diff }));
-        setActiveWindow(prev => {
-          if (prev) previousWindowRef.current = prev;
-          return { type: 'diff', key: `diff:${diff.id}`, id: diff.id, name: diff.title };
-        });
       }
+    };
+    return () => ws.close();
+  }, []);
+
+  // Diffs via WebSocket — aw-app-diff-tool owns this — /api/apps/diff-tool/ws.
+  useEffect(() => {
+    const ws = new WebSocket(wsUrl('/api/apps/diff-tool/ws'));
+    ws.onmessage = (event) => {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch { return; }
+      if (msg.type !== 'diff_open' || !msg.diff) return;
+      const diff = msg.diff;
+      setActiveWindow(prev => {
+        if (prev) previousWindowRef.current = prev;
+        return { type: 'diff', key: `diff:${diff.id}`, id: diff.id, name: diff.title };
+      });
     };
     return () => ws.close();
   }, []);
@@ -1326,14 +1333,20 @@ export default function MobileApp() {
               onRename={renameTerminal}
             />
           ) : activeWindow.type === 'diff' ? (
+            // Owned by aw-app-diff-tool (core.window.body:diff.viewer,
+            // 2026-08-05 decoupling) — same slot/component the desktop
+            // BasicWindow renders, mounted directly here like 'presentation'
+            // below.
             <div className="h-full mobile-presentation-view">
-              <DiffWindow
-                diff={diffs[activeWindow.id] || { id: activeWindow.id, title: activeWindow.name }}
-                windowKey={activeWindow.key}
-                onClose={closeActiveWindow}
-                onMaximize={() => {}}
-                isMaximized={false}
-                onFocus={() => {}}
+              <AppSlot
+                slot={windowBodySlot('diff.viewer')}
+                props={{
+                  windowKey: activeWindow.key,
+                  instanceId: activeWindow.id,
+                  onClose: closeActiveWindow,
+                  onMaximize: () => {},
+                  isMaximized: false,
+                }}
               />
             </div>
           ) : activeWindow.type === 'presentation' ? (

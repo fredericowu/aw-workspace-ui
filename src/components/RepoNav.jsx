@@ -4,8 +4,9 @@ import { wsUrl, apiFetch } from '../auth';
 /**
  * Top-bar nav entry for Repos. Hovering opens a popover listing local repos
  * (same data as the Repos page) with quick-actions: open in VSCode, pull,
- * diff-on-presentation, open-terminal-in-folder. Mirrors the Presentation hover-gallery
- * pattern so the two top-bar items feel consistent.
+ * show diff (opens aw-app-diff-tool's window — see diffRepo below),
+ * open-terminal-in-folder. Mirrors the Presentation hover-gallery pattern
+ * so the two top-bar items feel consistent.
  */
 export default function RepoNav() {
   const [open, setOpen] = useState(false);
@@ -95,16 +96,37 @@ export default function RepoNav() {
     }
   };
 
-  const diffRepo = (r) => {
-    apiFetch('/api/git/diff', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        repo: r.path,
-        ref: r.diff_ref || 'HEAD~1',
-        title: `${r.name}${r.ahead ? `: ${r.ahead} ahead` : ''}`,
-      }),
-    });
+  // Opens aw-app-diff-tool's window directly with the diff_id from this
+  // POST's own response, rather than waiting on that app's diff_open WS
+  // broadcast (the other entry point — an agent's show_diff MCP call —
+  // needs the broadcast since nobody in this tab triggered it; a click
+  // here already has the id in hand).
+  const diffRepo = async (r) => {
+    setBusyRepo(r.path);
+    try {
+      const res = await apiFetch('/api/apps/diff-tool/diffs/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: r.path,
+          ref: r.diff_ref || 'HEAD~1',
+          title: `${r.name}${r.ahead ? `: ${r.ahead} ahead` : ''}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        window.__awOpenAppWindow?.('diff.viewer', data.diff_id, `${r.name} diff`);
+        setOpen(false);
+      } else {
+        flashFor(r.path, 'error');
+        setError(`${r.name}: ${data.error || 'diff failed'}`);
+      }
+    } catch (e) {
+      flashFor(r.path, 'error');
+      setError(`${r.name}: ${e.message}`);
+    } finally {
+      setBusyRepo(null);
+    }
   };
 
   const openTerminal = async (r) => {
@@ -242,8 +264,9 @@ export default function RepoNav() {
                       </button>
                       <button
                         onClick={() => diffRepo(r)}
-                        className="p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors"
-                        title="Show diff on presentation"
+                        disabled={busy}
+                        className="p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors disabled:opacity-50"
+                        title="Show diff"
                       >
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M12 19V5M5 12l7-7 7 7" />

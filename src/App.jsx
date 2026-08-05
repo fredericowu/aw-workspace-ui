@@ -386,7 +386,6 @@ function AuthenticatedApp() {
   // each one's {id, title, spec} for WindowManager to render.
   const [appWindowSpecs, setAppWindowSpecs] = useState({});
   const [terminals, setTerminals] = useState([]);
-  const [diffs, setDiffs] = useState({});
   const [aiAgents, setAiAgents] = useState([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
     { type: 'copilot', label: 'Copilot', command: 'copilot', color: '#2ea043', icon: 'copilot' },
@@ -432,14 +431,14 @@ function AuthenticatedApp() {
 
   // NOTE (2026-08-05): this WS's presentation_init/presentation_update
   // handling moved into aw-app-presentations' own plugin.jsx (decoupling).
-  // What's left — diff_open/test_finished — turns out to be PRE-EXISTING
-  // DEAD CODE: this connects to aw-app-presentations' /ws (its only real
-  // message types are presentation_init/presentation_update, confirmed by
-  // reading presentations_app/routes.py), so diff_open/test_finished have
-  // never actually fired since this app moved off the monolith's combined
-  // /ws/presentations endpoint. Left as-is (not this task's scope) — flagged
-  // to Frederico as a separate gap: DiffWindow/`diffs` state and the
-  // /api/tests/state test-runner integration have no working backend push
+  // diff_open handling moved out too — aw-app-diff-tool now owns that
+  // event on its OWN /ws (see that repo's ui/src/plugin.jsx), and never
+  // actually fired here anyway: this connects to aw-app-presentations' /ws,
+  // whose only real message types are presentation_init/presentation_update
+  // (confirmed by reading presentations_app/routes.py) — diff_open was
+  // pre-existing dead code riding on the wrong socket. What's left —
+  // test_finished — is a separate, still-open gap: the
+  // /api/tests/state test-runner integration has no working backend push
   // in aw-workspace at all right now.
   useEffect(() => {
     let ws;
@@ -449,13 +448,7 @@ function AuthenticatedApp() {
 
     const handleMessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'diff_open') {
-        const diff = msg.diff;
-        setDiffs((prev) => ({ ...prev, [diff.id]: diff }));
-        setOpenWindows((prev) => { const next = new Set(prev); next.add(`diff:${diff.id}`); return next; });
-        setMaximizedKey(`diff:${diff.id}`);
-        setView('home');
-      } else if (msg.type === 'test_finished') {
+      if (msg.type === 'test_finished') {
         // Automation terminal process exited — update shared state
         apiFetch('/api/tests/state', {
           method: 'PUT',
@@ -1761,7 +1754,6 @@ function AuthenticatedApp() {
                 counter,
               })),
             ]}
-            diffs={diffs}
             layout={layout}
             layoutTrigger={layoutTrigger}
             terminalReconnectSignals={terminalReconnectSignals}
