@@ -286,17 +286,18 @@ export default function WorkspaceNav({
     }
   };
 
-  // Up-arrow: ask the server to build a diff presentation. On success the new
-  // presentation arrives over /api/apps/presentations/ws and App.jsx auto-opens + maximizes it —
-  // but only visibly on the 'home' view, so we switch there and close the
-  // popover only AFTER we know we have a presentation to show. On failure we keep
-  // the popover open and surface the error inline (e.g. "No changes found"),
-  // otherwise the user clicks and gets zero feedback.
+  // Up-arrow: ask aw-app-diff-tool to render a diff, then open its window
+  // directly with the diff_id from this POST's own response (no need to wait
+  // on that app's diff_open WS broadcast — the other entry point, an agent's
+  // show_diff MCP call, needs the broadcast since nobody in this tab
+  // triggered it; a click here already has the id in hand). On failure we
+  // keep the popover open and surface the error inline (e.g. "No changes
+  // found"), otherwise the user clicks and gets zero feedback.
   const diffRepo = async (r) => {
     setBusyRepo(r.path);
     setReposError(null);
     try {
-      const res = await apiFetch('/api/git/diff', {
+      const res = await apiFetch('/api/apps/diff-tool/diffs/render', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repo: r.path,
@@ -307,7 +308,7 @@ export default function WorkspaceNav({
       const data = await res.json().catch(() => ({}));
       if (data && data.success) {
         flashFor(r.path, 'success');
-        setView?.('home');
+        window.__awOpenAppWindow?.('diff-tool.viewer', data.diff_id, `${r.name} diff`);
         setOpen(false);
         setSubmenu(null);
       } else {
