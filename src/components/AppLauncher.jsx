@@ -82,43 +82,7 @@ function AppCard({ app, index, onOpen }) {
   );
 }
 
-// Always-present trailing tile — starts a new App Builder claude session
-// (same POST /api/app-builder/start flow AppsNav.jsx's "Start building"
-// row always triggered), styled like an app card so it reads as "add new"
-// inside the same grid instead of a separate control.
-function StartBuildingCard({ index, starting, onStart }) {
-  return (
-    <button
-      type="button"
-      className={`applt-card applt-card-start ${starting ? 'is-stopped' : ''}`}
-      style={{ animationDelay: `${60 + index * 45}ms` }}
-      onClick={onStart}
-      disabled={starting}
-      aria-label="Start building a new app"
-    >
-      <div className="applt-preview">
-        <div className="applt-chrome">
-          <span className="applt-dot" />
-          <span className="applt-dot" />
-          <span className="applt-dot" />
-        </div>
-        <div className="applt-wash" style={{ '--tile': 'var(--color-launcher-amber)' }} />
-        <div className="applt-glyph applt-glyph-plus">+</div>
-      </div>
-      <div className="applt-meta">
-        <span className="applt-icon" style={{ background: 'var(--color-launcher-amber)' }}>
-          <span className="applt-icon-fallback">+</span>
-        </span>
-        <div className="applt-meta-text">
-          <span className="applt-name">Start building</span>
-          <span className="applt-state">{starting ? 'Starting…' : 'New App Builder session'}</span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-export default function AppLauncher({ workspaceApps, components, starting, onOpenApp, onOpenInstalledApp, onStartBuilding, onClose }) {
+export default function AppLauncher({ workspaceApps, components, onOpenApp, onOpenInstalledApp, onClose }) {
   // Framework (decoupled-apps) installed set — separate from the legacy
   // aw.json workspace_apps grid below. Seeded from the last-known
   // localStorage cache (stale-while-revalidate) so the view paints
@@ -400,16 +364,11 @@ export default function AppLauncher({ workspaceApps, components, starting, onOpe
 
         {category === 'services' && (
           <section className="applt-section">
-            {apps.length > 0 ? (
+            {apps.length > 0 && (
               <div className="applt-grid">
                 {apps.map((app, i) => (
                   <AppCard key={app.id} app={app} index={i} onOpen={() => onOpenApp(app.id)} />
                 ))}
-                <StartBuildingCard index={apps.length} starting={!!starting} onStart={onStartBuilding} />
-              </div>
-            ) : (
-              <div className="applt-grid">
-                <StartBuildingCard index={0} starting={!!starting} onStart={onStartBuilding} />
               </div>
             )}
             {servicesFrameworkApps.length > 0 && (

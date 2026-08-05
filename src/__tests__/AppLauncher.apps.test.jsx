@@ -35,9 +35,7 @@ function renderLauncher() {
     <AppLauncher
       workspaceApps={[]}
       components={[]}
-      starting={false}
       onOpenApp={vi.fn()}
-      onStartBuilding={vi.fn()}
       onClose={vi.fn()}
     />,
   );
