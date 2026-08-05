@@ -115,7 +115,7 @@ export default function RepoNav() {
       });
       const data = await res.json();
       if (data.success) {
-        window.__awOpenAppWindow?.('diff.viewer', data.diff_id, `${r.name} diff`);
+        window.__awOpenAppWindow?.('diff-tool.viewer', data.diff_id, `${r.name} diff`);
         setOpen(false);
       } else {
         flashFor(r.path, 'error');

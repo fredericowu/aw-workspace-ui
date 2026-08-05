@@ -1333,13 +1333,13 @@ export default function MobileApp() {
               onRename={renameTerminal}
             />
           ) : activeWindow.type === 'diff' ? (
-            // Owned by aw-app-diff-tool (core.window.body:diff.viewer,
+            // Owned by aw-app-diff-tool (core.window.body:diff-tool.viewer,
             // 2026-08-05 decoupling) — same slot/component the desktop
             // BasicWindow renders, mounted directly here like 'presentation'
             // below.
             <div className="h-full mobile-presentation-view">
               <AppSlot
-                slot={windowBodySlot('diff.viewer')}
+                slot={windowBodySlot('diff-tool.viewer')}
                 props={{
                   windowKey: activeWindow.key,
                   instanceId: activeWindow.id,
