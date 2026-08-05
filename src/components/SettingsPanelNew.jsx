@@ -4,16 +4,17 @@
 // SettingsPanel so the two can be compared before the old one is retired.
 //
 // Two groups for now:
-//  - General: same sections the legacy SettingsPanel exposes. Only "Users" is
-//    wired to real functionality here — everything else is an intentional
-//    "coming soon" placeholder rather than a dead link (Backup is tracked to
-//    come back via a Kanban card).
+//  - General: same sections the legacy SettingsPanel exposes. "Users" and
+//    "Integrations" are wired to real functionality here — everything else
+//    is an intentional "coming soon" placeholder rather than a dead link
+//    (Backup is tracked to come back via a Kanban card).
 //  - Apps: dynamically built from GET /api/apps (has_config === true), one
 //    entry per installed app with configurable settings — reuses
 //    AppConfigBody (the same body AppConfigWindow's modal renders) so both
 //    surfaces stay in sync automatically.
 import { useState, useEffect, useMemo } from 'react';
 import UsersTab from './UsersTab';
+import IntegrationsTab from './IntegrationsTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import { listInstalledApps } from '../apps/appsApi';
@@ -21,7 +22,7 @@ import { listInstalledApps } from '../apps/appsApi';
 const GENERAL_SECTIONS = [
   { key: 'aw', label: 'AW Config', ready: false },
   { key: 'users', label: 'Users', ready: true },
-  { key: 'integrations', label: 'Integrations', ready: false },
+  { key: 'integrations', label: 'Integrations', ready: true },
   { key: 'tcp-proxy', label: 'TCP Proxy', ready: false },
   { key: 'vpn', label: 'VPN', ready: false },
   { key: 'proxy', label: 'Cookies', ready: false },
@@ -157,7 +158,10 @@ export default function SettingsPanelNew() {
       <div className="flex-1 overflow-y-auto p-4">
         {selection.group === 'general' && selectedSection && (
           selectedSection.ready
-            ? (selectedSection.key === 'users' && <UsersTab />)
+            ? (
+              (selectedSection.key === 'users' && <UsersTab />) ||
+              (selectedSection.key === 'integrations' && <IntegrationsTab />)
+            )
             : <ComingSoon label={selectedSection.label} />
         )}
         {selection.group === 'apps' && selectedApp && (
