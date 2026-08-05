@@ -297,6 +297,7 @@ function AuthenticatedApp() {
   // re-open with no visible effect — the window stayed buried under
   // whatever was on top.
   const [settingsPanelFocusTrigger, setSettingsPanelFocusTrigger] = useState(0);
+  const [settingsPanelNewFocusTrigger, setSettingsPanelNewFocusTrigger] = useState(0);
   const [plansPanelFocusTrigger] = useState(0);
   const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
   const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
@@ -1395,6 +1396,17 @@ function AuthenticatedApp() {
     setSettingsPanelFocusTrigger((n) => n + 1);
   }, []);
 
+  // Profile > Settings NEW: the grouped-sidebar Settings redesign, kept side
+  // by side with the legacy tab-strip Settings for comparison — see
+  // SettingsPanelNew.jsx.
+  const openSettingsPanelNew = useCallback(() => {
+    const key = 'panel:settings-new';
+    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
+    setView('home');
+    setFocusedWindowKey(key);
+    setSettingsPanelNewFocusTrigger((n) => n + 1);
+  }, []);
+
   // Workspace > Remote Desktop: open the VNC client window (mirrors
   // Whiteboard) — RemoteDesktopWindow owns connection selection/management.
   const openRemoteDesktopPanel = useCallback(() => {
@@ -1746,6 +1758,7 @@ function AuthenticatedApp() {
             focusTriggers={[
               { key: 'debugger:dap', counter: debuggerFocusTrigger },
               { key: 'panel:settings', counter: settingsPanelFocusTrigger },
+              { key: 'panel:settings-new', counter: settingsPanelNewFocusTrigger },
               { key: 'panel:plans', counter: plansPanelFocusTrigger },
               { key: 'panel:tests', counter: testsPanelFocusTrigger },
               { key: 'panel:remote-desktop', counter: remoteDesktopFocusTrigger },
@@ -1799,6 +1812,17 @@ function AuthenticatedApp() {
             </svg>
             Console
           </a>
+          <button
+            onClick={() => { openSettingsPanelNew(); setProfileDrawerOpen(false); }}
+            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors text-left"
+            aria-label="Open Settings NEW"
+          >
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+            Settings NEW
+            <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-semibold">NEW</span>
+          </button>
           <button
             onClick={() => { openSettingsPanel(); setProfileDrawerOpen(false); }}
             className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors text-left"

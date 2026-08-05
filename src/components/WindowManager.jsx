@@ -8,6 +8,7 @@ import BasicWindow from './BasicWindow';
 import PlansPanel from './PlansPanel';
 import TestsPanel from './TestsPanel';
 import SettingsPanel from './SettingsPanel';
+import SettingsPanelNew from './SettingsPanelNew';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
 import { apiFetch } from '../auth';
 
@@ -1289,6 +1290,29 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   </div>
                   <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <SettingsPanel />
+                  </div>
+                </div>
+              ) : key === 'panel:settings-new' ? (
+                <div className="flex flex-col bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden h-full shadow-2xl shadow-black/40 border border-[var(--color-border)]">
+                  <div className="drag-handle flex items-center justify-between px-3 py-2 bg-[var(--color-bg-header)] border-b border-[var(--color-border)] select-none cursor-grab active:cursor-grabbing shrink-0">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>
+                      </svg>
+                      <span className="text-xs font-medium text-[var(--color-text-primary)]">Settings NEW</span>
+                    </div>
+                    <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
+                      <button onClick={() => onMaximize?.(key)} className="p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)]" title={maximizedKey === key ? 'Restore' : 'Maximize'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                      </button>
+                      <button onClick={() => onCloseWindow(key)} className="p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)]" title="Close">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                    <SettingsPanelNew />
                   </div>
                 </div>
               ) : key === 'apis:hoppscotch' ? (
