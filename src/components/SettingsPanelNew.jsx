@@ -15,6 +15,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
+import MarketplaceTab from './MarketplaceTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import { listInstalledApps } from '../apps/appsApi';
@@ -23,6 +24,7 @@ const GENERAL_SECTIONS = [
   { key: 'aw', label: 'AW Config', ready: false },
   { key: 'users', label: 'Users', ready: true },
   { key: 'integrations', label: 'Integrations', ready: true },
+  { key: 'marketplace', label: 'Marketplace', ready: true },
   { key: 'tcp-proxy', label: 'TCP Proxy', ready: false },
   { key: 'vpn', label: 'VPN', ready: false },
   { key: 'proxy', label: 'Cookies', ready: false },
@@ -160,7 +162,8 @@ export default function SettingsPanelNew() {
           selectedSection.ready
             ? (
               (selectedSection.key === 'users' && <UsersTab />) ||
-              (selectedSection.key === 'integrations' && <IntegrationsTab />)
+              (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
+              (selectedSection.key === 'marketplace' && <MarketplaceTab />)
             )
             : <ComingSoon label={selectedSection.label} />
         )}
