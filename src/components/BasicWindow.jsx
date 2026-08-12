@@ -2,7 +2,7 @@ import AppWindow from './AppWindow';
 import ErrorBoundary from './ErrorBoundary';
 import AppIcon from './AppIcon';
 import AppSlot from '../apps/AppSlot';
-import { windowBodySlot } from '../apps/slotRegistry';
+import { windowBodySlot, windowTitlebarSlot } from '../apps/slotRegistry';
 
 // Real WindowManager-integrated chrome (drag/resize/maximize/close, same
 // header pattern as DiffWindow/PresentationWindow) for ANY decoupled app's
@@ -63,6 +63,17 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
           </span>
         </div>
         <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
+          {/* The app's own buttons, before the generic pair — so an app never
+              needs a second bar in its body just to have somewhere to put
+              them. Renders nothing (AppSlot's null fallback) for every window
+              that registers no actions, which is all of them until an app
+              opts in: purely additive. */}
+          {windowSpec?.id && (
+            <AppSlot
+              slot={windowTitlebarSlot(windowSpec.id)}
+              props={{ windowKey, onClose, onMaximize, isMaximized, instanceId: windowSpec.instanceId }}
+            />
+          )}
           <button
             onClick={() => onMaximize?.(windowKey)}
             className="p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)]"

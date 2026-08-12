@@ -26,6 +26,19 @@ export function windowBodySlot(windowId) {
   return `core.window.body:${windowId}`;
 }
 
+// Title-bar action slot for a given window (`core.window.titlebar:<window-id>`)
+// — an app's own buttons, rendered by BasicWindow INSIDE the host's header,
+// to the left of the generic maximize/close pair.
+//
+// Exists because there was previously no way for an app to put a button in
+// the window chrome, so an app that needed one drew a SECOND full-width bar
+// in its body instead (aw-app-whiteboard: save / export / pop-out — plus a
+// duplicate maximize, right under the host's own). Two stacked title bars,
+// ~34px of canvas lost, and the redundancy visible on screen.
+export function windowTitlebarSlot(windowId) {
+  return `core.window.titlebar:${windowId}`;
+}
+
 export function createSlotRegistry() {
   // slotId -> Map(contribId -> entry)
   const slots = new Map();

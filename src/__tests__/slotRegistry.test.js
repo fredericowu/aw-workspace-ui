@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSlotRegistry, windowBodySlot } from '../apps/slotRegistry';
+import { createSlotRegistry, windowBodySlot, windowTitlebarSlot } from '../apps/slotRegistry';
 
 describe('slotRegistry', () => {
   it('mounts, orders, and returns a stable snapshot until mutated', () => {
@@ -43,5 +43,15 @@ describe('slotRegistry', () => {
     unsub();
     r.mount('core.toolbar', { id: 'a', appId: 'x', render: () => null });
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('windowTitlebarSlot', () => {
+  it('namespaces a window title-bar slot the same way the body slot is', () => {
+    expect(windowTitlebarSlot('notes.main')).toBe('core.window.titlebar:notes.main');
+  });
+
+  it('is a different slot from the body, so actions never render in the body', () => {
+    expect(windowTitlebarSlot('notes.main')).not.toBe(windowBodySlot('notes.main'));
   });
 });

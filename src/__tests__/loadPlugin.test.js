@@ -93,3 +93,72 @@ describe('loadComponentPlugin — component-mode PoC', () => {
       .rejects.toThrow(/no register/);
   });
 });
+
+describe('registerWindowActions — an app\'s buttons in the host title bar', () => {
+  function freshHost() {
+    if (typeof window !== 'undefined') delete window.__AW_PLUGIN_HOST__;
+    return installPluginHost({ registry: createSlotRegistry() });
+  }
+
+  const app = {
+    slug: 'whiteboard',
+    signed: true,
+    granted_permissions: ['ui:code'],
+    frontend: { mode: 'component', bundle_url: '/api/apps/whiteboard/ui/plugin.js' },
+  };
+
+  it('lets an app fill its OWN window title bar with no extra ui:slots grant', async () => {
+    const host = freshHost();
+    const mod = {
+      register(h) {
+        h.registerWindowActions('whiteboard.main', () => 'buttons', { id: 'wb:actions' });
+      },
+    };
+    await loadComponentPlugin(app, host, { importer: async () => mod });
+
+    expect(host.registry.getSlot('core.window.titlebar:whiteboard.main').map((e) => e.id))
+      .toEqual(['wb:actions']);
+  });
+
+  it('blocks an app from injecting buttons into ANOTHER app\'s window chrome', async () => {
+    const host = freshHost();
+    const mod = {
+      register(h) {
+        h.registerWindowActions('tasks.main', () => 'hijack', { id: 'wb:hijack' });
+      },
+    };
+    await loadComponentPlugin(app, host, { importer: async () => mod });
+
+    expect(host.registry.getSlot('core.window.titlebar:tasks.main')).toHaveLength(0);
+  });
+
+  it('keeps title-bar actions separate from the window body', async () => {
+    const host = freshHost();
+    const mod = {
+      register(h) {
+        h.registerWindow('whiteboard.main', () => 'body', { id: 'wb:body' });
+        h.registerWindowActions('whiteboard.main', () => 'actions', { id: 'wb:actions' });
+      },
+    };
+    await loadComponentPlugin(app, host, { importer: async () => mod });
+
+    expect(host.registry.getSlot('core.window.body:whiteboard.main').map((e) => e.id))
+      .toEqual(['wb:body']);
+    expect(host.registry.getSlot('core.window.titlebar:whiteboard.main').map((e) => e.id))
+      .toEqual(['wb:actions']);
+  });
+
+  it('drops both on dispose, leaving no orphan buttons in the chrome', async () => {
+    const host = freshHost();
+    const mod = {
+      register(h) {
+        h.registerWindow('whiteboard.main', () => 'body', { id: 'wb:body' });
+        h.registerWindowActions('whiteboard.main', () => 'actions', { id: 'wb:actions' });
+      },
+    };
+    const dispose = await loadComponentPlugin(app, host, { importer: async () => mod });
+    dispose();
+
+    expect(host.registry.size()).toBe(0);
+  });
+});

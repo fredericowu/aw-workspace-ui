@@ -67,6 +67,11 @@ export function hostForApp(host, app) {
     // An app may always fill its OWN slots and its own window bodies.
     if (slotId.startsWith(`${slug}.`)) return true;
     if (slotId.startsWith('core.window.body:') && slotId.includes(`:${slug}.`)) return true;
+    // Same rule for a window's title-bar actions: your own window's chrome is
+    // yours, another app's is not. `:${slug}.` is what pins it to the owner —
+    // window ids are namespaced `<slug>.<name>` (Decision 8), so app "notes"
+    // can never match "core.window.titlebar:whiteboard.main".
+    if (slotId.startsWith('core.window.titlebar:') && slotId.includes(`:${slug}.`)) return true;
     return grantedSlots.has(slotId);
   }
 
@@ -115,6 +120,18 @@ export function hostForApp(host, app) {
     // Convenience: register the body component for one of this app's windows.
     registerWindow(windowId, render, opts = {}) {
       return this.registerSlot(`core.window.body:${windowId}`, render, opts);
+    },
+
+    // Convenience: register this window's title-bar buttons. `render(props)`
+    // gets the same props as the body ({ windowKey, onClose, onMaximize,
+    // isMaximized, instanceId }) and should return bare <button>s — the host
+    // supplies the flex row, and the maximize/close pair sits after them.
+    //
+    // A popover anchored to one of these buttons must portal to document.body:
+    // BasicWindow's root is `overflow-hidden` (for its rounded corners), so an
+    // `absolute` popover inside the header is clipped.
+    registerWindowActions(windowId, render, opts = {}) {
+      return this.registerSlot(`core.window.titlebar:${windowId}`, render, opts);
     },
 
     onDispose(fn) {
