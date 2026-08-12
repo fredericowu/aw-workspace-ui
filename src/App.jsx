@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import WindowManager from './components/WindowManager';
 // SettingsPanel is now rendered inside WindowManager as a floating panel
 import WorkspaceNav from './components/WorkspaceNav';
@@ -275,32 +275,34 @@ function AuthenticatedApp() {
     return () => window.removeEventListener('aw-config-changed', load);
   }, []);
 
-  // Per-app focus triggers — a single object keyed by app id so we don't
-  // need a new useState per dynamic app.  Incrementing the counter brings
-  // an already-open app:* window to the front (mirrors the per-window
-  // trigger pattern used by the hardcoded Browser / VSCode launchers).
-  const [appFocusTriggers, setAppFocusTriggers] = useState({});
+  const [focusedWindowKey, setFocusedWindowKey] = useState(null);
+
+  // Focus triggers, keyed by the FULL window key. WindowManager listens via
+  // the `focusTriggers` prop and turns a bumped counter into a bringToFront,
+  // which is the only thing that reorders zOrder — `focusedWindowKey` alone
+  // does not. Every "open this window" path must therefore call this, or a
+  // menu click on an already-open window does nothing visible: `openWindows`
+  // is a Set, so re-adding a key it already has is a no-op and the window
+  // stays buried under whatever was on top.
+  //
+  // Keyed generically because the previous shape — one useState per window,
+  // hand-listed in the `focusTriggers` array — silently missed every window
+  // nobody remembered to add. App-contributed windows (`appwin:*`: Tasks,
+  // Whiteboard, Knowledge Base, ...) were never in that list and core cannot
+  // enumerate them anyway, and two of the hardcoded triggers had been left
+  // permanently at 0.
+  const [windowFocusTriggers, setWindowFocusTriggers] = useState({});
+  const requestWindowFocus = useCallback((key) => {
+    setFocusedWindowKey(key);
+    setWindowFocusTriggers((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+  }, []);
 
   const openApp = useCallback((appId) => {
     const key = `app:${appId}`;
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
-    setAppFocusTriggers((prev) => ({ ...prev, [appId]: (prev[appId] || 0) + 1 }));
-  }, []);
-
-  const [focusedWindowKey, setFocusedWindowKey] = useState(null);
-  const [debuggerFocusTrigger] = useState(0);
-  // Counter-style focus triggers for the workspace-menu floating panels.
-  // WindowManager listens via the `focusTriggers` prop; bumping the counter
-  // bringsthe matching window key to the top of zOrder. Without these, a
-  // second click on a Workspace menu item that's already open would
-  // re-open with no visible effect — the window stayed buried under
-  // whatever was on top.
-  const [settingsPanelFocusTrigger, setSettingsPanelFocusTrigger] = useState(0);
-  const [settingsPanelNewFocusTrigger, setSettingsPanelNewFocusTrigger] = useState(0);
-  const [plansPanelFocusTrigger] = useState(0);
-  const [testsPanelFocusTrigger, setTestsPanelFocusTrigger] = useState(0);
-  const [remoteDesktopFocusTrigger, setRemoteDesktopFocusTrigger] = useState(0);
+    requestWindowFocus(key);
+  }, [requestWindowFocus]);
 
   // Speech recognition for push-to-talk
   const [isListening, setIsListening] = useState(false);
@@ -546,6 +548,7 @@ function AuthenticatedApp() {
               if (Date.now() - dismissed > 3600000) {
                 setOpenWindows(prev => { const next = new Set(prev); next.add('debugger:dap'); return next; });
                 setView('home');
+                requestWindowFocus('debugger:dap');
               }
             } else if (data.type === 'continued') {
               setDebugStopped(false);
@@ -618,8 +621,8 @@ function AuthenticatedApp() {
     }));
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
-    setFocusedWindowKey(key);
-  }, []);
+    requestWindowFocus(key);
+  }, [requestWindowFocus]);
   // Generic escape hatch so ANY app's own component-mode contribution (a nav
   // row, a background WS listener, ...) can open one of ITS OWN windows
   // without core knowing anything app-specific — mirrors __awOpenTerminal/
@@ -1376,6 +1379,12 @@ function AuthenticatedApp() {
 
   const hasWindows = openWindows.size > 0;
 
+  // Flattened for WindowManager, which wants a [{key, counter}] list.
+  const focusTriggerList = useMemo(
+    () => Object.entries(windowFocusTriggers).map(([key, counter]) => ({ key, counter })),
+    [windowFocusTriggers],
+  );
+
   // Workspace > Tests: open the Architecture Namespace traceability matrix
   // as a floating window (mirrors Plans/Knowledge Base). TestsPanel itself
   // owns the fetch against GET /api/architecture/matrix.
@@ -1383,18 +1392,16 @@ function AuthenticatedApp() {
     const key = 'panel:tests';
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
-    setFocusedWindowKey(key);
-    setTestsPanelFocusTrigger((n) => n + 1);
-  }, []);
+    requestWindowFocus(key);
+  }, [requestWindowFocus]);
 
   // Workspace > Settings: open as a floating window (mirrors Knowledge Base/Tasks).
   const openSettingsPanel = useCallback(() => {
     const key = 'panel:settings';
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
-    setFocusedWindowKey(key);
-    setSettingsPanelFocusTrigger((n) => n + 1);
-  }, []);
+    requestWindowFocus(key);
+  }, [requestWindowFocus]);
 
   // Profile > Settings NEW: the grouped-sidebar Settings redesign, kept side
   // by side with the legacy tab-strip Settings for comparison — see
@@ -1403,9 +1410,8 @@ function AuthenticatedApp() {
     const key = 'panel:settings-new';
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
-    setFocusedWindowKey(key);
-    setSettingsPanelNewFocusTrigger((n) => n + 1);
-  }, []);
+    requestWindowFocus(key);
+  }, [requestWindowFocus]);
 
   // Workspace > Remote Desktop: open the VNC client window (mirrors
   // Whiteboard) — RemoteDesktopWindow owns connection selection/management.
@@ -1413,9 +1419,8 @@ function AuthenticatedApp() {
     const key = 'panel:remote-desktop';
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
-    setFocusedWindowKey(key);
-    setRemoteDesktopFocusTrigger((n) => n + 1);
-  }, []);
+    requestWindowFocus(key);
+  }, [requestWindowFocus]);
 
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
@@ -1755,18 +1760,7 @@ function AuthenticatedApp() {
             onToggleInsecure={toggleInsecure}
             onWindowFocus={setFocusedWindowKey}
             workspaceApps={workspaceApps}
-            focusTriggers={[
-              { key: 'debugger:dap', counter: debuggerFocusTrigger },
-              { key: 'panel:settings', counter: settingsPanelFocusTrigger },
-              { key: 'panel:settings-new', counter: settingsPanelNewFocusTrigger },
-              { key: 'panel:plans', counter: plansPanelFocusTrigger },
-              { key: 'panel:tests', counter: testsPanelFocusTrigger },
-              { key: 'panel:remote-desktop', counter: remoteDesktopFocusTrigger },
-              ...Object.entries(appFocusTriggers).map(([id, counter]) => ({
-                key: `app:${id}`,
-                counter,
-              })),
-            ]}
+            focusTriggers={focusTriggerList}
             layout={layout}
             layoutTrigger={layoutTrigger}
             terminalReconnectSignals={terminalReconnectSignals}
