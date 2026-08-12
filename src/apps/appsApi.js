@@ -32,11 +32,18 @@ export function fetchContributions() {
 // "installing"} (202) instead of blocking on the fetch + apt install, which
 // takes long enough for the BYOD tunnel to drop the request. Poll
 // getInstallStatus() for progress.
-export function installApp({ repo, ref, app_id, granted_permissions, signed, config }) {
+//
+// No `signed` here on purpose: the workspace derives trust from marketplace-
+// catalog membership (src/apps/catalog.py::is_marketplace_app) and ignores
+// anything the client asserts. This used to send `signed: true` for every
+// install, which read as if the SPA got to decide — and hid that a caller
+// omitting it (the CLI) produced an UNSIGNED install of a catalog app, whose
+// `ui:code` was then refused and whose whole frontend silently vanished.
+export function installApp({ repo, ref, app_id, granted_permissions, config }) {
   return apiFetch('/api/apps/install', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, ref, app_id, granted_permissions, signed, config }),
+    body: JSON.stringify({ repo, ref, app_id, granted_permissions, config }),
   }).then(json);
 }
 

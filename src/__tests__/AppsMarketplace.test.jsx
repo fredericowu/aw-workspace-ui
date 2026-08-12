@@ -75,7 +75,9 @@ describe('AppsMarketplace', () => {
     // Install button shows "Installing…" while polling, not a bare error.
     expect(await screen.findByRole('button', { name: 'Installing…' })).toBeInTheDocument();
     await waitFor(() => expect(installApp).toHaveBeenCalledWith(
-      expect.objectContaining({ repo: 'tekflox/aw-app-git', ref: 'v0.2.0', app_id: 'git', signed: true }),
+      // No `signed` — trust is derived server-side from catalog membership,
+      // so asserting the client sends it would lock in the wrong contract.
+      { repo: 'tekflox/aw-app-git', ref: 'v0.2.0', app_id: 'git' },
     ));
     await waitFor(() => expect(getInstallStatus).toHaveBeenCalledWith('git'));
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'git' })));

@@ -216,7 +216,7 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
     setError(null);
     try {
       try {
-        await installApp({ repo: app.repo, ref: app.ref, app_id: app.id, signed: true });
+        await installApp({ repo: app.repo, ref: app.ref, app_id: app.id });
       } catch (e) {
         // The POST itself can be the request that gets dropped (not just the
         // long-running install it kicks off) — fall through to the normal
