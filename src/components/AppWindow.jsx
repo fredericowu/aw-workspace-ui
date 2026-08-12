@@ -490,9 +490,21 @@ function AuthStatus({ widget }) {
     return null;
   }
   if (state.data.logged_in) {
+    // Interpolate ANY scalar field of the bound response, not just
+    // {username}: a credential panel needs to show more than a name (which
+    // token is in place, what it can actually do), and hard-coding one
+    // placeholder forced every such detail into a separate widget or a
+    // custom UI. Unknown placeholders fall back to '—' rather than being
+    // left as literal braces in the rendered text.
     const text = (widget.logged_in_text || 'Logged in as {username}').replace(
-      '{username}',
-      state.data.username || 'GitHub',
+      /\{(\w+)\}/g,
+      (_match, key) => {
+        const value = state.data[key];
+        if (value === undefined || value === null || value === '') {
+          return key === 'username' ? 'GitHub' : '—';
+        }
+        return Array.isArray(value) ? value.join(', ') : String(value);
+      },
     );
     return (
       <div className="appwin-auth-status" data-testid="appwin-auth-status">
