@@ -16,6 +16,9 @@ import IconStack from './components/IconStack';
 import { installPluginHost } from './apps/pluginHost';
 import { fetchContributions } from './apps/appsApi';
 import { wireContributions, findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
+import {
+  appWindowKey, isAppWindowKey, identityForKey, persistAppWindows, readPersistedAppWindows,
+} from './apps/appWindowKeys';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
 import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
 import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keyboardMode';
@@ -387,7 +390,16 @@ function AuthenticatedApp() {
   // same as every other window type) — see AppDeclarativeWindow.jsx. Keyed
   // by `appwin:{windowId}` in the shared `openWindows` Set; this map holds
   // each one's {id, title, spec} for WindowManager to render.
+  //
+  // Deliberately NOT seeded from localStorage: a spec is resolved from the
+  // app's manifest server-side and goes stale on update/uninstall, so a reload
+  // re-looks it up from fresh contributions. Only each window's identity is
+  // persisted — see apps/appWindowKeys.js and the rehydrate loop below.
   const [appWindowSpecs, setAppWindowSpecs] = useState({});
+  // Guards that persist: until the rehydrate pass has run, `appWindowSpecs` is
+  // legitimately empty, and writing it out would erase the very record the
+  // rehydrate is about to read (contributions are fetched async on mount).
+  const appWindowsHydratedRef = useRef(false);
   const [terminals, setTerminals] = useState([]);
   const [aiAgents, setAiAgents] = useState([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
@@ -419,6 +431,10 @@ function AuthenticatedApp() {
   useEffect(() => {
     localStorage.setItem('aw-open-windows', JSON.stringify([...openWindows]));
   }, [openWindows]);
+  useEffect(() => {
+    if (!appWindowsHydratedRef.current) return;
+    persistAppWindows(appWindowSpecs);
+  }, [appWindowSpecs]);
   useEffect(() => {
     localStorage.setItem('aw-sidebar-collapsed', sidebarCollapsed ? 'true' : 'false');
   }, [sidebarCollapsed]);
@@ -614,7 +630,7 @@ function AuthenticatedApp() {
   // pass this — their key shape is unchanged.
   const openAppWindow = useCallback((found, instanceId, title) => {
     if (!found?.id) return;
-    const key = instanceId ? `appwin:${found.id}:${instanceId}` : `appwin:${found.id}`;
+    const key = appWindowKey(found.id, instanceId);
     setAppWindowSpecs((prev) => ({
       ...prev,
       [key]: instanceId ? { ...found, instanceId, title: title || found.title } : found,
@@ -682,9 +698,33 @@ function AuthenticatedApp() {
       // same closure's `openWindows` snapshot from mount, so doing it every
       // time could reopen a window the user has since closed.
       if (isFirstLoad) {
+        const persisted = readPersistedAppWindows();
+        const unresolved = [];
         for (const key of openWindows) {
-          if (key.startsWith('appwin:')) openWindowById(key.slice('appwin:'.length));
+          if (!isAppWindowKey(key)) continue;
+          // Never `key.slice('appwin:'.length)` as a window id: that hands the
+          // whole `<windowId>:<instanceId>` tail to findWindowSpec, which
+          // matches nothing for every multi-instance window.
+          const identity = identityForKey(key, persisted);
+          const found = identity && findWindowSpec(contributionsRef.current, identity.windowId);
+          if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) {
+            openAppWindow(found, identity.instanceId, identity.title);
+          } else {
+            unresolved.push(key);
+          }
         }
+        // Whatever didn't resolve has no app behind it any more (uninstalled,
+        // or its window contribution was dropped by an update). Leaving the
+        // key in openWindows is what put an empty "App" window on screen and
+        // kept it there across every later reload, so drop it instead.
+        if (unresolved.length) {
+          setOpenWindows((prev) => {
+            const next = new Set(prev);
+            for (const key of unresolved) next.delete(key);
+            return next;
+          });
+        }
+        appWindowsHydratedRef.current = true;
       }
     };
 
