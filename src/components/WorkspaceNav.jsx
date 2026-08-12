@@ -5,6 +5,7 @@ import { startComponent, stopComponent, restartComponent } from '../hooks/useCom
 import { apiFetch, wsUrl } from '../auth';
 import AppSlot from '../apps/AppSlot';
 import FoldersSubmenu from './FoldersSubmenu';
+import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH, GITHUB_STREAM_PATH } from '../lib/githubApi';
 
 /**
  * Top-bar nav entry for "Workspace". A hover popover that consolidates
@@ -238,7 +239,7 @@ export default function WorkspaceNav({
     let closed = false;
     const connect = () => {
       try {
-        ws = new WebSocket(wsUrl('/ws/github'));
+        ws = new WebSocket(wsUrl(GITHUB_STREAM_PATH));
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
@@ -254,7 +255,7 @@ export default function WorkspaceNav({
         if (!closed) reconnectTimer = setTimeout(connect, 5000);
       }
     };
-    apiFetch('/api/github/prs').then((r) => r.json()).then((d) => setRepos(d.repos || [])).catch(() => {});
+    apiFetch(GITHUB_PRS_PATH).then((r) => r.json()).then((d) => setRepos(d.repos || [])).catch(() => {});
     connect();
     return () => {
       closed = true;
@@ -270,7 +271,7 @@ export default function WorkspaceNav({
 
   const refreshRepos = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/github/refresh', { method: 'POST' });
+      const res = await apiFetch(GITHUB_REFRESH_PATH, { method: 'POST' });
       const d = await res.json();
       setRepos(d.repos || []);
     } catch {}

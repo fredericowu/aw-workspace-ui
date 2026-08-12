@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useComponentStatus, getAwConfig, startComponent } from '../hooks/useComponentStatus';
 import { asArray } from '../lib/asArray';
+import { GITHUB_PRS_PATH } from '../lib/githubApi';
 import { apiFetch, wsUrl } from '../auth';
 import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
@@ -1695,7 +1696,7 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
   }, []);
 
   useEffect(() => {
-    apiFetch('/api/github/prs').then(r => r.json()).then(d => setRepos(d.repos || [])).catch(() => {});
+    apiFetch(GITHUB_PRS_PATH).then(r => r.json()).then(d => setRepos(d.repos || [])).catch(() => {});
     refreshTasks();
     const handler = () => refreshTasks();
     window.addEventListener('aw-task-update', handler);
@@ -1718,7 +1719,7 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
       const data = await res.json();
       if (data.success) {
         flashRepo(r.path, 'success');
-        apiFetch('/api/github/prs').then(res2 => res2.json()).then(d => setRepos(d.repos || [])).catch(() => {});
+        apiFetch(GITHUB_PRS_PATH).then(res2 => res2.json()).then(d => setRepos(d.repos || [])).catch(() => {});
       } else {
         flashRepo(r.path, 'error');
         setReposError(`${r.name}: ${data.error || 'pull failed'}`);

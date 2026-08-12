@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { refreshGitHubPRs, getGitHubPRs, getAwConfig } from '../hooks/useComponentStatus';
 import { wsUrl } from '../auth';
+import { GITHUB_STREAM_PATH } from '../lib/githubApi';
 
 const BADGE_STYLES = {
   'ci-running':    { bg: 'bg-blue-500/15',   text: 'text-blue-400',   label: 'CI Running' },
@@ -153,7 +154,7 @@ export default function GitHubSection({ collapsed, collapsedCategories, setColla
 
   // WebSocket connection for live updates
   const connect = useCallback(() => {
-    const ws = new WebSocket(wsUrl('/ws/github'));
+    const ws = new WebSocket(wsUrl(GITHUB_STREAM_PATH));
     wsRef.current = ws;
 
     ws.onmessage = (event) => {

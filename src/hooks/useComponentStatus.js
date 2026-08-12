@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch, wsUrl } from '../auth';
 import { asArray } from '../lib/asArray';
+import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH } from '../lib/githubApi';
 
 const API_BASE = '';
 
@@ -176,12 +177,12 @@ export async function saveAwConfig(data) {
 }
 
 export async function getGitHubPRs() {
-  const res = await apiFetch(`${API_BASE}/api/github/prs`);
+  const res = await apiFetch(`${API_BASE}${GITHUB_PRS_PATH}`);
   return res.json();
 }
 
 export async function refreshGitHubPRs() {
-  const res = await apiFetch(`${API_BASE}/api/github/refresh`, { method: 'POST' });
+  const res = await apiFetch(`${API_BASE}${GITHUB_REFRESH_PATH}`, { method: 'POST' });
   return res.json();
 }
 

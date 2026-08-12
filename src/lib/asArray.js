@@ -2,8 +2,10 @@
  * Coerce a fetched value to an array.
  *
  * During the strangler migration to the BYOD aw-workspace, many endpoints
- * (/api/tasks, /api/github/prs, /api/vpn/status, …) are not yet migrated and
- * 404 on the workspace host. FastAPI's 404 body is an object
+ * (/api/tasks, /api/vpn/status, …) are not yet migrated and 404 on the
+ * workspace host — and an endpoint that moved into an app still 404s until
+ * that app is installed (the PR dashboard now lives in aw-app-git, see
+ * lib/githubApi.js). FastAPI's 404 body is an object
  * (`{ detail: "Not Found" }`), which is truthy — so the common
  * `(x || []).forEach(...)` guard does NOT protect against it and throws
  * `x.forEach is not a function`, blanking the React tree.
