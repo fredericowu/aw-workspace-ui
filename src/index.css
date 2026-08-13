@@ -998,8 +998,12 @@ button, [role="button"] { cursor: pointer; }
 .appcfg-appwindow .app-window-region:last-child:has(.appwin-iframe-wrap) {
   flex: 1; min-height: 0;
 }
-.appcfg-appwindow .appwin-iframe-wrap { flex: 1; min-height: 0; }
-.appcfg-appwindow .appwin-iframe { height: 100%; min-height: 240px; }
+.appcfg-appwindow .appwin-iframe-wrap { flex: 1; min-height: 320px; }
+/* min-height belongs on the WRAP, not the iframe: on the iframe it overflowed
+   a flex parent that had less to give (clipped, and looking broken); on the
+   wrap it takes part in layout, so a short window simply scrolls the pane and
+   a tall one hands the extra height straight through. */
+.appcfg-appwindow .appwin-iframe { height: 100%; min-height: 0; }
 
 .appwin-markdown { font-size: 13px; line-height: 1.5; color: var(--color-text-primary); }
 .appwin-markdown > *:first-child { margin-top: 0; }

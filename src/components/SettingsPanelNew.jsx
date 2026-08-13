@@ -174,8 +174,10 @@ export default function SettingsPanelNew() {
           // measure; `h-full min-h-0` is what lets a declarative panel's
           // iframe grow with the window instead of sitting at its 320px floor
           // while the pane scrolls around it (see .appcfg-appwindow in
-          // index.css).
-          <div className="flex flex-col h-full min-h-0 max-w-4xl">
+          // index.css). `min-h-full` not `h-full`: a panel plus a long schema
+          // form can exceed the pane, and capping it there squeezed the panel
+          // to a few px instead of letting the pane scroll.
+          <div className="flex flex-col min-h-full max-w-4xl">
             <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{selectedApp.name}</h3>
             <p className="text-[11px] text-[var(--color-text-muted)] mb-3">{selectedApp.slug} · v{selectedApp.version}</p>
             <AppConfigBody app={selectedApp} />
