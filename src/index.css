@@ -1003,7 +1003,11 @@ button, [role="button"] { cursor: pointer; }
    a flex parent that had less to give (clipped, and looking broken); on the
    wrap it takes part in layout, so a short window simply scrolls the pane and
    a tall one hands the extra height straight through. */
-.appcfg-appwindow .appwin-iframe { height: 100%; min-height: 0; }
+/* `height: 100%` resolves against the wrap's SPECIFIED height, not the box
+   min-height grew it to — which is why the iframe sat at 152px inside a 320px
+   wrap. The wrap is already `relative`, so pin the iframe to its actual box. */
+.appcfg-appwindow .appwin-iframe { position: absolute; inset: 0;
+                                   width: 100%; height: 100%; min-height: 0; }
 
 .appwin-markdown { font-size: 13px; line-height: 1.5; color: var(--color-text-primary); }
 .appwin-markdown > *:first-child { margin-top: 0; }
