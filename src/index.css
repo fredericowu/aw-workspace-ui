@@ -1007,14 +1007,14 @@ button, [role="button"] { cursor: pointer; }
    min-height grew it to — which is why the iframe sat at 152px inside a 320px
    wrap. The wrap is already `relative`, so pin the iframe to its actual box. */
 .appcfg-appwindow .appwin-iframe { position: absolute; inset: 0;
-                                   width: 100%; height: 100%; min-height: 0;
-                                   padding: 12px; }
-/* The padding is on the IFRAME, which is the only lever the host has: an
-   app's settings page is a separate document, so no rule here can reach
-   inside it, and asking every app to remember its own gutter is how they end
-   up flush against the frame (which is where they all were). Padding on a
-   replaced element insets the rendered document from the border, so this
-   gives every app breathing room without any of them opting in. */
+                                   width: 100%; height: 100%; min-height: 0; }
+/* NO padding here, deliberately. Padding on an iframe shifts the document's
+   origin but does NOT reduce its layout width, so the right-hand side gets
+   clipped and an inner horizontal scrollbar appears — measurably worse than
+   the flush edge it was meant to fix (tried and reverted 2026-08-13).
+   A cross-origin panel's gutter can only come from the panel's own document:
+   `body { padding: 12px }` in the app's page. Documented in
+   aw-app-template's SKILL.md so new apps ship with it. */
 
 .appwin-markdown { font-size: 13px; line-height: 1.5; color: var(--color-text-primary); }
 .appwin-markdown > *:first-child { margin-top: 0; }
