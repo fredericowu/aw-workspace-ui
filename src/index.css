@@ -986,6 +986,21 @@ button, [role="button"] { cursor: pointer; }
 .app-window-region { display: flex; flex-direction: column; gap: 10px; }
 .app-window-region + .app-window-region { padding-top: 14px; border-top: 1px solid var(--color-border); }
 
+/* An app's settings panel should GROW with the Settings window rather than
+   scroll inside it. `.appwin-iframe` carries a 320px floor for the standalone
+   case; here the panel is the whole pane, so let the LAST region (the one that
+   holds the app's own page) take the leftover height and hand it to the
+   iframe. Without this, enlarging the window left a 320px iframe with its own
+   inner scrollbar sitting inside an outer scrollbar — two scrollbars for one
+   list, which is what made resizing feel broken. */
+.appcfg-appwindow { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.appcfg-appwindow .app-window { flex: 1; min-height: 0; }
+.appcfg-appwindow .app-window-region:last-child:has(.appwin-iframe-wrap) {
+  flex: 1; min-height: 0;
+}
+.appcfg-appwindow .appwin-iframe-wrap { flex: 1; min-height: 0; }
+.appcfg-appwindow .appwin-iframe { height: 100%; min-height: 240px; }
+
 .appwin-markdown { font-size: 13px; line-height: 1.5; color: var(--color-text-primary); }
 .appwin-markdown > *:first-child { margin-top: 0; }
 .appwin-markdown > *:last-child { margin-bottom: 0; }

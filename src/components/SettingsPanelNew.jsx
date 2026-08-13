@@ -168,7 +168,14 @@ export default function SettingsPanelNew() {
             : <ComingSoon label={selectedSection.label} />
         )}
         {selection.group === 'apps' && selectedApp && (
-          <div className="max-w-lg">
+          // max-w-lg (512px) used to cap this no matter how wide the window
+          // got, so resizing did nothing and every app panel scrolled inside a
+          // narrow column. `max-w-4xl` still keeps form text at a readable
+          // measure; `h-full min-h-0` is what lets a declarative panel's
+          // iframe grow with the window instead of sitting at its 320px floor
+          // while the pane scrolls around it (see .appcfg-appwindow in
+          // index.css).
+          <div className="flex flex-col h-full min-h-0 max-w-4xl">
             <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{selectedApp.name}</h3>
             <p className="text-[11px] text-[var(--color-text-muted)] mb-3">{selectedApp.slug} · v{selectedApp.version}</p>
             <AppConfigBody app={selectedApp} />
