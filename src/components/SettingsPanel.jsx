@@ -7,7 +7,6 @@ import McpServersTab from './McpServersTab';
 import ProxyTab from './ProxyTab';
 import BackupTab from './BackupTab';
 import UsersTab from './UsersTab';
-import ArchitectureTab from './ArchitectureTab';
 import IntegrationsTab from './IntegrationsTab';
 import FeedSubscriberTab from './FeedSubscriberTab';
 // Appearance used to be a top-level tab; it now lives inside
@@ -24,7 +23,6 @@ const TABS = [
   { id: 'backup', label: 'Backup' },
   { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP Servers' },
-  { id: 'architecture', label: 'Architecture' },
 ];
 
 export default function SettingsPanel() {
@@ -59,7 +57,6 @@ export default function SettingsPanel() {
         {activeTab === 'backup' && <BackupTab />}
         {activeTab === 'skills' && <SkillsTab />}
         {activeTab === 'mcp' && <McpServersTab />}
-        {activeTab === 'architecture' && <ArchitectureTab />}
       </div>
     </div>
   );

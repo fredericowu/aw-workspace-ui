@@ -132,16 +132,6 @@ function StackIcon() {
 }
 
 // Clipboard-with-checkmark — reads as "test/verification record".
-function TestsIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 2h6a1 1 0 011 1v2H8V3a1 1 0 011-1z" />
-      <path d="M8 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
-  );
-}
-
 // ---- Component --------------------------------------------------------------
 
 export default function WorkspaceNav({
@@ -151,7 +141,6 @@ export default function WorkspaceNav({
   onToggleWindow,
   onAction,
   onOpenSettings,
-  onOpenTests,
   onOpenRemoteDesktop,
   onOpenApp,
   workspaceApps,
@@ -599,17 +588,6 @@ export default function WorkspaceNav({
               <path d="M8 21h8M12 17v4" />
             </svg>
             <span className="text-[13px] text-[var(--color-text-primary)]">Remote Desktop</span>
-          </button>
-
-          {/* Tests — the Architecture Namespace traceability matrix: what was
-              asked, what implemented it, how it's tested, how it's logged. */}
-          <button
-            onClick={() => { setOpen(false); onOpenTests?.(); }}
-            onMouseEnter={closeSub}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-          >
-            <TestsIcon />
-            <span className="text-[13px] text-[var(--color-text-primary)]">Tests</span>
           </button>
 
           {/* Tasks: contributed by aw-app-tasks into the core.nav.workspace

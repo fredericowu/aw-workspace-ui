@@ -1459,16 +1459,6 @@ function AuthenticatedApp() {
     [windowFocusTriggers],
   );
 
-  // Workspace > Tests: open the Architecture Namespace traceability matrix
-  // as a floating window (mirrors Plans/Knowledge Base). TestsPanel itself
-  // owns the fetch against GET /api/architecture/matrix.
-  const openTestsPanel = useCallback(() => {
-    const key = 'panel:tests';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    requestWindowFocus(key);
-  }, [requestWindowFocus]);
-
   // Workspace > Settings: open as a floating window (mirrors Knowledge Base/Tasks).
   const openSettingsPanel = useCallback(() => {
     const key = 'panel:settings';
@@ -1565,7 +1555,6 @@ function AuthenticatedApp() {
               onToggleWindow={toggleWindow}
               onAction={refetch}
               onOpenSettings={openSettingsPanel}
-              onOpenTests={openTestsPanel}
               onOpenRemoteDesktop={openRemoteDesktopPanel}
               workspaceApps={enabledApps}
               onOpenApp={openApp}

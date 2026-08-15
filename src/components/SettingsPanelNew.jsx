@@ -32,7 +32,6 @@ const GENERAL_SECTIONS = [
   { key: 'backup', label: 'Backup', ready: false },
   { key: 'skills', label: 'Skills', ready: false },
   { key: 'mcp', label: 'MCP Servers', ready: false },
-  { key: 'architecture', label: 'Architecture', ready: false },
 ];
 
 function ChevronDown({ open }) {
