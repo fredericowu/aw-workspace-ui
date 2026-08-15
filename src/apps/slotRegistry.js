@@ -46,9 +46,15 @@ export function createSlotRegistry() {
   // Per-slot frozen array cache so getSlot() returns a STABLE reference between
   // mutations — required for useSyncExternalStore not to loop.
   let cache = new Map();
+  // batch() depth + whether anything mutated while batching (see batch below).
+  let batchDepth = 0;
+  let batchDirty = false;
 
   function emit() {
+    // Always invalidate: a getSlot() from inside the batch must still be
+    // correct, it just must not wake subscribers yet.
     cache = new Map();
+    if (batchDepth > 0) { batchDirty = true; return; }
     for (const l of listeners) l();
   }
 
@@ -62,6 +68,24 @@ export function createSlotRegistry() {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+
+    // Run `fn` with notifications coalesced into ONE emit at the end (nested
+    // batches collapse into the outermost). The point is atomicity, not just
+    // fewer renders: a contributions refresh unmounts the old generation and
+    // mounts the new one, and without this the intermediate — every app's nav
+    // gone — is a state subscribers can observe and paint. Which is exactly
+    // what made the app menu items blink out and back on every window refocus.
+    batch(fn) {
+      batchDepth += 1;
+      try {
+        return fn();
+      } finally {
+        batchDepth -= 1;
+        // A throw mid-batch still flushes: half-applied is bad, silently
+        // invisible-until-the-next-mutation is worse.
+        if (batchDepth === 0 && batchDirty) { batchDirty = false; emit(); }
+      }
     },
 
     // Register a contribution into a slot. `entry` = { id, appId, render, order }.

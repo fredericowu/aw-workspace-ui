@@ -57,10 +57,18 @@ async function importFetchedModule(url) {
   }
 }
 
-// Load a COMPONENT-mode plugin: fetch+import the hashed bundle URL, hand its
-// register() an app-scoped host, return a dispose fn. `importer` is injectable
-// so tests supply a fake module without a network/module fetch.
-export async function loadComponentPlugin(app, host, { importer } = {}) {
+// PREPARE a COMPONENT-mode plugin: do every SLOW step (validate, fetch+import
+// the hashed bundle) and stop just short of touching the slot registry, then
+// return a SYNCHRONOUS `mount()` that does the registration and hands back a
+// disposer.
+//
+// The split exists so a contributions refresh can never blank the UI: every
+// await lives in this function, so wireContributions can prepare the whole new
+// generation while the previous one is still mounted, and only then swap the
+// two in a single synchronous tick. Before the split, the caller disposed the
+// old generation and then awaited N sequential bundle fetches, and the app nav
+// was visibly missing for the whole round-trip on every window refocus.
+export async function prepareComponentPlugin(app, host, { importer } = {}) {
   if (effectiveMode(app) !== 'component') {
     throw new Error(`${app.slug}: component load refused (effective mode ${effectiveMode(app)})`);
   }
@@ -74,14 +82,29 @@ export async function loadComponentPlugin(app, host, { importer } = {}) {
     throw new Error(`${app.slug}: bundle exports no register(host) function`);
   }
 
-  const scoped = hostForApp(host, {
-    slug: app.slug,
-    app: app.app,
-    grantedSlots: grantedSlotsFor(app),
-  });
-  await register(scoped);
-
-  return function dispose() {
-    scoped.dispose();
+  return function mount() {
+    const scoped = hostForApp(host, {
+      slug: app.slug,
+      app: app.app,
+      grantedSlots: grantedSlotsFor(app),
+    });
+    // Deliberately NOT awaited — mount() must stay synchronous so it lands in
+    // the same tick as the teardown it replaces. Plugin register()s do their
+    // registerSlot() calls synchronously; one that returns a promise just
+    // finishes its background setup afterwards, exactly as before.
+    const result = register(scoped);
+    if (result && typeof result.then === 'function') {
+      result.catch((e) => console.warn(`[apps] ${app.slug}: register() rejected:`, e));
+    }
+    return function dispose() {
+      scoped.dispose();
+    };
   };
+}
+
+// Load a COMPONENT-mode plugin in one step: prepare then mount immediately.
+// Kept for callers that have nothing to swap out (and for tests).
+export async function loadComponentPlugin(app, host, opts) {
+  const mount = await prepareComponentPlugin(app, host, opts);
+  return mount();
 }

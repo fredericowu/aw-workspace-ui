@@ -36,6 +36,53 @@ describe('slotRegistry', () => {
     expect(windowBodySlot('notes.main')).toBe('core.window.body:notes.main');
   });
 
+  it('batch() emits once and never exposes the intermediate state', () => {
+    const r = createSlotRegistry();
+    r.mount('core.nav', { id: 'old', appId: 'x', render: () => null });
+    const seen = [];
+    r.subscribe(() => seen.push(r.getSlot('core.nav').map((e) => e.id)));
+
+    // The contributions-refresh shape: drop the old generation, mount the new.
+    r.batch(() => {
+      r.unmountApp('x');
+      r.mount('core.nav', { id: 'new', appId: 'x', render: () => null });
+    });
+
+    expect(seen).toEqual([['new']]); // one notification, never an empty slot
+  });
+
+  it('batch() reads inside the batch see the new state (cache is not stale)', () => {
+    const r = createSlotRegistry();
+    r.batch(() => {
+      r.mount('core.nav', { id: 'a', appId: 'x', render: () => null });
+      expect(r.getSlot('core.nav')).toHaveLength(1);
+    });
+    expect(r.getSlot('core.nav')).toHaveLength(1);
+  });
+
+  it('batch() still flushes when the body throws', () => {
+    const r = createSlotRegistry();
+    const listener = vi.fn();
+    r.subscribe(listener);
+    expect(() => r.batch(() => {
+      r.mount('core.nav', { id: 'a', appId: 'x', render: () => null });
+      throw new Error('boom');
+    })).toThrow('boom');
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('nested batches collapse into the outermost', () => {
+    const r = createSlotRegistry();
+    const listener = vi.fn();
+    r.subscribe(listener);
+    r.batch(() => {
+      r.mount('core.nav', { id: 'a', appId: 'x', render: () => null });
+      r.batch(() => r.mount('core.nav', { id: 'b', appId: 'y', render: () => null }));
+      expect(listener).not.toHaveBeenCalled();
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it('unsubscribe stops notifications', () => {
     const r = createSlotRegistry();
     const listener = vi.fn();

@@ -79,6 +79,70 @@ describe('wireContributions — F6 Cap 2 keystone wiring', () => {
     act(() => dispose());
   });
 
+  // The refresh-on-refocus regression: the nav used to be torn down and only
+  // then rebuilt behind N awaited bundle fetches, so every app-contributed menu
+  // item visibly disappeared and came back each time the browser regained
+  // focus. `replace` must make the swap atomic — no observer, at any point,
+  // sees an empty slot.
+  it('replacing a generation never leaves the slot empty (no refresh flicker)', async () => {
+    const registry = createSlotRegistry();
+    const host = freshHost(registry);
+    const contributions = {
+      nav: [{ app: 'git', id: 'git.nav', label: 'Git', opens: 'git.main' }],
+      windows: [],
+      frontend: [{
+        app: 'tasks', mode: 'component', signed: true,
+        granted_permissions: ['ui:code', 'ui:slots:core.nav'],
+        bundle_url: '/api/apps/tasks/ui/tasks-ui.mjs',
+      }],
+    };
+    const mod = {
+      register(h) { h.registerSlot('core.nav', () => 'Tasks', { id: 'tasks:nav' }); },
+    };
+    // A slow bundle — the window the old code left the nav blank for.
+    const importer = () => new Promise((res) => setTimeout(() => res(mod), 10));
+
+    const first = await wireContributions(contributions, host, { registry, importer });
+    expect(registry.getSlot('core.nav').map((e) => e.id)).toEqual(['git:nav:git.nav', 'tasks:nav']);
+
+    // Record every snapshot the store emits across the refresh.
+    const seen = [];
+    const off = registry.subscribe(() => seen.push(registry.getSlot('core.nav').length));
+
+    const second = await wireContributions(contributions, host, {
+      registry, importer, replace: first,
+    });
+
+    off();
+    expect(seen.length).toBeGreaterThan(0);           // the swap really happened
+    expect(Math.min(...seen)).toBeGreaterThan(0);     // ...and never bottomed out at 0
+    expect(registry.getSlot('core.nav').map((e) => e.id)).toEqual(['git:nav:git.nav', 'tasks:nav']);
+    expect(second.incomplete).toBe(false);
+
+    act(() => second());
+    expect(registry.getSlot('core.nav')).toEqual([]); // old generation left no residue
+  });
+
+  it('flags an incomplete generation when a bundle fails, and keeps the rest', async () => {
+    const registry = createSlotRegistry();
+    const host = freshHost(registry);
+    const contributions = {
+      nav: [{ app: 'git', id: 'git.nav', label: 'Git', opens: 'git.main' }],
+      windows: [],
+      frontend: [{
+        app: 'tasks', mode: 'component', signed: true,
+        granted_permissions: ['ui:code', 'ui:slots:core.nav'],
+        bundle_url: '/api/apps/tasks/ui/tasks-ui.mjs',
+      }],
+    };
+    const dispose = await wireContributions(contributions, host, {
+      registry, importer: async () => { throw new Error('bundle fetch failed: 502'); },
+    });
+    expect(dispose.incomplete).toBe(true);
+    expect(registry.getSlot('core.nav').map((e) => e.id)).toEqual(['git:nav:git.nav']);
+    act(() => dispose());
+  });
+
   it('findWindowSpec returns the inlined declarative spec by id', () => {
     const contributions = {
       windows: [{

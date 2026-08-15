@@ -605,13 +605,21 @@ function AuthenticatedApp() {
   // nav into the core.nav / core.nav.workspace slots, and load component-mode
   // bundles. Re-checks on app install/uninstall + window refocus (catches an
   // app installed/uninstalled from another tab/session) but only actually
-  // dispose()+rewires when the fetched contributions differ from what's
-  // already mounted (contributionsSignatureRef) — found 2026-08-04: this used
-  // to unconditionally dispose() then re-wire on EVERY focus event (any tab
-  // switch, not just "left and reopened the browser"), so every component-mode
-  // slot (the Agents nav, etc.) visibly vanished and reappeared on every
-  // refocus even though nothing had changed, which was the overwhelmingly
-  // common case. Zero contributing apps ⇒ zero visual change (safe).
+  // rewires when the fetched contributions differ from what's already mounted
+  // (contributionsSignatureRef) — found 2026-08-04: this used to unconditionally
+  // dispose() then re-wire on EVERY focus event (any tab switch, not just "left
+  // and reopened the browser"), so every component-mode slot (the Agents nav,
+  // etc.) visibly vanished and reappeared on every refocus even though nothing
+  // had changed, which was the overwhelmingly common case.
+  //
+  // 2026-08-15: that guard only hid the common case. The rewire ITSELF was
+  // destructive — dispose() emptied the slots, and refilling them was behind N
+  // awaited bundle fetches — so the flicker was still there in full whenever an
+  // app WAS installed/updated/uninstalled, and whenever the guard was bypassed.
+  // The teardown now happens inside wireContributions (`replace`), after the new
+  // generation is fully prepared and in the same batched, synchronous tick that
+  // mounts it, so no render ever observes a slot mid-swap.
+  // Zero contributing apps ⇒ zero visual change (safe).
   const contributionsRef = useRef(null);
   const contributionsSignatureRef = useRef(null);
 
@@ -666,7 +674,7 @@ function AuthenticatedApp() {
       if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
     };
 
-    const load = async (isFirstLoad) => {
+    const run = async (isFirstLoad) => {
       let contributions;
       try {
         contributions = await fetchContributions();
@@ -676,19 +684,32 @@ function AuthenticatedApp() {
       if (disposed) return;
       contributionsRef.current = contributions;
 
-      // Skip the dispose()+rewire cycle when nothing actually changed since
-      // the last time this ran — see the effect comment above. Still needed
-      // on first load (dispose is null, nothing mounted yet).
+      // Skip the rewire cycle when nothing actually changed since the last time
+      // this ran — see the effect comment above. Still needed on first load
+      // (dispose is null, nothing mounted yet).
       const signature = JSON.stringify(contributions);
       if (!isFirstLoad && dispose && signature === contributionsSignatureRef.current) {
         return;
       }
-      contributionsSignatureRef.current = signature;
 
-      if (dispose) { try { dispose(); } catch {} dispose = null; }
-      dispose = await wireContributions(contributions, window.__AW_PLUGIN_HOST__, {
+      // Hand the previous generation's disposer to wireContributions instead of
+      // calling it here: it tears the old one down in the same synchronous tick
+      // that mounts the new one, so the nav slots are never observably empty.
+      // Disposing here (and awaiting the rewire after) is precisely what made
+      // the app menu items vanish and come back on every refocus.
+      const previous = dispose;
+      dispose = null;
+      const next = await wireContributions(contributions, window.__AW_PLUGIN_HOST__, {
         onOpenWindow: openWindowById,
+        replace: previous || undefined,
       });
+      if (disposed) { try { next(); } catch {} return; }
+      dispose = next;
+      // Only now, and only if every app made it in — an app whose bundle failed
+      // to load must not have its absence frozen in as the steady state, or the
+      // guard above short-circuits every later refresh and its nav stays gone
+      // until a page reload.
+      contributionsSignatureRef.current = next.incomplete ? null : signature;
       // Rehydrate any decoupled-app windows a previous page load left open
       // (persisted in localStorage's openWindows set) — wireContributions
       // only wires nav CLICK handlers, so without this a reload leaves the
@@ -726,6 +747,19 @@ function AuthenticatedApp() {
         }
         appWindowsHydratedRef.current = true;
       }
+    };
+
+    // Serialised: `focus` fires freely (alt-tab, devtools, an OS notification)
+    // and can easily arrive while a load is still in flight. Two overlapping
+    // runs both see `dispose === null`, so both bypass the unchanged-signature
+    // guard, both rewire, and the loser's disposer is overwritten and never
+    // called — a leak that also double-mounts the nav. One at a time instead.
+    let inFlight = null;
+    const load = (isFirstLoad) => {
+      inFlight = (inFlight || Promise.resolve())
+        .then(() => run(isFirstLoad))
+        .catch(() => {}); // never poison the chain for the next refresh
+      return inFlight;
     };
 
     load(true);

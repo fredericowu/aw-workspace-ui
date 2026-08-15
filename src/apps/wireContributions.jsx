@@ -11,56 +11,112 @@
 //
 // Returns a disposer that unregisters everything (safe to call on re-fetch /
 // unmount) so nothing leaks between contribution refreshes.
+//
+// REFRESHING is a DOUBLE-BUFFERED SWAP, not a teardown followed by a rebuild:
+// pass the previous generation's disposer as `replace` and this function tears
+// it down itself, in the same synchronous tick that mounts the new one. Doing
+// it the other way round (caller disposes, then awaits this) is what made every
+// app-contributed nav item blink out and back on each window refocus — the
+// registry sat empty for the length of N bundle fetches, and AppSlot renders
+// its (null) fallback for an empty slot.
 import { slotRegistry as defaultRegistry } from './slotRegistry';
-import { loadComponentPlugin, effectiveMode } from './loadPlugin';
+import { prepareComponentPlugin, effectiveMode } from './loadPlugin';
 
 export async function wireContributions(contributions, host, {
   onOpenWindow,
   registry = defaultRegistry,
-  importer, // injectable for tests; prod uses loadComponentPlugin's dynamic import
+  importer, // injectable for tests; prod uses prepareComponentPlugin's dynamic import
+  replace,  // previous generation's disposer — torn down inside the swap below
 } = {}) {
-  const disposers = [];
   const nav = contributions?.nav || [];
   const frontend = contributions?.frontend || [];
 
-  // (1) declarative nav entries → slot buttons
-  for (const entry of nav) {
-    const slot = entry.section === 'workspace' ? 'core.nav.workspace' : 'core.nav';
-    const off = registry.mount(slot, {
-      id: `${entry.app}:nav:${entry.id}`,
-      appId: entry.app,
-      order: entry.order ?? 100,
-      render: () => (
-        <button
-          type="button"
-          onClick={() => onOpenWindow?.(entry.opens, entry.app)}
-          title={entry.label}
-          className="px-3 py-1 text-xs rounded transition-colors cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5"
-        >
-          {entry.label}
-        </button>
-      ),
+  // ── PREPARE ────────────────────────────────────────────────────────────────
+  // Every await in this function lives here, and nothing below the registry is
+  // touched yet, so whatever is currently on screen stays on screen. In
+  // parallel, not sequentially: the bundles are independent, and serialising
+  // them made the (previously visible) gap N round-trips long.
+  const prepared = await Promise.all(
+    frontend
+      .filter((fe) => effectiveMode(fe) === 'component')
+      .map(async (fe) => {
+        try {
+          return { fe, mount: await prepareComponentPlugin(fe, host, importer ? { importer } : undefined) };
+        } catch (e) {
+          // One bad bundle must not cost the other apps their contributions.
+          console.warn(`[apps] component load failed for ${fe.app}:`, e);
+          return { fe, mount: null };
+        }
+      }),
+  );
+
+  // ── SWAP ───────────────────────────────────────────────────────────────────
+  // Synchronous from here to the return. Do not add an `await` below this line:
+  // any suspension point reopens the window where the slots are empty and the
+  // nav disappears.
+  const disposers = [];
+  let incomplete = false;
+  // Coalesced into a single store notification, so the teardown-then-remount is
+  // one atomic transition rather than a visit to "no apps contribute anything".
+  const batch = typeof registry.batch === 'function'
+    ? (fn) => registry.batch(fn)
+    : (fn) => fn();
+
+  batch(() => {
+    if (replace) {
+      // Failing to tear the old generation down is a leak, not a reason to skip
+      // mounting the new one — keep going either way.
+      try { replace(); } catch { /* superseded anyway */ }
+    }
+
+    // (1) declarative nav entries → slot buttons
+    for (const entry of nav) {
+      const slot = entry.section === 'workspace' ? 'core.nav.workspace' : 'core.nav';
+      const off = registry.mount(slot, {
+        id: `${entry.app}:nav:${entry.id}`,
+        appId: entry.app,
+        order: entry.order ?? 100,
+        render: () => (
+          <button
+            type="button"
+            onClick={() => onOpenWindow?.(entry.opens, entry.app)}
+            title={entry.label}
+            className="px-3 py-1 text-xs rounded transition-colors cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5"
+          >
+            {entry.label}
+          </button>
+        ),
+      });
+      disposers.push(off);
+    }
+
+    // (2) component-mode plugins → register(host) into their granted slots
+    for (const { fe, mount } of prepared) {
+      if (!mount) { incomplete = true; continue; }
+      try {
+        const off = mount();
+        if (typeof off === 'function') disposers.push(off);
+      } catch (e) {
+        incomplete = true;
+        console.warn(`[apps] component register failed for ${fe.app}:`, e);
+      }
+    }
+  });
+
+  const dispose = function dispose() {
+    batch(() => {
+      for (const off of disposers.splice(0)) {
+        try { off(); } catch { /* keep disposing the rest */ }
+      }
     });
-    disposers.push(off);
-  }
-
-  // (2) component-mode plugins → register(host) into their granted slots
-  for (const fe of frontend) {
-    if (effectiveMode(fe) !== 'component') continue;
-    try {
-      const dispose = await loadComponentPlugin(fe, host, importer ? { importer } : undefined);
-      if (typeof dispose === 'function') disposers.push(dispose);
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn(`[apps] component load failed for ${fe.app}:`, e);
-    }
-  }
-
-  return function dispose() {
-    for (const off of disposers.splice(0)) {
-      try { off(); } catch { /* keep disposing the rest */ }
-    }
   };
+  // True when at least one app did not make it into this generation. The caller
+  // uses it to NOT record the contributions signature, so the next refresh
+  // retries instead of treating the missing app as the steady state (a bundle
+  // fetch that lost a race against the BYOD LAN-fast-path probe used to drop
+  // that app's nav until a full page reload).
+  dispose.incomplete = incomplete;
+  return dispose;
 }
 
 // Look up a window contribution's resolved declarative spec by id (the backend
