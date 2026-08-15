@@ -7,7 +7,6 @@ import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
 import { windowBodySlot } from '../apps/slotRegistry';
-import RemoteDesktopWindow from './RemoteDesktopWindow';
 import SettingsPanel from './SettingsPanel';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
@@ -833,30 +832,11 @@ export default function MobileApp() {
     }
   }, [workspaceApps, buildProxyUrl, components, refetch]);
 
-  // Remote Desktop (VNC connections + Android Emulator, unified in one
-  // picker — see RemoteDesktopWindow) isn't a URL-backed workspace app,
-  // so it can't go through openApp's iframe-app path. It's rendered as
-  // its own fullscreen overlay below, same as iframe-app.
-  const openRemoteDesktop = useCallback(() => {
-    if (activeWindow) previousWindowRef.current = activeWindow;
-    setActiveWindow({ type: 'remote-desktop', key: 'remote-desktop' });
-  }, [activeWindow]);
-
-  if (activeWindow?.type === 'remote-desktop') {
-    return (
-      <div
-        className="fixed inset-0 z-50 flex flex-col bg-black"
-        style={{ paddingTop: 'env(safe-area-inset-top)' }}
-      >
-        <RemoteDesktopWindow
-          windowKey="mobile-remote-desktop"
-          onClose={closeActiveWindow}
-          onMaximize={() => {}}
-          isMaximized={true}
-        />
-      </div>
-    );
-  }
+  // Remote Desktop used to live here as its own fullscreen overlay (it
+  // wasn't a URL-backed workspace app, so it couldn't go through openApp's
+  // iframe-app path). Removed 2026-08-15 along with the desktop nav entry —
+  // aw-app-remote-screen owns the VNC client now and reaches mobile through
+  // the normal apps grid.
 
   // Fullscreen iframe-app overlay (PWA-mode launchers).  Renders the
   // app iframe edge-to-edge with a thin chrome that adapts to device
@@ -1275,15 +1255,6 @@ export default function MobileApp() {
                   <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
                 </svg>
               </MobileAppLauncher>
-              <MobileAppLauncher
-                title="Remote Desktop"
-                status=""
-                onClick={openRemoteDesktop}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>
-                </svg>
-              </MobileAppLauncher>
               <div className="text-[10px] text-[var(--color-text-muted)] ml-1">
                 <span className="text-[var(--color-status-running)]">{runningCount}</span>
                 {bootingCount > 0 && <> / <span className="text-[var(--color-status-boot)]">{bootingCount}</span></>}
@@ -1398,7 +1369,6 @@ export default function MobileApp() {
             onDeleteSession={deleteSession}
             onDeletePresentation={deletePresentation}
             onOpenApp={openApp}
-            onOpenRemoteDesktop={openRemoteDesktop}
           />
         )}
       </div>
@@ -1654,7 +1624,7 @@ function AppIcon({ name, size = 18 }) {
   }
 }
 
-function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, components, grouped, workspaceApps, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp, onOpenRemoteDesktop }) {
+function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, components, grouped, workspaceApps, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
   // Lookup helpers for the Agents list — get the agent definition
   // (label, color) by type so each row can render with its CLI's brand.
   const agentByType = (type) => aiAgents.find(a => a.type === type);
@@ -1970,27 +1940,12 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
         )}
       </div>
 
-      {/* Workspace — floating-window features that aren't URL-backed apps
-          (so they can't go through the Apps grid below), mirroring the
-          desktop top menu's "Workspace" dropdown. Remote Desktop bundles
-          saved VNC connections + the Android Emulator in one picker. */}
-      <div>
-        <div className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)] mb-2 px-1">Workspace</div>
-        <div className="grid grid-cols-1 gap-1.5">
-          <MobileAppCard
-            label="Remote Desktop"
-            description="VNC connections + Android Emulator"
-            status={null}
-            onOpen={onOpenRemoteDesktop}
-            iconClass="text-[var(--color-accent)]"
-            icon={
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>
-              </svg>
-            }
-          />
-        </div>
-      </div>
+      {/* A "Workspace" section used to sit here for floating-window features
+          that aren't URL-backed apps, mirroring the desktop top menu's
+          "Workspace" dropdown. Remote Desktop was its only entry and moved to
+          aw-app-remote-screen, so the whole section went with it (2026-08-15)
+          — an empty header reads as a broken list. Re-add it if core ever
+          grows another non-URL-backed feature. */}
 
       {/* Apps — dynamic from workspace_apps in aw.json.  All non-hidden
           apps are shown here; the smaller icon-only launchers in the top
