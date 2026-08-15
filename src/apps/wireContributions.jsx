@@ -21,6 +21,7 @@
 // its (null) fallback for an empty slot.
 import { slotRegistry as defaultRegistry } from './slotRegistry';
 import { prepareComponentPlugin, effectiveMode } from './loadPlugin';
+import AppIcon from '../components/AppIcon';
 
 export async function wireContributions(contributions, host, {
   onOpenWindow,
@@ -70,22 +71,54 @@ export async function wireContributions(contributions, host, {
     }
 
     // (1) declarative nav entries → slot buttons
+    //
+    // The two slots are laid out differently and a declarative entry has to
+    // match whichever one it lands in, or it reads as a stray caption rather
+    // than a menu item: `core.nav` is the horizontal top bar (compact, muted,
+    // label-only), while `core.nav.workspace` is the Workspace dropdown, whose
+    // native rows (Settings, Folders, Repos, …) are full-width icon + label.
+    // Rendering the top-bar pill inside the dropdown is what made the Knowledge
+    // Base entry show up as small grey text with no icon next to Tasks and
+    // Whiteboard — those two are component-mode plugins that draw their own row.
     for (const entry of nav) {
-      const slot = entry.section === 'workspace' ? 'core.nav.workspace' : 'core.nav';
+      const inWorkspaceMenu = entry.section === 'workspace';
+      const slot = inWorkspaceMenu ? 'core.nav.workspace' : 'core.nav';
       const off = registry.mount(slot, {
         id: `${entry.app}:nav:${entry.id}`,
         appId: entry.app,
         order: entry.order ?? 100,
-        render: () => (
+        render: () => (inWorkspaceMenu ? (
           <button
             type="button"
             onClick={() => onOpenWindow?.(entry.opens, entry.app)}
             title={entry.label}
-            className="px-3 py-1 text-xs rounded transition-colors cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
           >
+            {/* Decorative: the label is right there. Without aria-hidden the
+                unknown-icon letter badge leaks into the button's accessible
+                name ("K Knowledge Base"). */}
+            <span aria-hidden="true" className="flex shrink-0">
+              <AppIcon
+                icon={entry.icon}
+                label={entry.label}
+                className="text-[var(--color-text-muted)]"
+              />
+            </span>
+            <span className="text-[13px] text-[var(--color-text-primary)]">{entry.label}</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onOpenWindow?.(entry.opens, entry.app)}
+            title={entry.label}
+            className="px-3 py-1 text-xs rounded transition-colors cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5 flex items-center gap-1.5"
+          >
+            <span aria-hidden="true" className="flex shrink-0">
+              <AppIcon icon={entry.icon} label={entry.label} size={12} />
+            </span>
             {entry.label}
           </button>
-        ),
+        )),
       });
       disposers.push(off);
     }

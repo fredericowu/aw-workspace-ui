@@ -41,6 +41,36 @@ describe('wireContributions — F6 Cap 2 keystone wiring', () => {
     expect(registry.getSlot('core.nav.workspace')).toEqual([]);
   });
 
+  // A declarative nav entry's manifest `icon` used to be dropped on the floor:
+  // the button rendered the label alone, in the top-bar pill style, even inside
+  // the Workspace dropdown. That is what made aw-app-kb's "Knowledge Base" row
+  // read as a stray grey caption between the icon'd Tasks / Whiteboard rows.
+  it('renders the manifest icon on declarative nav entries', async () => {
+    const registry = createSlotRegistry();
+    const host = freshHost(registry);
+    const contributions = {
+      nav: [
+        { app: 'kb', id: 'kb.nav', label: 'Knowledge Base', icon: 'book-open', section: 'workspace', opens: 'kb.main' },
+        { app: 'x', id: 'x.nav', label: 'Unknown Icon', icon: 'no-such-glyph', section: 'workspace', opens: 'x.main' },
+      ],
+      windows: [], frontend: [],
+    };
+    const dispose = await wireContributions(contributions, host, { registry });
+    render(<AppSlot slot="core.nav.workspace" registry={registry} />);
+
+    // Known name → inline SVG glyph, not the first-letter fallback badge.
+    const kbBtn = screen.getByRole('button', { name: 'Knowledge Base' });
+    expect(kbBtn.querySelector('svg')).toBeTruthy();
+
+    // Unknown name → letter badge, and it must stay out of the accessible name
+    // (getByRole below would not match 'Unknown Icon' if the "U" leaked in).
+    const xBtn = screen.getByRole('button', { name: 'Unknown Icon' });
+    expect(xBtn.querySelector('svg')).toBeNull();
+    expect(xBtn.textContent).toContain('U');
+
+    act(() => dispose());
+  });
+
   it('loads a signed component-mode plugin into its granted slot', async () => {
     const registry = createSlotRegistry();
     const host = freshHost(registry);
