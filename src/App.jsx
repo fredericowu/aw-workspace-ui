@@ -343,8 +343,13 @@ function AuthenticatedApp() {
       // Filter out presentation windows — they should not reopen on refresh.
       // Covers both the legacy `presentation:<id>` key shape and the
       // decoupled app's `appwin:presentations.viewer:<id>` instance keys.
+      // `panel:remote-desktop` is dropped too: core stopped rendering that
+      // panel when Remote Desktop moved to aw-app-remote-screen, so a key
+      // left in localStorage from before would reopen an empty window.
       return new Set(JSON.parse(saved).filter((k) =>
-        !k.startsWith('presentation:') && !k.startsWith('appwin:presentations.viewer:')));
+        !k.startsWith('presentation:')
+        && !k.startsWith('appwin:presentations.viewer:')
+        && k !== 'panel:remote-desktop'));
     } catch { return new Set(); }
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -1477,15 +1482,6 @@ function AuthenticatedApp() {
     requestWindowFocus(key);
   }, [requestWindowFocus]);
 
-  // Workspace > Remote Desktop: open the VNC client window (mirrors
-  // Whiteboard) — RemoteDesktopWindow owns connection selection/management.
-  const openRemoteDesktopPanel = useCallback(() => {
-    const key = 'panel:remote-desktop';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    requestWindowFocus(key);
-  }, [requestWindowFocus]);
-
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
       {/* Claude prompt notifications — floating top-right */}
@@ -1555,7 +1551,6 @@ function AuthenticatedApp() {
               onToggleWindow={toggleWindow}
               onAction={refetch}
               onOpenSettings={openSettingsPanel}
-              onOpenRemoteDesktop={openRemoteDesktopPanel}
               workspaceApps={enabledApps}
               onOpenApp={openApp}
             />

@@ -3,7 +3,6 @@ import { Rnd } from 'react-rnd';
 import LogWindow from './LogWindow';
 import LogStream from './LogStream';
 import TerminalWindow from './TerminalWindow';
-import RemoteDesktopWindow from './RemoteDesktopWindow';
 import BasicWindow from './BasicWindow';
 import PlansPanel from './PlansPanel';
 import SettingsPanel from './SettingsPanel';
@@ -1177,13 +1176,6 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   onFocus={() => bringToFront(key)}
                   isFocused={zOrder[zOrder.length - 1] === key}
                   onTitleChange={(title) => onUpdateAppWindowTitle?.(key, title)}
-                />
-              ) : key === 'panel:remote-desktop' ? (
-                <RemoteDesktopWindow
-                  windowKey={key}
-                  onClose={() => onCloseWindow(key)}
-                  onMaximize={onMaximize}
-                  isMaximized={maximizedKey === key}
                 />
               ) : key === 'debugger:dap' ? (
                 <div className="flex flex-col bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden h-full shadow-2xl shadow-black/40 border border-[var(--color-border)]">

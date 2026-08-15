@@ -142,7 +142,6 @@ export default function WorkspaceNav({
   onToggleWindow,
   onAction,
   onOpenSettings,
-  onOpenRemoteDesktop,
   onOpenApp,
   workspaceApps,
 }) {
@@ -576,20 +575,9 @@ export default function WorkspaceNav({
               2026-08-04 decision that moved Tasks. Empty until that app is
               installed and its bundle loads. */}
 
-          {/* Remote Desktop — VNC client to a Remote Agent's loopback (e.g.
-              macOS Screen Sharing tunneled through agents-platform). Opens
-              as a floating window. */}
-          <button
-            onClick={() => { setOpen(false); onOpenRemoteDesktop?.(); }}
-            onMouseEnter={closeSub}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-          >
-            <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="4" width="20" height="13" rx="2" />
-              <path d="M8 21h8M12 17v4" />
-            </svg>
-            <span className="text-[13px] text-[var(--color-text-primary)]">Remote Desktop</span>
-          </button>
+          {/* Remote Desktop: moved out of core into aw-app-remote-screen
+              (2026-08-15) — the app contributes its own nav entry, so core
+              no longer carries one. */}
 
           {/* Tasks: contributed by aw-app-tasks into the core.nav.workspace
               slot (see the <AppSlot slot="core.nav.workspace" /> mount near
