@@ -3,14 +3,16 @@ repo: architecture
 path: docs/architecture/aw-workspace-ui.md
 source: generated
 edited: false
-checksum: sha256:90785f2ba61761f9dbd8e9ed6066200875a97631d253aeaca161d9d5e4859817
+checksum: sha256:3fcca4f4e28a03d8427e09be212f4c8a01cf5fcb270eaff2edf80c679367b87b
 ---
 # aw-workspace-ui
 
 - **repo**: aw-workspace-ui
-- **layer**: —
+- **layer**: frontend
 - **technologies**: node
 - **health** (derived): planned
+
+React dashboard for Agentic Workspace.
 
 ## Connections
 _none_
