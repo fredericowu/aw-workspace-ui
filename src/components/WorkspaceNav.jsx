@@ -4,7 +4,6 @@ import SidebarPreview from './SidebarPreview';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
 import { apiFetch, wsUrl } from '../auth';
 import AppSlot from '../apps/AppSlot';
-import FoldersSubmenu from './FoldersSubmenu';
 import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH, GITHUB_STREAM_PATH } from '../lib/githubApi';
 
 /**
@@ -46,14 +45,6 @@ function GearIcon() {
     <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12" />
-    </svg>
-  );
-}
-
-function FolderIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     </svg>
   );
 }
@@ -146,7 +137,7 @@ export default function WorkspaceNav({
   workspaceApps,
 }) {
   const [open, setOpen] = useState(false);
-  const [submenu, setSubmenu] = useState(null); // 'repos' | 'folders' | 'components' | null
+  const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | null
   const rootRef = useRef(null);
   const closeTimer = useRef(null);
   // CLOSE_DELAY_MS must comfortably outlast the time it takes to move the
@@ -412,18 +403,6 @@ export default function WorkspaceNav({
               into core.nav.workspace render here (e.g. the Repos migration's
               signed RepoNav contribution). Empty until an app contributes. */}
           <AppSlot slot="core.nav.workspace" />
-
-          {/* Folders — any directory the user mapped (/api/folders). Sits
-              above Repos on purpose: this is the general case, Repos is the
-              subset that happens to be a git checkout under repos/. */}
-          <div className="relative" onMouseEnter={enterSub('folders')}>
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer">
-              <FolderIcon />
-              <span className="flex-1 text-[13px] text-[var(--color-text-primary)]">Folders</span>
-              <ChevronRight />
-            </div>
-            {submenu === 'folders' && <FoldersSubmenu onEnter={handleEnter} />}
-          </div>
 
           {/* Repos */}
           <div className="relative" onMouseEnter={enterSub('repos')}>
