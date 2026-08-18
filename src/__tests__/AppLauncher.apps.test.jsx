@@ -270,4 +270,63 @@ describe('AppLauncher — F5 Apps view', () => {
     expect(list).toHaveTextContent('Installed');
     expect(screen.getByRole('button', { name: 'Install this version' })).toBeInTheDocument();
   });
+
+  // ── Cross-category search ────────────────────────────────────────────────
+  // The tabs are a browse affordance, not a find one: before this, locating an
+  // app meant knowing which of the four buckets it landed in and clicking
+  // through them. Typing in the search box has to span ALL categories at once.
+  it('typing in the search box lists matches from every category at once', async () => {
+    const workspaceApps = [{ id: 'code-server', label: 'VS Code', menu: 'apps', icon: 'code', component: 'code-server' }];
+    listInstalledApps.mockResolvedValue([
+      ...INSTALLED, // git (UI) + essentials (Runnables)
+      { slug: 'mcp-tools', name: 'MCP Tools', version: '0.3.1', icon: 'plug', signed: true, has_config: false, has_windows: true, category: 'Tools', config_schema: {}, frontend: {} },
+    ]);
+    render(
+      <AppLauncher
+        workspaceApps={workspaceApps}
+        components={[{ key: 'code-server', status: 'running' }]}
+        onOpenApp={vi.fn()}
+        onOpenInstalledApp={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByTestId('installed-list');
+
+    // A UI-tab app and a Runnables-tab app share the letter "s" — one query,
+    // both buckets, no tab clicking.
+    fireEvent.change(screen.getByLabelText('Search apps'), { target: { value: 's' } });
+    const results = await screen.findByTestId('search-results');
+    expect(results).toHaveTextContent('Essentials');   // Runnables
+    expect(results).toHaveTextContent('MCP Tools');    // Tools
+    expect(results).toHaveTextContent('VS Code');      // Services (legacy aw.json)
+    // …and each row says which category it came from, since the tabs are gone.
+    expect(results).toHaveTextContent('Runnables');
+    expect(results).toHaveTextContent('Tools');
+  });
+
+  it('search matches an app by slug, not just by display name', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    // "essentials" is both name and slug; use git's slug against a name that
+    // doesn't contain it as a standalone token.
+    fireEvent.change(screen.getByLabelText('Search apps'), { target: { value: 'git' } });
+    const results = await screen.findByTestId('search-results');
+    expect(results).toHaveTextContent('Git + GitHub CLI');
+    expect(results).not.toHaveTextContent('Essentials');
+  });
+
+  it('a query with no match says so, and clearing it restores the tab view', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    fireEvent.change(screen.getByLabelText('Search apps'), { target: { value: 'zzzz' } });
+    expect(await screen.findByTestId('search-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('installed-list')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(await screen.findByTestId('installed-list')).toBeInTheDocument();
+  });
 });

@@ -4,10 +4,12 @@ import InstalledApps from './InstalledApps';
 import AppsMarketplace from './AppsMarketplace';
 import AppConfigWindow from './AppConfigWindow';
 import AppVersionWindow from './AppVersionWindow';
+import AppSearchResults from './AppSearchResults';
 import { pollInstallStatus } from './AppsMarketplace';
 import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
 import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
+import { buildSearchIndex } from '../apps/appSearch';
 import { colorForApp } from '../apps/appColor';
 
 function catalogVersionsFrom(catalog) {
@@ -99,6 +101,10 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   const [configApp, setConfigApp] = useState(null);
   const [versionApp, setVersionApp] = useState(null);
   const [reconciling, setReconciling] = useState(false);
+  // Cross-category search (see AppSearchResults). Non-empty query replaces the
+  // active tab's content with one flat list spanning every category, so
+  // finding an app never means clicking through all four tabs.
+  const [query, setQuery] = useState('');
   // Catalog versions, keyed by app id/slug — so the Installed list can show
   // an "Update available" badge without opening the Marketplace panel
   // (app-update-mechanism ADR). Seeded from cache same as `installed`.
@@ -149,13 +155,16 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   }, []);
 
   const handleKeyDown = useCallback((e) => {
-    // Esc closes the topmost overlay first, then the launcher.
+    // Esc closes the topmost overlay first, then clears an active search, then
+    // the launcher — clearing before closing so an Esc aimed at a typo doesn't
+    // throw the whole view away.
     if (e.key !== 'Escape') return;
     if (versionApp) setVersionApp(null);
     else if (configApp) setConfigApp(null);
     else if (showMarketplace) setShowMarketplace(false);
+    else if (query) setQuery('');
     else onClose();
-  }, [onClose, configApp, versionApp, showMarketplace]);
+  }, [onClose, configApp, versionApp, showMarketplace, query]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -282,6 +291,19 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   ];
   const [category, setCategory] = useState('ui');
 
+  // One flat, searchable view of all four buckets. Built every render off the
+  // same arrays the tabs use, so a search result can never disagree with what
+  // the tab it came from would have shown.
+  const searchIndex = buildSearchIndex({
+    uiApps, legacyApps: apps, servicesFrameworkApps, runnableApps, toolsApps,
+  });
+  const searching = query.trim().length > 0;
+
+  const openSearchResult = useCallback((entry) => {
+    if (entry.kind === 'legacy') onOpenApp(entry.app.id);
+    else if (onOpenInstalledApp) onOpenInstalledApp(entry.app.slug);
+  }, [onOpenApp, onOpenInstalledApp]);
+
   return (
     <>
     <div className="applt-overlay" onClick={onClose}>
@@ -326,27 +348,71 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
             any framework app opting in via category: "Services"),
             Runnables (framework command-only apps, e.g. CLIs), Tools
             (category: "Tools"). */}
-        <div className="applt-cats" role="tablist" aria-label="App categories">
-          {CATEGORIES.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              role="tab"
-              aria-selected={category === c.key}
-              className={`applt-cat ${category === c.key ? 'is-active' : ''}`}
-              onClick={() => setCategory(c.key)}
-            >
-              {c.label}
-              <span className="applt-cat-count">{c.count}</span>
-            </button>
-          ))}
+        <div className="applt-catbar">
+          <div className="applt-cats" role="tablist" aria-label="App categories">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                role="tab"
+                aria-selected={!searching && category === c.key}
+                className={`applt-cat ${!searching && category === c.key ? 'is-active' : ''}`}
+                /* Picking a tab while searching means "show me that bucket" —
+                   drop the query rather than leaving a selected tab whose
+                   content isn't on screen. */
+                onClick={() => { setCategory(c.key); setQuery(''); }}
+              >
+                {c.label}
+                <span className="applt-cat-count">{c.count}</span>
+              </button>
+            ))}
+          </div>
+          <div className="applt-search">
+            <svg className="applt-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              type="text"
+              className="applt-search-input"
+              placeholder="Search all apps…"
+              aria-label="Search apps"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button
+                type="button"
+                className="applt-search-clear"
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                title="Clear"
+              >✕</button>
+            )}
+          </div>
         </div>
 
         {installedError && (
           <p className="applt-installed-error" data-testid="installed-error">{installedError}</p>
         )}
 
-        {category === 'ui' && (
+        {searching && (
+          <section className="applt-section">
+            <AppSearchResults
+              query={query}
+              index={searchIndex}
+              busy={rowBusy}
+              catalogVersions={catalogVersions}
+              onOpen={openSearchResult}
+              onConfig={setConfigApp}
+              onVersion={setVersionApp}
+              onUninstall={onUninstall}
+              onUpdate={onUpdate}
+            />
+          </section>
+        )}
+
+        {!searching && category === 'ui' && (
           <section className="applt-section">
             <InstalledApps
               apps={installed === null ? null : uiApps}
@@ -362,7 +428,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
           </section>
         )}
 
-        {category === 'services' && (
+        {!searching && category === 'services' && (
           <section className="applt-section">
             {apps.length > 0 && (
               <div className="applt-grid">
@@ -386,7 +452,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
           </section>
         )}
 
-        {category === 'runnables' && (
+        {!searching && category === 'runnables' && (
           <section className="applt-section">
             <InstalledApps
               apps={installed === null ? null : runnableApps}
@@ -402,7 +468,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
           </section>
         )}
 
-        {category === 'tools' && (
+        {!searching && category === 'tools' && (
           <section className="applt-section">
             <InstalledApps
               apps={installed === null ? null : toolsApps}

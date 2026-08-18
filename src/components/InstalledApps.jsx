@@ -32,8 +32,10 @@ function InstalledSkeleton() {
 }
 
 // Action buttons shared by both the card grid and the command list — same
-// aria-labels/behavior either way, just laid out differently.
-function InstalledActions({ app, busy, hasUpdate, catalogVersion, onConfig, onVersion, onUninstall, onUpdate }) {
+// aria-labels/behavior either way, just laid out differently. Exported so the
+// cross-category search list (AppSearchResults) reuses the exact same row
+// controls instead of growing a second, drifting copy of them.
+export function InstalledActions({ app, busy, hasUpdate, catalogVersion, onConfig, onVersion, onUninstall, onUpdate }) {
   return (
     <div className="applt-installed-actions" onClick={(e) => e.stopPropagation()}>
       {hasUpdate && (
