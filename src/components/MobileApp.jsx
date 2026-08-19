@@ -7,6 +7,7 @@ import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
 import { windowBodySlot } from '../apps/slotRegistry';
+import { usePluginContributions } from '../apps/usePluginContributions';
 import SettingsPanel from './SettingsPanel';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
@@ -54,6 +55,20 @@ const IconPlay = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="cur
 
 
 export default function MobileApp() {
+  // Boot the decoupled-apps plugin runtime for this shell. Without this NO
+  // app bundle is ever fetched on mobile, so every `core.window.body:<id>`
+  // AppSlot below (presentations.viewer, diff-tool.viewer) resolves to zero
+  // contributions and paints an empty window — App() returns either this
+  // component or AuthenticatedApp, never both, and the bootstrap used to live
+  // only in the latter.
+  //
+  // No `onOpenWindow`: this shell drives its single active window off each
+  // app's own WebSocket (see the presentation/diff effects below) and does not
+  // render the `core.nav` slot, so no declarative nav entry can call it here.
+  // No `onFirstLoad`: window rehydration is desktop-only (localStorage
+  // openWindows / WindowManager), which mobile has no equivalent of.
+  usePluginContributions();
+
   const { components, refetch } = useComponentStatus();
   // menuOpen removed — hamburger menu removed, dashboard shows everything
   const [activeWindow, setActiveWindow] = useState(null);

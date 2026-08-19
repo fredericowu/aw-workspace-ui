@@ -13,9 +13,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { asArray } from './lib/asArray';
 import AppSlot from './apps/AppSlot';
 import IconStack from './components/IconStack';
-import { installPluginHost } from './apps/pluginHost';
-import { fetchContributions } from './apps/appsApi';
-import { wireContributions, findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
+import { usePluginContributions } from './apps/usePluginContributions';
+import { findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
 import {
   appWindowKey, isAppWindowKey, identityForKey, persistAppWindows, readPersistedAppWindows,
 } from './apps/appWindowKeys';
@@ -605,28 +604,12 @@ function AuthenticatedApp() {
   // DELETE/PUT calls and window.__awOpenAppWindow('presentations.viewer', id).
 
   // ---- Decoupled-apps plugin host (F6 Cap 2) --------------------------------
-  // F5 shipped the frontend plugin runtime as an unwired library; this boots it:
-  // install the host, fetch the workspace's contributions, register declarative
-  // nav into the core.nav / core.nav.workspace slots, and load component-mode
-  // bundles. Re-checks on app install/uninstall + window refocus (catches an
-  // app installed/uninstalled from another tab/session) but only actually
-  // rewires when the fetched contributions differ from what's already mounted
-  // (contributionsSignatureRef) — found 2026-08-04: this used to unconditionally
-  // dispose() then re-wire on EVERY focus event (any tab switch, not just "left
-  // and reopened the browser"), so every component-mode slot (the Agents nav,
-  // etc.) visibly vanished and reappeared on every refocus even though nothing
-  // had changed, which was the overwhelmingly common case.
-  //
-  // 2026-08-15: that guard only hid the common case. The rewire ITSELF was
-  // destructive — dispose() emptied the slots, and refilling them was behind N
-  // awaited bundle fetches — so the flicker was still there in full whenever an
-  // app WAS installed/updated/uninstalled, and whenever the guard was bypassed.
-  // The teardown now happens inside wireContributions (`replace`), after the new
-  // generation is fully prepared and in the same batched, synchronous tick that
-  // mounts it, so no render ever observes a slot mid-swap.
-  // Zero contributing apps ⇒ zero visual change (safe).
-  const contributionsRef = useRef(null);
-  const contributionsSignatureRef = useRef(null);
+  // Booted by usePluginContributions() below — see that file for the runtime's
+  // sequencing rules (unchanged-signature guard, double-buffered swap, load
+  // serialisation). It lives in a shared hook because MobileApp needs the exact
+  // same bootstrap: while this was an effect in AuthenticatedApp only, the
+  // mobile shell loaded no app bundles at all and every app-contributed window
+  // body rendered empty.
 
   // Opens (or refocuses) a decoupled app's declarative window as a real
   // WindowManager window — see the appWindowSpecs state declaration above.
@@ -669,115 +652,52 @@ function AuthenticatedApp() {
     return () => { delete window.__awOpenAppWindow; };
   }, [openAppWindow]);
 
-  useEffect(() => {
-    installPluginHost();
-    let disposed = false;
-    let dispose = null;
+  // Rehydrate any decoupled-app windows a previous page load left open
+  // (persisted in localStorage's openWindows set) — wireContributions only
+  // wires nav CLICK handlers, so without this a reload leaves the window slot
+  // present but appWindowSpecs empty, rendering as a blank generic "App"
+  // window instead of the app's real title/content.
+  //
+  // First-load only (the hook calls it once): a later re-run reuses this same
+  // mount-time `openWindows` snapshot, so doing it every time could reopen a
+  // window the user has since closed.
+  const rehydrateAppWindows = (contributions) => {
+    const persisted = readPersistedAppWindows();
+    const unresolved = [];
+    for (const key of openWindows) {
+      if (!isAppWindowKey(key)) continue;
+      // Never `key.slice('appwin:'.length)` as a window id: that hands the
+      // whole `<windowId>:<instanceId>` tail to findWindowSpec, which
+      // matches nothing for every multi-instance window.
+      const identity = identityForKey(key, persisted);
+      const found = identity && findWindowSpec(contributions, identity.windowId);
+      if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) {
+        openAppWindow(found, identity.instanceId, identity.title);
+      } else {
+        unresolved.push(key);
+      }
+    }
+    // Whatever didn't resolve has no app behind it any more (uninstalled, or
+    // its window contribution was dropped by an update). Leaving the key in
+    // openWindows is what put an empty "App" window on screen and kept it
+    // there across every later reload, so drop it instead.
+    if (unresolved.length) {
+      setOpenWindows((prev) => {
+        const next = new Set(prev);
+        for (const key of unresolved) next.delete(key);
+        return next;
+      });
+    }
+    appWindowsHydratedRef.current = true;
+  };
 
-    const openWindowById = (windowId) => {
+  const contributionsRef = usePluginContributions({
+    onOpenWindow: (windowId) => {
       const found = findWindowSpec(contributionsRef.current, windowId);
       if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
-    };
-
-    const run = async (isFirstLoad) => {
-      let contributions;
-      try {
-        contributions = await fetchContributions();
-      } catch {
-        return; // no workspace API / not reachable — leave the shell unchanged
-      }
-      if (disposed) return;
-      contributionsRef.current = contributions;
-
-      // Skip the rewire cycle when nothing actually changed since the last time
-      // this ran — see the effect comment above. Still needed on first load
-      // (dispose is null, nothing mounted yet).
-      const signature = JSON.stringify(contributions);
-      if (!isFirstLoad && dispose && signature === contributionsSignatureRef.current) {
-        return;
-      }
-
-      // Hand the previous generation's disposer to wireContributions instead of
-      // calling it here: it tears the old one down in the same synchronous tick
-      // that mounts the new one, so the nav slots are never observably empty.
-      // Disposing here (and awaiting the rewire after) is precisely what made
-      // the app menu items vanish and come back on every refocus.
-      const previous = dispose;
-      dispose = null;
-      const next = await wireContributions(contributions, window.__AW_PLUGIN_HOST__, {
-        onOpenWindow: openWindowById,
-        replace: previous || undefined,
-      });
-      if (disposed) { try { next(); } catch {} return; }
-      dispose = next;
-      // Only now, and only if every app made it in — an app whose bundle failed
-      // to load must not have its absence frozen in as the steady state, or the
-      // guard above short-circuits every later refresh and its nav stays gone
-      // until a page reload.
-      contributionsSignatureRef.current = next.incomplete ? null : signature;
-      // Rehydrate any decoupled-app windows a previous page load left open
-      // (persisted in localStorage's openWindows set) — wireContributions
-      // only wires nav CLICK handlers, so without this a reload leaves the
-      // window slot present but appWindowSpecs empty, rendering as a blank
-      // generic "App" window instead of the app's real title/content.
-      // First-load only: a later re-run (focus/aw-apps-changed) reuses this
-      // same closure's `openWindows` snapshot from mount, so doing it every
-      // time could reopen a window the user has since closed.
-      if (isFirstLoad) {
-        const persisted = readPersistedAppWindows();
-        const unresolved = [];
-        for (const key of openWindows) {
-          if (!isAppWindowKey(key)) continue;
-          // Never `key.slice('appwin:'.length)` as a window id: that hands the
-          // whole `<windowId>:<instanceId>` tail to findWindowSpec, which
-          // matches nothing for every multi-instance window.
-          const identity = identityForKey(key, persisted);
-          const found = identity && findWindowSpec(contributionsRef.current, identity.windowId);
-          if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) {
-            openAppWindow(found, identity.instanceId, identity.title);
-          } else {
-            unresolved.push(key);
-          }
-        }
-        // Whatever didn't resolve has no app behind it any more (uninstalled,
-        // or its window contribution was dropped by an update). Leaving the
-        // key in openWindows is what put an empty "App" window on screen and
-        // kept it there across every later reload, so drop it instead.
-        if (unresolved.length) {
-          setOpenWindows((prev) => {
-            const next = new Set(prev);
-            for (const key of unresolved) next.delete(key);
-            return next;
-          });
-        }
-        appWindowsHydratedRef.current = true;
-      }
-    };
-
-    // Serialised: `focus` fires freely (alt-tab, devtools, an OS notification)
-    // and can easily arrive while a load is still in flight. Two overlapping
-    // runs both see `dispose === null`, so both bypass the unchanged-signature
-    // guard, both rewire, and the loser's disposer is overwritten and never
-    // called — a leak that also double-mounts the nav. One at a time instead.
-    let inFlight = null;
-    const load = (isFirstLoad) => {
-      inFlight = (inFlight || Promise.resolve())
-        .then(() => run(isFirstLoad))
-        .catch(() => {}); // never poison the chain for the next refresh
-      return inFlight;
-    };
-
-    load(true);
-    const onChanged = () => load();
-    window.addEventListener('aw-apps-changed', onChanged);
-    window.addEventListener('focus', onChanged);
-    return () => {
-      disposed = true;
-      window.removeEventListener('aw-apps-changed', onChanged);
-      window.removeEventListener('focus', onChanged);
-      if (dispose) { try { dispose(); } catch {} }
-    };
-  }, []);
+    },
+    onFirstLoad: rehydrateAppWindows,
+  });
 
   // Open a framework-installed app's default window from its Apps-view card
   // (InstalledApps has no nav entry to click through — see AppLauncher).
