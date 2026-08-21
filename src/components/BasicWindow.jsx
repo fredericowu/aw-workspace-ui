@@ -49,6 +49,11 @@ export function specFromManagedWindow(windowSpec) {
 export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, isFocused = true, onTitleChange }) {
   const isComponent = windowSpec?.body?.type === 'component';
   const resolvedSpec = spec || specFromManagedWindow(windowSpec);
+  // Only a real declarative spec gets the body gutter (see .is-declarative in
+  // index.css). A `component` body is app code that owns its own padding, and
+  // a `managed_app` body is one full-page iframe — insetting either just
+  // frames someone else's layout in dead space.
+  const isDeclarative = !isComponent && !!spec;
   const icon = windowSpec?.icon || windowSpec?.body?.icon;
   return (
     <div className="flex flex-col bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden h-full shadow-2xl shadow-black/40 border border-[var(--color-border)]">
@@ -95,7 +100,10 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
         </div>
       </div>
 
-      <div className="app-declarative-window-body flex-1 overflow-auto no-drag" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className={`app-declarative-window-body flex-1 overflow-auto no-drag${isDeclarative ? ' is-declarative' : ''}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <ErrorBoundary label={title || 'App'}>
           {isComponent
             ? <AppSlot slot={windowBodySlot(windowSpec.id)} props={{ windowKey, onClose, onMaximize, isMaximized, instanceId: windowSpec.instanceId, onTitleChange }} />

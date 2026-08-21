@@ -1132,9 +1132,31 @@ button, [role="button"] { cursor: pointer; }
    iframe IS the content. */
 .app-declarative-window-body { display: flex; flex-direction: column; height: 100%; }
 .app-declarative-window-body .app-window { flex: 1; min-height: 0; }
-.app-declarative-window-body .app-window-region:has(> .appwin-iframe-wrap:only-child) { flex: 1; min-height: 0; display: flex; }
-.app-declarative-window-body .appwin-iframe-wrap { flex: 1; min-height: 0; }
-.app-declarative-window-body .appwin-iframe { flex: 1; height: 100%; min-height: 0; }
+/* Gutter. Widgets used to sit flush against the window frame on all four
+   sides — a heading starting at x=6px reads as a rendering bug, not a design.
+   `.is-declarative` (set in BasicWindow.jsx) keeps it off `component` and
+   `managed_app` bodies, which own their own layout. */
+.app-declarative-window-body.is-declarative { padding: 14px 16px; }
+/* …except when the whole window IS one iframe (a canvas app like whiteboard,
+   or a managed_app-shaped declarative spec) — there the page is the content
+   and a gutter would just frame it in dead space. */
+.app-declarative-window-body.is-declarative:has(.app-window-region:only-child > .appwin-iframe-wrap:only-child) { padding: 0; }
+/* Any region holding an iframe takes the leftover height — NOT just a region
+   whose only child is the iframe, which was the old rule. A spec that pairs a
+   markdown intro with its panel (windows/hosts.json in aw-app-remote-screen is
+   the live case) fell through to the 320px floor on .appwin-iframe: the panel
+   was clipped mid-list, its form unreachable below the fold, and the rest of
+   the window was empty — the same list neither grew nor shrank with the
+   window, which is what "not responsive" meant. */
+.app-declarative-window-body .app-window-region:has(.appwin-iframe-wrap) { flex: 1; min-height: 0; }
+/* `height: auto` defeats the wrap's own `h-full`: at 100% of the region it
+   ignores the markdown sibling above it and overflows by exactly that much.
+   The wrap is already `relative`, so pinning the iframe to it with inset:0
+   sizes the frame to the box flex actually resolved (same fix, same reason, as
+   .appcfg-appwindow above). The floor keeps a short window usable instead of
+   collapsing the panel to nothing — the body scrolls at that point. */
+.app-declarative-window-body .appwin-iframe-wrap { flex: 1; height: auto; min-height: 220px; }
+.app-declarative-window-body .appwin-iframe { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; }
 
 /* Per-contribution ErrorBoundary inline card (slot / window body crash). */
 .app-contrib-error {

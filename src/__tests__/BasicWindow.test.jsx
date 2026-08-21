@@ -90,3 +90,44 @@ describe('BasicWindow title-bar action slot', () => {
     expect(screen.queryByRole('button', { name: 'Export as PNG' })).toBeNull();
   });
 });
+
+describe('BasicWindow body gutter', () => {
+  // Declarative widgets used to sit flush against the window frame — the
+  // gutter is a CSS rule keyed off `.is-declarative`, so what the component
+  // owes is putting that class on exactly the bodies that should be inset.
+  const body = () => document.querySelector('.app-declarative-window-body');
+
+  it('marks a declarative body so it gets the window gutter', () => {
+    render(
+      <BasicWindow
+        title="Remote Screen — Hosts"
+        spec={{ layout: 'stack', regions: [{ id: 'hosts', widgets: [{ type: 'markdown', value: '## Hosts' }] }] }}
+        windowSpec={{ id: 'remote-screen.hosts', body: { type: 'declarative' } }}
+        onClose={() => {}}
+      />,
+    );
+    expect(body()).toHaveClass('is-declarative');
+  });
+
+  it('leaves a component body edge-to-edge — the app owns its own layout', () => {
+    render(
+      <BasicWindow
+        title="Whiteboard"
+        windowSpec={{ id: 'whiteboard.main', body: { type: 'component' } }}
+        onClose={() => {}}
+      />,
+    );
+    expect(body()).not.toHaveClass('is-declarative');
+  });
+
+  it('leaves a managed_app body edge-to-edge — it is one full-page iframe', () => {
+    render(
+      <BasicWindow
+        title="Browser"
+        windowSpec={{ id: 'browser.main', app: 'browser', body: { type: 'managed_app', path: '/' } }}
+        onClose={() => {}}
+      />,
+    );
+    expect(body()).not.toHaveClass('is-declarative');
+  });
+});
