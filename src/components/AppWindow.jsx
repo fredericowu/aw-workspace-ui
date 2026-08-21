@@ -69,12 +69,18 @@
 //   input when an auth_method select is set to "token").
 //
 //   auth_status { bind, logout_action?, loading_text?, logged_in_text?,
-//   logged_out_text? } — fetches `bind` (a "METHOD /path" GET) on mount and
-//   shows a one-line login state. The response is expected to carry
-//   `logged_in` (bool) and optionally `username`; `logged_in_text` is a
-//   template with a `{username}` placeholder. When logged in and
-//   `logout_action` is set, renders a "Logout" button that calls it and
-//   re-fetches `bind` on success.
+//   error_text?, logged_out_text? } — fetches `bind` (a "METHOD /path" GET)
+//   on mount and shows a one-line login state. The response is expected to
+//   carry `logged_in` (bool) and optionally `username`; `logged_in_text` is
+//   a template interpolating any scalar field of the response (not just
+//   {username}). When logged in and `logout_action` is set, renders a
+//   "Logout" button that calls it and re-fetches `bind` on success.
+//   `error_text` (optional, same {field} interpolation) renders instead of
+//   `logged_out_text` when the response carries `configured: true` but
+//   `logged_in: false` — a credential that's saved but not usable (expired,
+//   revoked, wrong scope), distinct from never having configured one at
+//   all. Omit it and behavior is unchanged: only `logged_out_text` (static,
+//   no interpolation) is shown for both cases, as before.
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
 import { apiUrl, appSubdomainUrl } from '../apiBase';
@@ -496,16 +502,7 @@ function AuthStatus({ widget }) {
     // placeholder forced every such detail into a separate widget or a
     // custom UI. Unknown placeholders fall back to '—' rather than being
     // left as literal braces in the rendered text.
-    const text = (widget.logged_in_text || 'Logged in as {username}').replace(
-      /\{(\w+)\}/g,
-      (_match, key) => {
-        const value = state.data[key];
-        if (value === undefined || value === null || value === '') {
-          return key === 'username' ? 'GitHub' : '—';
-        }
-        return Array.isArray(value) ? value.join(', ') : String(value);
-      },
-    );
+    const text = interpolate(widget.logged_in_text || 'Logged in as {username}', state.data, 'username', 'GitHub');
     return (
       <div className="appwin-auth-status" data-testid="appwin-auth-status">
         <span>{text}</span>
@@ -517,6 +514,18 @@ function AuthStatus({ widget }) {
       </div>
     );
   }
+  // A token can be saved and still not be usable (expired, revoked, wrong
+  // scope) — "configured" true / "logged_in" false is that state. Opt-in via
+  // `error_text` so existing windows that only ever set `logged_out_text`
+  // (no distinction between "never configured" and "configured but broken")
+  // keep rendering exactly as before.
+  if (widget.error_text && state.data.configured) {
+    return (
+      <p className="appwin-auth-status appwin-auth-status-error" data-testid="appwin-auth-status">
+        {interpolate(widget.error_text, state.data)}
+      </p>
+    );
+  }
   if (widget.logged_out_text) {
     return (
       <p className="appwin-auth-status" data-testid="appwin-auth-status">
@@ -525,6 +534,20 @@ function AuthStatus({ widget }) {
     );
   }
   return null;
+}
+
+// Replaces {key} placeholders with the matching scalar field off `data`.
+// `fallbackKey`/`fallbackValue` special-case one placeholder's empty value
+// (e.g. {username} -> 'GitHub') — every other unknown/empty placeholder
+// renders as '—' rather than being left as a literal brace in the text.
+function interpolate(template, data, fallbackKey, fallbackValue) {
+  return template.replace(/\{(\w+)\}/g, (_match, key) => {
+    const value = data[key];
+    if (value === undefined || value === null || value === '') {
+      return key === fallbackKey ? fallbackValue : '—';
+    }
+    return Array.isArray(value) ? value.join(', ') : String(value);
+  });
 }
 
 // spec: a parsed windows/main.json ({ title, regions: [{ id, widgets: [] }] }).

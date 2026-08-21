@@ -382,6 +382,83 @@ describe('AppWindow auth_status widget', () => {
   });
 });
 
+describe('AppWindow auth_status widget error_text (configured-but-invalid state)', () => {
+  const SPEC_WITH_ERROR_TEXT = {
+    regions: [
+      {
+        id: 'status',
+        widgets: [
+          {
+            type: 'auth_status',
+            bind: 'GET /api/apps/plaud/status',
+            loading_text: 'Checking…',
+            logged_in_text: 'Connected — {email}',
+            error_text: '{error}',
+            logged_out_text: 'Not connected — paste a token below.',
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows error_text when configured but not logged in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ logged_in: false, configured: true, error: 'token expired' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC_WITH_ERROR_TEXT} />);
+    await waitFor(() => expect(screen.getByText('token expired')).toBeInTheDocument());
+    expect(screen.queryByText('Not connected — paste a token below.')).not.toBeInTheDocument();
+  });
+
+  it('falls back to logged_out_text when not configured at all', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ logged_in: false, configured: false }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC_WITH_ERROR_TEXT} />);
+    await waitFor(() => expect(screen.getByText('Not connected — paste a token below.')).toBeInTheDocument());
+  });
+
+  it('a window with no error_text keeps rendering only logged_out_text when configured but invalid (backward compatible)', async () => {
+    const SPEC_NO_ERROR_TEXT = {
+      regions: [
+        {
+          id: 'status',
+          widgets: [
+            {
+              type: 'auth_status',
+              bind: 'GET /api/apps/legacy/status',
+              logged_in_text: 'Logged in as {username}',
+              logged_out_text: 'Sign in below.',
+            },
+          ],
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ logged_in: false, configured: true, error: 'token expired' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC_NO_ERROR_TEXT} />);
+    await waitFor(() => expect(screen.getByText('Sign in below.')).toBeInTheDocument());
+    expect(screen.queryByText('token expired')).not.toBeInTheDocument();
+  });
+});
+
 describe('AppWindow cross-widget refresh + hide_when_logged_in', () => {
   // Mirrors the real git app window: an auth_status widget plus a
   // hide_when_logged_in sign-in button in a sibling region.
