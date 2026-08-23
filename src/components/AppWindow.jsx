@@ -99,9 +99,20 @@ function parseCall(call) {
 // A local string-replace instead of configuring `marked`'s renderer, since
 // `marked` is a shared singleton module and mutating it globally would
 // affect unrelated markdown elsewhere.
+//
+// Same-origin `/api/*` hrefs are ALSO rewritten to the workspace API origin
+// (like the `iframe` widget's `src` already is via `apiUrl()`) — a markdown
+// link is a real browser navigation, not a `fetch()`, so it never passes
+// through the global fetch shim that rewrites every other same-origin call
+// site. Without this, a link such as an OAuth "Connect" button pointing at
+// this app's own `/api/apps/<slug>/oauth/start` 404s on a BYOD deployment,
+// where the SPA host has no same-origin backend of its own.
 function renderMarkdown(text, inline = false) {
   const html = inline ? marked.parseInline(text || '') : marked.parse(text || '');
-  return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
+  return html.replace(/<a href="([^"]*)"/g, (_match, href) => {
+    const resolved = href.startsWith('/api/') ? apiUrl(href) : href;
+    return `<a target="_blank" rel="noopener noreferrer" href="${resolved}"`;
+  });
 }
 
 // Shared refresh signal for the whole window: bumped whenever a button/poll/
