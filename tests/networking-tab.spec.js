@@ -6,11 +6,18 @@
 // `aw-workspace-cli remote-hosts hosts` (the same route the tab calls). The
 // React tree, the CSS and the layout are the real ones.
 //
-// Three things this has to show, and they are the three the card called out:
+// Three things this has to show:
 //   1. the host list, duplicate hostnames and offline links included
 //   2. a written ineligibility reason on a host that does not pass
-//   3. the honest "no agent data" for the tailscale state
+//   3. real mesh state on the hosts that reported — address and direct/relay —
+//      and the honest "no agent data" on the ones that did not
 // Plus a narrow viewport, because this screen gets read on a phone.
+//
+// NOTE: this file cannot close a card about the mesh. It stubs the API, so
+// both API planes render byte-identical here — which is exactly how the
+// wrong-plane bug (bf45ae7) shipped green past it. Real-screen verification is
+// separate and mandatory; src/__tests__/networkingApi.originPlane.test.js is
+// the unit-level guard that particular bug earned.
 import { test, expect } from '@playwright/test';
 
 const HOSTS = [
@@ -25,6 +32,50 @@ const HOSTS = [
   { id: '739ff3c351dcdd02', workspace_slug: 'bare-metal', hostname: 'Ubuntu-resolute-latest-amd64-base.zst', os: 'linux', arch: 'amd64', last_seen_at: Date.now() / 1000 - 93000, connected: false },
   { id: '5d46be8ba50b6acb', workspace_slug: 'aw', hostname: '82ecce0392fe', os: 'linux', arch: 'amd64', last_seen_at: Date.now() / 1000 - 94000, connected: false },
 ];
+
+// Mesh state as aw-backend's `mesh_status` returns it, carrying the real
+// readings measured 2026-08-25. The asymmetry is the interesting part and it
+// is not a mistake: aw-mac -> aw-baremetal is DIRECT, while aw-baremetal ->
+// aw-mac and everything -> aw-surface-wsl go through DERP(mad), because the
+// Surface is WSL2 behind a second layer of NAT. Each row shows the reading
+// somebody ELSE took of that host.
+//
+// Only CONNECTED hosts appear as reported. The five offline links reported
+// nothing and carry `reported: false` with a written reason — which is the
+// honest-unknown this screen exists to keep, and is asserted below.
+const MESH = {
+  control_plane_url: 'https://headscale.aw.tekflox.com',
+  nodes: {
+    '2d5d56ef224359c0': {
+      reported: true, up: true, mesh_ip: '100.64.0.1', node_name: 'aw-baremetal',
+      path: 'direct', via: '65.109.66.88:41641', exit_node: null, offers_exit: true,
+    },
+    '824decc7e0610089': {
+      reported: true, up: true, mesh_ip: '100.64.0.3', node_name: 'aw-mac',
+      path: 'relay', via: 'DERP(mad)', exit_node: null, offers_exit: false,
+    },
+    caf475b7032ee441: {
+      reported: true, up: true, mesh_ip: '100.64.0.2', node_name: 'aw-surface-wsl',
+      path: 'relay', via: 'DERP(mad)', exit_node: null, offers_exit: false,
+    },
+    // Answered, and said it has no tailscale — a report, not an absence.
+    c76c606b0a2a5a8b: {
+      reported: true, up: false,
+      reason: 'the tailscale CLI is not installed on this host',
+    },
+    '11e8bd4157845a24': {
+      reported: true, up: false,
+      reason: 'the tailscale CLI is not installed on this host',
+    },
+    ...Object.fromEntries(
+      ['6bb0d0fbf5b22492', '8435edb900436230', '70cd8a5a3389c542', '739ff3c351dcdd02', '5d46be8ba50b6acb']
+        .map((id) => [id, {
+          reported: false,
+          reason: 'this host is not connected to the control plane, so it could not be asked',
+        }]),
+    ),
+  },
+};
 
 const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
@@ -50,6 +101,7 @@ async function stubApi(page) {
   await page.route(onPath((p) => /^\/api\/workspaces\/[^/]+\/remote-hosts$/.test(p)), (route) => route.fulfill(json({
     count: HOSTS.length, hosts: HOSTS,
   })));
+  await page.route(onPath((p) => /^\/api\/workspaces\/[^/]+\/mesh-status$/.test(p)), (route) => route.fulfill(json(MESH)));
 }
 
 async function openNetworking(page) {
@@ -75,13 +127,25 @@ test.describe('Settings NEW › General › Networking', () => {
     await expect(page.getByText(/Not Linux \(windows\)/)).toBeVisible();
     await expect(page.getByText(/macOS — automatic bootstrap is Linux-only/)).toBeVisible();
 
-    // 3. The honest unknown, and nothing invented behind it.
-    await expect(page.getByText(/Tailscale state unavailable/)).toBeVisible();
-    await expect(page.getByText('no agent data').first()).toBeVisible();
+    // 3. Real mesh state: the address each host reported, and the path
+    //    somebody else measured to it.
+    await expect(page.getByText(/Tailscale state unavailable/)).toHaveCount(0);
+    await expect(page.getByText('100.64.0.1')).toBeVisible();
+    await expect(page.getByText('direct')).toBeVisible();
+    await expect(page.getByText('via DERP(mad)').first()).toBeVisible();
+    // The control plane comes from the API, so the placeholder is gone.
     const body = await page.locator('body').innerText();
-    expect(body).not.toMatch(/100\.\d+\.\d+\.\d+/);
-    expect(body).not.toContain('headscale.aw.tekflox.com');
-    expect(body).toContain('<tenant-control-plane>');
+    expect(body).toContain('https://headscale.aw.tekflox.com');
+    expect(body).not.toContain('<tenant-control-plane>');
+
+    // 4. The honest unknown, on the rows that reported nothing. Asserted per
+    //    row, not per page: other rows legitimately show real 100.64.x.x now,
+    //    so "no mesh IP anywhere" would no longer say anything.
+    await page.getByRole('button', { name: /Offline links \(5\)/ }).click();
+    const silent = page.locator('div.py-3').filter({ hasText: 'no agent data' }).first();
+    await expect(silent).toContainText('could not be asked');
+    expect(await silent.innerText()).not.toMatch(/100\.\d+\.\d+\.\d+/);
+    expect(await silent.innerText()).not.toMatch(/mesh offline|disconnected/i);
 
     // Bootstrap stays a placeholder for every host.
     const buttons = page.getByRole('button', { name: 'Join mesh' });
@@ -110,7 +174,7 @@ test.describe('Settings NEW › General › Networking', () => {
     await openNetworking(page);
 
     await expect(page.getByText(/Not Linux \(windows\)/)).toBeVisible();
-    await expect(page.getByText(/Tailscale state unavailable/)).toBeVisible();
+    await expect(page.getByText('100.64.0.1')).toBeVisible();
 
     // The panel itself must not force a horizontal scroll. Command blocks are
     // allowed to scroll on their own (overflow-x-auto) — that is deliberate:

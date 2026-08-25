@@ -76,6 +76,53 @@ describe('networkingApi — resolves the central aw-backend origin, not the page
     urls.forEach((url) => expect(url.startsWith('/')).toBe(false));
   });
 
+  it('fetchMeshStatus resolves to the backend origin too', async () => {
+    // The mesh-status route is on the same CENTRAL plane as its neighbours.
+    // Leaving it relative would 404 on the workspace SPA host and surface as
+    // "no agent data" — the same bug wearing the honest-unknown's clothes,
+    // which is exactly why it would go unnoticed.
+    setLocation('fredericowu.workspace.aw.tekflox.com');
+    const { apiFetch } = await import('../auth');
+    apiFetch.mockImplementation((url) => {
+      if (url.endsWith('/api/identity/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ memberships: [{ workspace: 'aw', role: 'owner' }] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ control_plane_url: null, nodes: {} }),
+      });
+    });
+    const { fetchMeshStatus } = await import('../lib/networkingApi');
+
+    const result = await fetchMeshStatus();
+
+    expect(result.available).toBe(true);
+    const urls = apiFetch.mock.calls.map(([url]) => url);
+    expect(urls).toEqual([
+      'https://api.aw.tekflox.com/api/identity/me',
+      'https://api.aw.tekflox.com/api/workspaces/aw/mesh-status',
+    ]);
+    urls.forEach((url) => expect(url.startsWith('/')).toBe(false));
+  });
+
+  it('fetchMeshStatus never rejects — a failure is data about the mesh', async () => {
+    // NetworkingTab fetches this alongside the host list in one Promise.all,
+    // so a throw here would blank the host table and report a mesh outage as
+    // "could not list the hosts".
+    setLocation('fredericowu.workspace.aw.tekflox.com');
+    const { apiFetch } = await import('../auth');
+    apiFetch.mockRejectedValue(new Error('NetworkError'));
+    const { fetchMeshStatus } = await import('../lib/networkingApi');
+
+    const result = await fetchMeshStatus('aw');
+
+    expect(result.available).toBe(false);
+    expect(result.reason).toMatch(/NetworkError/);
+  });
+
   it('stays relative on a non-workspace host (single-tenant dashboard, dev, previews)', async () => {
     // Default jsdom host — not a `<slug>.workspace.<apex>` host, so
     // deriveBases() finds no apex and centralApiUrl is a no-op, matching the

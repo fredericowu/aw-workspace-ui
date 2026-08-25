@@ -4,24 +4,28 @@ import {
   fetchMeshStatus,
   fetchRemoteHosts,
   installInstructions,
+  resolveAccountSlug,
   CONTROL_PLANE_PLACEHOLDER,
 } from '../lib/networkingApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings → General → Networking
 //
-// The tenant's private mesh: every aw-remote-host linked to this account, and
-// (once the agent reports it) whether each one is on the mesh, at which IP, and
-// whether the path to it is direct or relayed.
+// The tenant's private mesh: every aw-remote-host linked to this account,
+// whether each one is on the mesh, at which IP, and whether the path to it is
+// direct or relayed — the last of which is measured by a `tailscale ping` on
+// the host, because `tailscale status` cannot tell an idle direct peer from a
+// relayed one.
 //
 // Two rules this screen exists to keep, both from the same doctrine — a screen
 // that quietly shows less than the truth is worse than one that shows nothing:
 //
 //   1. Every disabled bootstrap button carries a WRITTEN reason. A greyed
 //      control with no sentence next to it reads as a bug, not as a decision.
-//   2. Nothing is invented. The tailscale side has no API yet (see
-//      networkingApi.js), so those cells say "no agent data" — never a made-up
-//      "disconnected", never a plausible-looking 100.64.x.x.
+//   2. Nothing is invented. A host that reported nothing says "no agent data"
+//      and carries the reason — never a made-up "disconnected", never a
+//      plausible-looking 100.64.x.x. See MeshState: the three cases it keeps
+//      apart are the whole point of the cell.
 //
 // The host rows are per LINK, not per machine: a re-link leaves the old row
 // behind (the Surface carries four, two offline) and one machine can hold both
@@ -69,36 +73,57 @@ function relativeSeen(ts) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/** Mesh cell — the honest-unknown lives here. `mesh.available === false` means
- *  nothing has ever reported this host's tailscale state, which is NOT the same
- *  as reporting that it is down. */
+/** Mesh cell — the honest-unknown lives here, and it has THREE cases that a
+ *  careless reading would collapse into two:
+ *
+ *    1. nothing was learned about this host — it is offline, it timed out, or
+ *       its agent is too old for the verb. UNKNOWN. Never "disconnected", and
+ *       never an address: the backend refuses to guess one (it often could,
+ *       from another host's peer list) and so must this.
+ *    2. the host ANSWERED, and said it is not on the mesh. That is a fact,
+ *       with the agent's own reason attached.
+ *    3. the host is on the mesh, with a measured path.
+ *
+ *  `mesh.available === false` is case 1 for every host at once: the endpoint
+ *  itself did not answer. */
 function MeshState({ mesh, hostId }) {
-  if (!mesh?.available) {
+  const node = mesh?.available ? mesh.nodes?.[hostId] : null;
+  const unknownReason = !mesh?.available
+    ? mesh?.reason
+    : (!node ? 'this host is not in the mesh-status response' : node.reason);
+
+  if (!node || node.reported === false) {
     return (
       <div className="flex items-center gap-2 flex-wrap">
-        <Pill tone="muted" title={mesh?.reason}>no agent data</Pill>
-        <span className="text-[11px] text-[var(--color-text-muted)]">
-          mesh state unknown
+        <Pill tone="muted" title={unknownReason}>no agent data</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          {unknownReason || 'mesh state unknown'}
         </span>
       </div>
     );
   }
-  const node = mesh.nodes?.[hostId];
-  if (!node) {
+
+  if (!node.up) {
     return (
       <div className="flex items-center gap-2 flex-wrap">
-        <Pill tone="warn">off the mesh</Pill>
-        <span className="text-[11px] text-[var(--color-text-muted)]">never registered with the control plane</span>
+        <Pill tone="warn">not on the mesh</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          {node.reason || 'this host reported that it is not up on the mesh'}
+        </span>
       </div>
     );
   }
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Pill tone={node.up ? 'ok' : 'err'}>{node.up ? 'on the mesh' : 'mesh offline'}</Pill>
+      <Pill tone="ok">on the mesh</Pill>
       {node.meshIp && (
         <code className="text-[11px] font-mono text-[var(--color-text-secondary)]">{node.meshIp}</code>
       )}
-      {node.path && (
+      {node.nodeName && (
+        <span className="text-[11px] text-[var(--color-text-muted)]">as {node.nodeName}</span>
+      )}
+      {node.path ? (
         <Pill
           tone={node.path === 'direct' ? 'ok' : 'info'}
           title={node.path === 'relay'
@@ -107,9 +132,21 @@ function MeshState({ mesh, hostId }) {
         >
           {node.path}
         </Pill>
+      ) : (
+        // On the mesh, but nobody else measured the path to it — a one-node
+        // mesh, or the only other reporter is this host itself. Saying
+        // "direct" here would be a coin flip presented as a fact.
+        <Pill tone="muted" title="No other host reported a path to this one, so it was never measured.">
+          path unmeasured
+        </Pill>
       )}
       {node.via && (
         <span className="text-[11px] text-[var(--color-text-muted)]">via {node.via}</span>
+      )}
+      {node.exitNode && (
+        <Pill tone="warn" title="This host's default route goes out through another node on the mesh.">
+          exits via {node.exitNode}
+        </Pill>
       )}
     </div>
   );
@@ -138,17 +175,17 @@ function HostRow({ host, mesh }) {
           </div>
         </div>
 
-        {/* Remote bootstrap — PLACEHOLDER in this card: the module that performs
-            it is being written in another (feature:aw-remote-host-bootstrap-vpn-
-            tailscale). Disabled for every host, and the label itself says "not
-            built yet" rather than naming an action, so a disabled control is
-            never read as one that merely failed. */}
+        {/* Remote bootstrap — still a PLACEHOLDER. The enrolment module itself
+            shipped, but driving it remotely from here is a separate card and
+            nothing behind this button exists. Disabled for every host, and the
+            label says "not built yet" rather than naming an action, so a
+            disabled control is never read as one that merely failed. */}
         <button
           type="button"
           disabled
           title={eligibility.state === 'no'
             ? `Unavailable: ${eligibility.reason}`
-            : 'Remote bootstrap is not implemented yet — it arrives with aw-remote-host\'s bootstrap-vpn module.'}
+            : 'Enrolling a host from this screen is not implemented yet — today it is `aw-remote-host vpn` run on the machine itself.'}
           className="shrink-0 px-3 py-1 text-[12px] rounded bg-white/5 text-[var(--color-text-muted)] opacity-50 cursor-not-allowed"
         >
           Join mesh — not built yet
@@ -191,7 +228,10 @@ export default function NetworkingTab() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchRemoteHosts(), fetchMeshStatus()])
+    // The slug is resolved once and handed to both calls: each would otherwise
+    // look it up itself, doubling the identity round-trip for one screen.
+    resolveAccountSlug()
+      .then((slug) => Promise.all([fetchRemoteHosts(slug), fetchMeshStatus(slug)]))
       .then(([h, m]) => { if (alive) { setHosts(h); setMesh(m); } })
       .catch((e) => { if (alive) setError(String(e.message || e)); })
       .finally(() => { if (alive) setLoading(false); });

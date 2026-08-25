@@ -14,13 +14,13 @@
  *    token, so the browser's apex `aw_id_jwt` cookie is enough; no new
  *    endpoint was invented for this screen.
  *
- * 2. The tailscale/mesh state — DOES NOT EXIST YET.
- *    Mesh IP, up/down, and the direct-vs-relay path per peer will be reported
- *    by aw-remote-host's `bootstrap-vpn` module, being written in parallel
- *    (card `feature:aw-remote-host-bootstrap-vpn-tailscale`). Until that ships
- *    there is no endpoint to call, so this module CALLS NOTHING and says so.
- *    `MESH_STATUS_PATH` is the one line to change when it lands — see
- *    `fetchMeshStatus` for the shape it must return.
+ * 2. The tailscale/mesh state — REAL since 2026-08-25.
+ *    `aw-backend`'s `GET /api/workspaces/{slug}/mesh-status`
+ *    (repos/aw-backend/src/api/routes/host_link.py → `mesh_status`), which
+ *    asks each CONNECTED host for its tailscale state over the live /link
+ *    tunnel and returns it keyed by remote-host id. Same account scoping and
+ *    same plane as the host list above — it delegates to the very same
+ *    resolver — so the two are always about the same set of hosts.
  *
  * The split matters for honesty: a host whose row we have but whose agent has
  * told us nothing is UNKNOWN, not offline. Rendering an invented
@@ -31,23 +31,21 @@ import { apiFetch } from '../auth';
 import { centralApiUrl } from '../apiBase';
 
 /**
- * Path of the mesh-status endpoint, or `null` while it doesn't exist.
+ * Path of the mesh-status endpoint. Account-scoped like the host list, so it
+ * is built from a slug rather than being a constant.
  *
- * Deliberately null rather than a guessed path: pointing this at a route
- * nobody has written yet would make every open of this screen fire a 404 and
- * turn "not built yet" into what looks like a broken deployment.
- *
- * When `bootstrap-vpn` lands, set this to its real path. Nothing else in this
- * file or in NetworkingTab needs to change — the component already renders the
- * populated, empty and errored cases.
+ * This was `null` until 2026-08-25 — deliberately, rather than a guessed path:
+ * pointing it at a route nobody had written would have made every open of this
+ * screen fire a 404 and turn "not built yet" into what looks like a broken
+ * deployment.
  */
-export const MESH_STATUS_PATH = null;
+export const MESH_STATUS_PATH = (slug) => `/api/workspaces/${encodeURIComponent(slug)}/mesh-status`;
 
-/** Human-readable why-there-is-no-data, shown verbatim in the UI. */
+/** Human-readable why-there-is-no-data, shown verbatim in the UI. Kept for the
+ *  case that still exists: the endpoint itself failing to answer. */
 export const MESH_UNAVAILABLE_REASON =
-  "aw-remote-host's bootstrap-vpn module does not publish tailscale state yet — "
-  + 'no agent reports a mesh IP, an up/down state, or a direct/relay path. '
-  + 'No agent data.';
+  'The mesh-status endpoint did not answer, so nothing is known about any '
+  + "host's tailscale state. No agent data.";
 
 async function readJson(res) {
   const body = await res.json().catch(() => ({}));
@@ -101,30 +99,59 @@ export async function fetchRemoteHosts(slug) {
 /**
  * Mesh state, keyed by remote-host id.
  *
- * Always resolves — "we have no data" is a normal answer here, not an error,
- * and the caller must be able to tell it apart from a failed request:
+ * ALWAYS resolves, never rejects — and that is load-bearing, not politeness.
+ * NetworkingTab fetches this in a `Promise.all` with the host list, so a
+ * throw here would blank the host list too and report a mesh problem as
+ * "could not list the hosts". A failed request is data about the mesh, not
+ * about the hosts:
  *
- *   { available: false, reason }                  ← nothing published it yet
+ *   { available: false, reason }                  ← the endpoint did not answer
  *   { available: true, controlPlaneUrl, nodes }   ← real data
  *
- * `nodes[hostId]` is expected to carry `{ up, meshIp, path: 'direct'|'relay',
- * via }` — `via` being the relay actually in the path (e.g. `DERP(mad)`), which
- * is what makes "works, but through Madrid" visible at all.
+ * `nodes[hostId]` carries `{ reported, reason, up, meshIp, nodeName,
+ * path: 'direct'|'relay', via, exitNode }`. `via` is the relay actually in the
+ * path (e.g. `DERP(mad)`), which is what makes "works, but through Madrid"
+ * visible at all.
+ *
+ * `reported: false` is the honest-unknown, and every field but `reason` is
+ * then absent: a host that is offline, timed out, or runs an agent too old for
+ * the verb told us NOTHING, which is not the same as telling us it is down.
+ * The backend refuses to guess its address and so does this — see
+ * MeshState in NetworkingTab for how the two cases render apart.
  *
  * `controlPlaneUrl` is PER TENANT and only ever comes from here. It is never
  * hardcoded: today's `https://headscale.aw.tekflox.com` is one tenant's value,
  * not the product's.
+ *
+ * The snake_case→camelCase mapping is done here rather than by the API: the
+ * backend speaks snake_case on every other route, and one endpoint bending to
+ * this file's convention would be a worse trade than eight lines of mapping.
  */
-export async function fetchMeshStatus() {
-  if (!MESH_STATUS_PATH) {
-    return { available: false, reason: MESH_UNAVAILABLE_REASON };
+export async function fetchMeshStatus(slug) {
+  try {
+    const s = slug || (await resolveAccountSlug());
+    const data = await apiFetch(centralApiUrl(MESH_STATUS_PATH(s))).then(readJson);
+    const nodes = {};
+    for (const [hostId, node] of Object.entries(data?.nodes || {})) {
+      nodes[hostId] = {
+        reported: node?.reported !== false,
+        reason: node?.reason || '',
+        up: !!node?.up,
+        meshIp: node?.mesh_ip || null,
+        nodeName: node?.node_name || null,
+        path: node?.path || null,
+        via: node?.via || null,
+        exitNode: node?.exit_node || null,
+      };
+    }
+    return {
+      available: true,
+      controlPlaneUrl: data?.control_plane_url || null,
+      nodes,
+    };
+  } catch (e) {
+    return { available: false, reason: `${MESH_UNAVAILABLE_REASON} (${e.message || e})` };
   }
-  const data = await apiFetch(MESH_STATUS_PATH).then(readJson);
-  return {
-    available: true,
-    controlPlaneUrl: data?.control_plane_url || null,
-    nodes: data?.nodes || {},
-  };
 }
 
 /**
