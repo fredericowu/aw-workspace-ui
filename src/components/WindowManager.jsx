@@ -323,7 +323,7 @@ function AppIframe({ appId, label, url, componentKey, bringToFront, isFocused, r
         src={src}
         className="absolute inset-0 w-full h-full border-0"
         title={label}
-        allow="clipboard-read; clipboard-write; microphone; autoplay"
+        allow="camera; microphone; clipboard-read; clipboard-write; autoplay"
         onLoad={() => setStatus('loaded')}
       />
       {/* Centered failure overlay — only shown if the iframe hasn't fired

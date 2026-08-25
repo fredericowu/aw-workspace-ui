@@ -39,7 +39,7 @@ beforeEach(() => {
 
 describe('WindowManager managed_app chrome', () => {
   it('renders managed app windows with the full app proxy controls', async () => {
-    render(
+    const { container } = render(
       <WindowManager
         openWindows={new Set(['appwin:browser.main'])}
         components={[{ key: 'docker:aw-browser', status: 'running' }]}
@@ -86,6 +86,7 @@ describe('WindowManager managed_app chrome', () => {
     expect(screen.getByTitle('Pop out to new window')).toBeInTheDocument();
     expect(screen.getByTitle('Maximize')).toBeInTheDocument();
     expect(screen.getByTitle('Close')).toBeInTheDocument();
+    expect(container.querySelector('iframe')?.getAttribute('allow')).toContain('camera');
   });
 
   it('resolves the docker:<appId> component convention for managed app controls', async () => {
