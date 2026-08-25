@@ -92,11 +92,20 @@ const MESH = {
 // The other unknown, and the one that took a live run to get right: a host
 // that IS connected but runs an agent predating the verb. Its reason has to
 // name an action.
+//
+// It rides on the WINDOWS link, and not on '11e8bd4157845a24' as it first did:
+// that host is the one carrying the eligibility verdict above, and this object
+// replaces a node rather than merging into it, so putting both on the same id
+// silently dropped the eligibility block and the assertion that reads it.
+// Windows is also the honest place for it — the Surface link runs the lean
+// v0.1.35 agent, below the v0.1.51 that first reported mesh state. Nothing is
+// lost by shadowing its MESH entry: '11e8bd4157845a24' carries the same
+// "answered, and said it has no tailscale" shape.
 const MESH_WITH_OLD_AGENT = {
   ...MESH,
   nodes: {
     ...MESH.nodes,
-    '11e8bd4157845a24': {
+    c76c606b0a2a5a8b: {
       reported: false,
       reason: "this host's agent is too old to report mesh state — update aw-remote-host (v0.1.51 or later)",
     },
@@ -159,7 +168,9 @@ test.describe('Settings NEW › General › Networking', () => {
     //    somebody else measured to it.
     await expect(page.getByText(/Tailscale state unavailable/)).toHaveCount(0);
     await expect(page.getByText('100.64.0.1')).toBeVisible();
-    await expect(page.getByText('direct')).toBeVisible();
+    // `exact` because the "direct vs relay" section heading below the list
+    // contains the word too — the pill is the whole string, the heading is not.
+    await expect(page.getByText('direct', { exact: true })).toBeVisible();
     await expect(page.getByText('via DERP(mad)').first()).toBeVisible();
     // The control plane comes from the API, so the placeholder is gone.
     const body = await page.locator('body').innerText();
@@ -170,7 +181,11 @@ test.describe('Settings NEW › General › Networking', () => {
     //    row, not per page: other rows legitimately show real 100.64.x.x now,
     //    so "no mesh IP anywhere" would no longer say anything.
     await page.getByRole('button', { name: /Offline links \(5\)/ }).click();
-    const silent = page.locator('div.py-3').filter({ hasText: 'no agent data' }).first();
+    //    Pinned to one offline link BY ID, not by `.first()` "no agent data":
+    //    the connected-but-out-of-date host below shows that same pill for a
+    //    different reason, and picking the first match lands on its row instead.
+    const silent = page.locator('div.py-3').filter({ hasText: '5d46be8ba50b6acb' });
+    await expect(silent).toContainText('no agent data');
     await expect(silent).toContainText('could not be asked');
     expect(await silent.innerText()).not.toMatch(/100\.\d+\.\d+\.\d+/);
     expect(await silent.innerText()).not.toMatch(/mesh offline|disconnected/i);
@@ -180,10 +195,11 @@ test.describe('Settings NEW › General › Networking', () => {
     //    error — that wording only got fixed because a live run showed it.
     await expect(page.getByText(/update aw-remote-host \(v0\.1\.51 or later\)/)).toBeVisible();
 
-    // Bootstrap stays a placeholder for every host.
+    // Bootstrap stays a placeholder for every host — one button per row, and
+    // the offline links are expanded by now, so that is all ten of them.
     const buttons = page.getByRole('button', { name: 'Join mesh' });
-    await expect(buttons).toHaveCount(5);
-    for (let i = 0; i < 5; i += 1) await expect(buttons.nth(i)).toBeDisabled();
+    await expect(buttons).toHaveCount(HOSTS.length);
+    for (let i = 0; i < HOSTS.length; i += 1) await expect(buttons.nth(i)).toBeDisabled();
 
     const win = page.locator('[data-window-key="panel:settings-new"]');
     await win.screenshot({ path: 'test-results/networking-wide.png' });

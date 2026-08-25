@@ -79,7 +79,7 @@ test.describe('Settings NEW on the mobile shell @ 390px', () => {
     // The real section rendered — same assertions the desktop spec makes.
     await expect(page.getByRole('heading', { name: 'Networking' })).toBeVisible();
     await expect(page.getByText('Mac.Home')).toBeVisible();
-    await expect(page.getByText(/Não é Linux \(windows\)/)).toBeVisible();
+    await expect(page.getByText(/Not Linux \(windows\)/)).toBeVisible();
 
     // THE acceptance bar: the document must not scroll sideways at 390px.
     const overflow = await page.evaluate(() => ({
