@@ -44,9 +44,9 @@ export const MESH_STATUS_PATH = null;
 
 /** Human-readable why-there-is-no-data, shown verbatim in the UI. */
 export const MESH_UNAVAILABLE_REASON =
-  'O módulo bootstrap-vpn do aw-remote-host ainda não publica estado do tailscale — '
-  + 'nenhum agente reporta IP de mesh, ligação ou caminho direct/relay. '
-  + 'Sem dados do agente.';
+  "aw-remote-host's bootstrap-vpn module does not publish tailscale state yet — "
+  + 'no agent reports a mesh IP, an up/down state, or a direct/relay path. '
+  + 'No agent data.';
 
 async function readJson(res) {
   const body = await res.json().catch(() => ({}));
@@ -140,31 +140,31 @@ export function bootstrapEligibility(host) {
   if (os === 'darwin') {
     return {
       state: 'no',
-      label: 'Não elegível',
-      reason: 'macOS — o bootstrap automático é Linux-only. Aqui o tailscaled '
-        + 'precisa de instalação manual (brew + install-system-daemon) e de root, '
-        + 'que o agente deste host não tem.',
+      label: 'Not eligible',
+      reason: 'macOS — automatic bootstrap is Linux-only. Here tailscaled needs a '
+        + 'manual install (brew + install-system-daemon) and root, which this '
+        + "host's agent does not have.",
     };
   }
   if (os && os !== 'linux') {
     return {
       state: 'no',
-      label: 'Não elegível',
-      reason: `Não é Linux (${os}) — o módulo de bootstrap só suporta Linux.`,
+      label: 'Not eligible',
+      reason: `Not Linux (${os}) — the bootstrap module only supports Linux.`,
     };
   }
   if (!os) {
     return {
       state: 'unknown',
-      label: 'Elegibilidade desconhecida',
-      reason: 'O host não reportou sistema operativo.',
+      label: 'Eligibility unknown',
+      reason: 'This host has not reported an operating system.',
     };
   }
   return {
     state: 'unknown',
-    label: 'Elegibilidade por confirmar',
-    reason: 'Linux passa o primeiro requisito, mas root e /dev/net/tun ainda não '
-      + 'são reportados por nenhuma API — sem dados do agente.',
+    label: 'Eligibility unconfirmed',
+    reason: 'Linux clears the first requirement, but root and /dev/net/tun are not '
+      + 'reported by any API yet — no agent data.',
   };
 }
 
@@ -176,7 +176,7 @@ export function bootstrapEligibility(host) {
  * `controlPlane` is substituted in when known; when it isn't, the placeholder
  * stays visible so nobody copy-pastes another tenant's control plane.
  */
-export const CONTROL_PLANE_PLACEHOLDER = '<control-plane-do-tenant>';
+export const CONTROL_PLANE_PLACEHOLDER = '<tenant-control-plane>';
 
 export function installInstructions(controlPlane) {
   const cp = controlPlane || CONTROL_PLANE_PLACEHOLDER;
@@ -186,17 +186,17 @@ export function installInstructions(controlPlane) {
       title: 'Linux / WSL2',
       commands: [
         'curl -fsSL https://tailscale.com/install.sh | sh',
-        `sudo tailscale up --login-server=${cp} --authkey=<key> --hostname=<nome>`,
+        `sudo tailscale up --login-server=${cp} --authkey=<key> --hostname=<name>`,
       ],
     },
     {
       id: 'macos',
       title: 'macOS',
-      note: 'Caminho diferente — o script de instalação de Linux NÃO serve aqui.',
+      note: 'A genuinely different path — the Linux installer script does NOT work here.',
       commands: [
         'brew install tailscale',
         'sudo tailscaled install-system-daemon',
-        `sudo tailscale up --login-server=${cp} --authkey=<key> --hostname=<nome>`,
+        `sudo tailscale up --login-server=${cp} --authkey=<key> --hostname=<name>`,
       ],
     },
   ];

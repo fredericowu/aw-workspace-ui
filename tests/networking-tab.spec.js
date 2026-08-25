@@ -9,7 +9,7 @@
 // Three things this has to show, and they are the three the card called out:
 //   1. the host list, duplicate hostnames and offline links included
 //   2. a written ineligibility reason on a host that does not pass
-//   3. the honest "sem dados do agente" for the tailscale state
+//   3. the honest "no agent data" for the tailscale state
 // Plus a narrow viewport, because this screen gets read on a phone.
 import { test, expect } from '@playwright/test';
 
@@ -69,22 +69,22 @@ test.describe('Settings NEW › General › Networking', () => {
     // 1. The list. Both Surface links are shown as separate rows.
     await expect(page.getByText('Mac.Home')).toBeVisible();
     await expect(page.getByText('DESKTOP-DRMKFBT')).toHaveCount(2);
-    await expect(page.getByRole('button', { name: /Links offline \(5\)/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Offline links \(5\)/ })).toBeVisible();
 
     // 2. The reason, as visible text on the page — not only in a tooltip.
-    await expect(page.getByText(/Não é Linux \(windows\)/)).toBeVisible();
-    await expect(page.getByText(/macOS — o bootstrap automático é Linux-only/)).toBeVisible();
+    await expect(page.getByText(/Not Linux \(windows\)/)).toBeVisible();
+    await expect(page.getByText(/macOS — automatic bootstrap is Linux-only/)).toBeVisible();
 
     // 3. The honest unknown, and nothing invented behind it.
-    await expect(page.getByText(/Estado do tailscale indisponível/)).toBeVisible();
-    await expect(page.getByText('sem dados do agente').first()).toBeVisible();
+    await expect(page.getByText(/Tailscale state unavailable/)).toBeVisible();
+    await expect(page.getByText('no agent data').first()).toBeVisible();
     const body = await page.locator('body').innerText();
     expect(body).not.toMatch(/100\.\d+\.\d+\.\d+/);
     expect(body).not.toContain('headscale.aw.tekflox.com');
-    expect(body).toContain('<control-plane-do-tenant>');
+    expect(body).toContain('<tenant-control-plane>');
 
     // Bootstrap stays a placeholder for every host.
-    const buttons = page.getByRole('button', { name: 'Bootstrap na mesh' });
+    const buttons = page.getByRole('button', { name: 'Join mesh' });
     await expect(buttons).toHaveCount(5);
     for (let i = 0; i < 5; i += 1) await expect(buttons.nth(i)).toBeDisabled();
 
@@ -109,8 +109,8 @@ test.describe('Settings NEW › General › Networking', () => {
     await page.setViewportSize({ width: 769, height: 900 });
     await openNetworking(page);
 
-    await expect(page.getByText(/Não é Linux \(windows\)/)).toBeVisible();
-    await expect(page.getByText(/Estado do tailscale indisponível/)).toBeVisible();
+    await expect(page.getByText(/Not Linux \(windows\)/)).toBeVisible();
+    await expect(page.getByText(/Tailscale state unavailable/)).toBeVisible();
 
     // The panel itself must not force a horizontal scroll. Command blocks are
     // allowed to scroll on their own (overflow-x-auto) — that is deliberate:
@@ -133,8 +133,8 @@ test.describe('Settings NEW › General › Networking', () => {
     }));
     await openNetworking(page);
 
-    await expect(page.getByText(/Não foi possível listar os hosts/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Tentar outra vez' })).toBeVisible();
+    await expect(page.getByText(/Could not list the hosts/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
     await page.locator('[data-window-key="panel:settings-new"]').screenshot({ path: 'test-results/networking-error.png' });
   });
 });

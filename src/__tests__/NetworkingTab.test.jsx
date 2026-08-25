@@ -50,7 +50,7 @@ describe('bootstrapEligibility', () => {
     // them yet — answering 'yes' here would be inventing both.
     const linux = bootstrapEligibility({ os: 'linux' });
     expect(linux.state).toBe('unknown');
-    expect(linux.reason).toMatch(/sem dados do agente/i);
+    expect(linux.reason).toMatch(/no agent data/i);
   });
 
   it('always carries a reason, whatever the verdict', () => {
@@ -73,7 +73,7 @@ describe('NetworkingTab', () => {
     expect(screen.getAllByText('DESKTOP-DRMKFBT')).toHaveLength(2);
     expect(screen.getByText('Mac.Home')).toBeInTheDocument();
     // Offline links are present but folded away, not dropped.
-    expect(screen.getByRole('button', { name: /links offline \(2\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /offline links \(2\)/i })).toBeInTheDocument();
   });
 
   it('writes the ineligibility reason as text, not only in a tooltip', async () => {
@@ -81,8 +81,8 @@ describe('NetworkingTab', () => {
     render(<NetworkingTab />);
     await screen.findByText('Mac.Home');
 
-    expect(screen.getAllByText(/Não é Linux \(windows\)/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/macOS — o bootstrap automático é Linux-only/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Not Linux \(windows\)/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/macOS — automatic bootstrap is Linux-only/i).length).toBeGreaterThan(0);
   });
 
   it('reports the tailscale state as unknown, never as disconnected', async () => {
@@ -90,8 +90,8 @@ describe('NetworkingTab', () => {
     render(<NetworkingTab />);
     await screen.findByText('b614f41828c8');
 
-    expect(screen.getByText(/Estado do tailscale indisponível/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/sem dados do agente/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Tailscale state unavailable/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/no agent data/i).length).toBeGreaterThan(0);
     // No invented mesh IP anywhere on the screen.
     expect(document.body.textContent).not.toMatch(/100\.\d+\.\d+\.\d+/);
   });
@@ -102,7 +102,7 @@ describe('NetworkingTab', () => {
     await screen.findByText('b614f41828c8');
 
     expect(document.body.textContent).not.toContain('headscale.aw.tekflox.com');
-    expect(screen.getAllByText(/<control-plane-do-tenant>/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/<tenant-control-plane>/).length).toBeGreaterThan(0);
   });
 
   it('keeps every bootstrap button disabled — the real one is another card', async () => {
@@ -110,7 +110,7 @@ describe('NetworkingTab', () => {
     render(<NetworkingTab />);
     await screen.findByText('b614f41828c8');
 
-    const buttons = screen.getAllByRole('button', { name: /bootstrap na mesh/i });
+    const buttons = screen.getAllByRole('button', { name: /join mesh/i });
     expect(buttons.length).toBe(4);
     buttons.forEach((b) => expect(b).toBeDisabled());
   });
@@ -119,9 +119,9 @@ describe('NetworkingTab', () => {
     mockApi({ hostsFail: true });
     render(<NetworkingTab />);
 
-    await screen.findByText(/Não foi possível listar os hosts/i);
+    await screen.findByText(/Could not list the hosts/i);
     expect(screen.getByText(/Not Found/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /tentar outra vez/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 
   it('shows the offline links when the group is expanded', async () => {
@@ -129,7 +129,7 @@ describe('NetworkingTab', () => {
     render(<NetworkingTab />);
     await screen.findByText('b614f41828c8');
 
-    fireEvent.click(screen.getByRole('button', { name: /links offline \(2\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /offline links \(2\)/i }));
     await waitFor(() => expect(screen.getAllByText('DESKTOP-DRMKFBT')).toHaveLength(4));
   });
 });

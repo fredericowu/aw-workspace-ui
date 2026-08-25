@@ -20,8 +20,8 @@ import {
 //   1. Every disabled bootstrap button carries a WRITTEN reason. A greyed
 //      control with no sentence next to it reads as a bug, not as a decision.
 //   2. Nothing is invented. The tailscale side has no API yet (see
-//      networkingApi.js), so those cells say "sem dados do agente" — never a
-//      made-up "desconectado", never a plausible-looking 100.64.x.x.
+//      networkingApi.js), so those cells say "no agent data" — never a made-up
+//      "disconnected", never a plausible-looking 100.64.x.x.
 //
 // The host rows are per LINK, not per machine: a re-link leaves the old row
 // behind (the Surface carries four, two offline) and one machine can hold both
@@ -59,14 +59,14 @@ function Section({ title, description, children }) {
 }
 
 function relativeSeen(ts) {
-  if (!ts) return 'nunca';
+  if (!ts) return 'never';
   const secs = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  if (secs < 90) return `há ${secs}s`;
+  if (secs < 90) return `${secs}s ago`;
   const mins = Math.round(secs / 60);
-  if (mins < 90) return `há ${mins}min`;
+  if (mins < 90) return `${mins}min ago`;
   const hours = Math.round(mins / 60);
-  if (hours < 48) return `há ${hours}h`;
-  return `há ${Math.round(hours / 24)}d`;
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 /** Mesh cell — the honest-unknown lives here. `mesh.available === false` means
@@ -76,9 +76,9 @@ function MeshState({ mesh, hostId }) {
   if (!mesh?.available) {
     return (
       <div className="flex items-center gap-2 flex-wrap">
-        <Pill tone="muted" title={mesh?.reason}>sem dados do agente</Pill>
+        <Pill tone="muted" title={mesh?.reason}>no agent data</Pill>
         <span className="text-[11px] text-[var(--color-text-muted)]">
-          estado na mesh desconhecido
+          mesh state unknown
         </span>
       </div>
     );
@@ -87,14 +87,14 @@ function MeshState({ mesh, hostId }) {
   if (!node) {
     return (
       <div className="flex items-center gap-2 flex-wrap">
-        <Pill tone="warn">fora da mesh</Pill>
-        <span className="text-[11px] text-[var(--color-text-muted)]">nunca registado no control plane</span>
+        <Pill tone="warn">off the mesh</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)]">never registered with the control plane</span>
       </div>
     );
   }
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Pill tone={node.up ? 'ok' : 'err'}>{node.up ? 'na mesh' : 'mesh offline'}</Pill>
+      <Pill tone={node.up ? 'ok' : 'err'}>{node.up ? 'on the mesh' : 'mesh offline'}</Pill>
       {node.meshIp && (
         <code className="text-[11px] font-mono text-[var(--color-text-secondary)]">{node.meshIp}</code>
       )}
@@ -102,8 +102,8 @@ function MeshState({ mesh, hostId }) {
         <Pill
           tone={node.path === 'direct' ? 'ok' : 'info'}
           title={node.path === 'relay'
-            ? 'O tráfego passa por um relay DERP em vez de ligação directa — funciona, mas com um salto pelo meio.'
-            : 'Ligação directa entre os dois hosts, sem relay.'}
+            ? 'Traffic goes through a DERP relay instead of a direct connection — it works, but with a hop in between.'
+            : 'Direct connection between the two hosts, no relay.'}
         >
           {node.path}
         </Pill>
@@ -126,38 +126,39 @@ function HostRow({ host, mesh }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[13px] font-medium text-[var(--color-text-primary)] break-all">
-              {host.hostname || '(sem hostname)'}
+              {host.hostname || '(no hostname)'}
             </span>
             <Pill tone={host.connected ? 'ok' : 'muted'}>
-              {host.connected ? 'ligado' : 'offline'}
+              {host.connected ? 'connected' : 'offline'}
             </Pill>
           </div>
           <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5 break-all">
             {host.workspace_slug} · {host.os || 'os?'}/{host.arch || 'arch?'} · link{' '}
-            <code className="font-mono">{host.id}</code> · visto {relativeSeen(host.last_seen_at)}
+            <code className="font-mono">{host.id}</code> · seen {relativeSeen(host.last_seen_at)}
           </div>
         </div>
 
-        {/* Bootstrap remoto — PLACEHOLDER nesta card: o módulo que o executa
-            está a ser escrito noutra (feature:aw-remote-host-bootstrap-vpn-
-            tailscale). Fica desactivado para todos, e o title diz porquê, para
-            não se confundir "ainda não existe" com "este host não pode". */}
+        {/* Remote bootstrap — PLACEHOLDER in this card: the module that performs
+            it is being written in another (feature:aw-remote-host-bootstrap-vpn-
+            tailscale). Disabled for every host, and the label itself says "not
+            built yet" rather than naming an action, so a disabled control is
+            never read as one that merely failed. */}
         <button
           type="button"
           disabled
           title={eligibility.state === 'no'
-            ? `Indisponível: ${eligibility.reason}`
-            : 'O bootstrap remoto ainda não está implementado — chega com o módulo bootstrap-vpn do aw-remote-host.'}
+            ? `Unavailable: ${eligibility.reason}`
+            : 'Remote bootstrap is not implemented yet — it arrives with aw-remote-host\'s bootstrap-vpn module.'}
           className="shrink-0 px-3 py-1 text-[12px] rounded bg-white/5 text-[var(--color-text-muted)] opacity-50 cursor-not-allowed"
         >
-          Bootstrap na mesh
+          Join mesh — not built yet
         </button>
       </div>
 
       <div className="mt-2 grid gap-1.5">
         <MeshState mesh={mesh} hostId={host.id} />
-        {/* A razão da inelegibilidade em TEXTO, sempre — não só no title do
-            botão, que é invisível em touch. */}
+        {/* The ineligibility reason as TEXT, always — not only in the button's
+            title, which is invisible on touch. */}
         <div className="flex items-start gap-2 flex-wrap">
           <Pill tone={tone}>{eligibility.label}</Pill>
           <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
@@ -218,65 +219,65 @@ export default function NetworkingTab() {
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Networking</h3>
         <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-          A rede mesh privada deste tenant: as workspaces e os aw-remote-hosts da conta,
-          o seu estado no tailscale, e o caminho até cada peer.
+          This tenant&apos;s private mesh: the account&apos;s workspaces and aw-remote-hosts,
+          their tailscale state, and the path to each peer.
         </p>
       </div>
 
       <Section
         title="Control plane"
-        description="O headscale deste tenant. É por-tenant — dois tenants não partilham control plane, e por isso nunca vem escrito no código."
+        description="This tenant's headscale. It is per-tenant — two tenants never share a control plane, which is why it is never hardcoded."
       >
         {controlPlane ? (
           <code className="text-[12px] font-mono text-[var(--color-text-secondary)] break-all">{controlPlane}</code>
         ) : (
           <div className="flex items-start gap-2 flex-wrap">
-            <Pill tone="warn">por publicar</Pill>
+            <Pill tone="warn">unpublished</Pill>
             <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-              Nenhuma API publica ainda o control plane deste tenant. Os comandos abaixo
-              mostram <code className="font-mono">{CONTROL_PLANE_PLACEHOLDER}</code> em vez
-              de um URL — copiar um de outro tenant não funcionaria.
+              No API publishes this tenant&apos;s control plane yet. The commands below show{' '}
+              <code className="font-mono">{CONTROL_PLANE_PLACEHOLDER}</code> instead of a URL —
+              copying another tenant&apos;s would not work.
             </span>
           </div>
         )}
       </Section>
 
       <Section
-        title="Hosts da conta"
-        description="Uma linha por LINK, não por máquina: uma re-ligação deixa a anterior para trás, e a mesma máquina pode ter mais do que um link."
+        title="Account hosts"
+        description="One row per LINK, not per machine: re-linking leaves the previous one behind, and the same machine can hold more than one link."
       >
         {loading && (
-          <div className="text-[12px] text-[var(--color-text-muted)]">A carregar hosts…</div>
+          <div className="text-[12px] text-[var(--color-text-muted)]">Loading hosts…</div>
         )}
 
         {error && (
           <div className="px-3 py-2 rounded bg-[var(--color-danger)]/10 text-[12px] text-[var(--color-danger)]">
-            <div className="font-medium">Não foi possível listar os hosts.</div>
+            <div className="font-medium">Could not list the hosts.</div>
             <div className="mt-0.5 text-[11px] opacity-80 break-all">{error}</div>
             <button
               type="button"
               onClick={retry}
               className="mt-2 px-2 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)]"
             >
-              Tentar outra vez
+              Try again
             </button>
           </div>
         )}
 
         {!loading && !error && (
           <>
-            {/* Estado da mesh, uma vez, no topo — repeti-lo em cada linha seria
-                ruído; a linha diz só o que sabe sobre aquele host. */}
+            {/* Mesh state once, at the top — repeating it on every row would be
+                noise; each row only says what it knows about that host. */}
             {!mesh?.available && (
               <div className="mb-3 px-3 py-2 rounded bg-amber-500/10 text-[11px] text-amber-300">
-                <span className="font-medium">Estado do tailscale indisponível. </span>
+                <span className="font-medium">Tailscale state unavailable. </span>
                 {mesh?.reason}
               </div>
             )}
 
             {online.length === 0 && (
               <div className="text-[12px] text-[var(--color-text-muted)]">
-                Nenhum host ligado neste momento.
+                No host is connected right now.
               </div>
             )}
 
@@ -289,7 +290,7 @@ export default function NetworkingTab() {
                   onClick={() => setShowOffline((v) => !v)}
                   className="text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
                 >
-                  {showOffline ? '▼' : '▶'} Links offline ({offline.length})
+                  {showOffline ? '▼' : '▶'} Offline links ({offline.length})
                 </button>
                 {showOffline && (
                   <div className="mt-1 opacity-70">
@@ -304,19 +305,18 @@ export default function NetworkingTab() {
 
       <Section
         title="direct vs relay"
-        description="Porque é que esta coluna existe."
+        description="Why this column exists."
       >
         <p className="text-[11px] text-[var(--color-text-muted)]">
-          O relay não é um fallback raro: duas máquinas na mesma rede de casa podem
-          na mesma falar através de um DERP, quando uma delas está atrás de outra
-          camada de NAT. Sem isto escrito, &quot;funciona, mas passa por Madrid&quot; é
-          invisível.
+          A relay is not a rare fallback: two machines on the same home network can still
+          talk through a DERP when one of them sits behind another layer of NAT. Without
+          this written down, &quot;it works, but it goes through Madrid&quot; is invisible.
         </p>
       </Section>
 
       <Section
-        title="Instalar o tailscale"
-        description="Por sistema operativo. O caminho de macOS é mesmo outro — o instalador de Linux não serve lá."
+        title="Install tailscale"
+        description="Per operating system. The macOS path is genuinely different — the Linux installer does not work there."
       >
         {installInstructions(controlPlane).map((entry) => (
           <div key={entry.id} className="mb-3 last:mb-0">
