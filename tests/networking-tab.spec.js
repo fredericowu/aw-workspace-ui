@@ -77,6 +77,20 @@ const MESH = {
   },
 };
 
+// The other unknown, and the one that took a live run to get right: a host
+// that IS connected but runs an agent predating the verb. Its reason has to
+// name an action.
+const MESH_WITH_OLD_AGENT = {
+  ...MESH,
+  nodes: {
+    ...MESH.nodes,
+    '11e8bd4157845a24': {
+      reported: false,
+      reason: "this host's agent is too old to report mesh state — update aw-remote-host (v0.1.51 or later)",
+    },
+  },
+};
+
 const json = (body) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
 // Matched on the PATHNAME, not with a `**/api/**` glob: this repo has a
@@ -101,7 +115,7 @@ async function stubApi(page) {
   await page.route(onPath((p) => /^\/api\/workspaces\/[^/]+\/remote-hosts$/.test(p)), (route) => route.fulfill(json({
     count: HOSTS.length, hosts: HOSTS,
   })));
-  await page.route(onPath((p) => /^\/api\/workspaces\/[^/]+\/mesh-status$/.test(p)), (route) => route.fulfill(json(MESH)));
+  await page.route(onPath((p) => /^\/api\/workspaces\/[^/]+\/mesh-status$/.test(p)), (route) => route.fulfill(json(MESH_WITH_OLD_AGENT)));
 }
 
 async function openNetworking(page) {
@@ -146,6 +160,11 @@ test.describe('Settings NEW › General › Networking', () => {
     await expect(silent).toContainText('could not be asked');
     expect(await silent.innerText()).not.toMatch(/100\.\d+\.\d+\.\d+/);
     expect(await silent.innerText()).not.toMatch(/mesh offline|disconnected/i);
+
+    //    ...and the other unknown: connected, but running an agent that
+    //    predates the verb. Its reason names an action rather than quoting an
+    //    error — that wording only got fixed because a live run showed it.
+    await expect(page.getByText(/update aw-remote-host \(v0\.1\.51 or later\)/)).toBeVisible();
 
     // Bootstrap stays a placeholder for every host.
     const buttons = page.getByRole('button', { name: 'Join mesh' });
