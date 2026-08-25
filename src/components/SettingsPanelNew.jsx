@@ -12,6 +12,13 @@
 //    entry per installed app with configurable settings — reuses
 //    AppConfigBody (the same body AppConfigWindow's modal renders) so both
 //    surfaces stay in sync automatically.
+//
+// Responsive (2026-08-25): this component is mounted by BOTH shells — the
+// desktop floating window (App.jsx) and the mobile sheet (MobileApp.jsx).
+// Below 768px the fixed `w-56` sidebar ate 57% of a 390px viewport, so the
+// narrow layout is list-then-detail instead: the nav fills the width, tapping
+// a section swaps to its content with a back button. Above 768px nothing
+// changed — `detailOpen` is not consulted on that path at all.
 import { useState, useEffect, useMemo } from 'react';
 import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
@@ -19,6 +26,7 @@ import MarketplaceTab from './MarketplaceTab';
 import NetworkingTab from './NetworkingTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
+import ErrorBoundary from './ErrorBoundary';
 import { listInstalledApps } from '../apps/appsApi';
 
 const GENERAL_SECTIONS = [
@@ -64,11 +72,56 @@ function ComingSoon({ label }) {
   );
 }
 
+// 767px, not a container width: this has to agree with App.jsx's own
+// `window.innerWidth <= 768` shell switch, so the two can never disagree about
+// which layout is on screen. A container-width observer would get the forced
+// `#mobile` case backwards — that renders the mobile sheet full-bleed on a wide
+// display, where the sidebar is the RIGHT layout and a narrow one would be a
+// downgrade. The viewport is what actually decides whether there is room.
+const NARROW_QUERY = '(max-width: 767px)';
+
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(
+    () => (typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia(NARROW_QUERY).matches
+      : false)
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia(NARROW_QUERY);
+    const onChange = (e) => setNarrow(e.matches);
+    setNarrow(mq.matches);
+    // addListener is the deprecated spelling, still the only one Safari < 14
+    // supports — this screen is read on iPhones, so keep the fallback.
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else mq.addListener(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else mq.removeListener(onChange);
+    };
+  }, []);
+  return narrow;
+}
+
+function BackChevron() {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
 export default function SettingsPanelNew() {
   const [expanded, setExpanded] = useState({ general: true, apps: true });
   const [selection, setSelection] = useState({ group: 'general', key: 'users' });
   const [apps, setApps] = useState([]);
   const [appsError, setAppsError] = useState(null);
+  const isNarrow = useIsNarrow();
+  // Only consulted on the narrow path. The wide layout renders nav and content
+  // side by side and ignores this entirely, so desktop behaviour is unchanged.
+  // Starts false so the phone opens on the menu rather than dropping the user
+  // straight into Users with no visible way back to the section list.
+  const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -80,6 +133,13 @@ export default function SettingsPanelNew() {
 
   const toggleGroup = (g) => setExpanded((prev) => ({ ...prev, [g]: !prev[g] }));
 
+  // One entry point for both layouts: wide ignores detailOpen, narrow uses it
+  // to swap the list out for the section.
+  const select = (group, key) => {
+    setSelection({ group, key });
+    setDetailOpen(true);
+  };
+
   const selectedApp = useMemo(
     () => (selection.group === 'apps' ? apps.find((a) => a.slug === selection.key) : null),
     [selection, apps]
@@ -89,10 +149,19 @@ export default function SettingsPanelNew() {
     [selection]
   );
 
-  return (
-    <div className="h-full flex bg-[var(--color-bg-primary)] overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-56 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-bg-header)] overflow-y-auto py-2">
+  // Nav rows get taller on narrow — a 1.5-unit row is a fine mouse target and a
+  // poor thumb one, and this list is the only way to reach anything here.
+  const rowPad = isNarrow ? 'py-3' : 'py-1.5';
+  const rowText = isNarrow ? 'text-[15px]' : 'text-[13px]';
+
+  const nav = (
+    <div
+      className={
+        isNarrow
+          ? 'w-full h-full overflow-y-auto py-2 bg-[var(--color-bg-primary)]'
+          : 'w-56 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-bg-header)] overflow-y-auto py-2'
+      }
+    >
         {/* General group */}
         <div className="mb-1">
           <button
@@ -107,15 +176,16 @@ export default function SettingsPanelNew() {
               {GENERAL_SECTIONS.map((s) => (
                 <button
                   key={s.key}
-                  onClick={() => setSelection({ group: 'general', key: s.key })}
-                  className={`w-full flex items-center gap-2 pl-7 pr-3 py-1.5 text-[13px] text-left transition-colors ${
-                    selection.group === 'general' && selection.key === s.key
+                  onClick={() => select('general', s.key)}
+                  className={`w-full flex items-center gap-2 pl-7 pr-3 ${rowPad} ${rowText} text-left transition-colors ${
+                    !isNarrow && selection.group === 'general' && selection.key === s.key
                       ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
                   }`}
                 >
                   <span className="flex-1 truncate">{s.label}</span>
                   {!s.ready && <span className="text-[9px] text-[var(--color-text-muted)] shrink-0">soon</span>}
+                  {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
                 </button>
               ))}
             </div>
@@ -147,56 +217,109 @@ export default function SettingsPanelNew() {
               {apps.map((a) => (
                 <button
                   key={a.slug}
-                  onClick={() => setSelection({ group: 'apps', key: a.slug })}
-                  className={`w-full flex items-center gap-2 pl-7 pr-3 py-1.5 text-[13px] text-left transition-colors ${
-                    selection.group === 'apps' && selection.key === a.slug
+                  onClick={() => select('apps', a.slug)}
+                  className={`w-full flex items-center gap-2 pl-7 pr-3 ${rowPad} ${rowText} text-left transition-colors ${
+                    !isNarrow && selection.group === 'apps' && selection.key === a.slug
                       ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
                   }`}
                 >
-                  <AppIcon icon={a.icon} label={a.name} size={13} />
+                  <AppIcon icon={a.icon} label={a.name} size={isNarrow ? 16 : 13} />
                   <span className="flex-1 truncate">{a.name}</span>
+                  {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
                 </button>
               ))}
             </div>
           )}
         </div>
-      </div>
+    </div>
+  );
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {selection.group === 'general' && selectedSection && (
-          selectedSection.ready
-            ? (
-              (selectedSection.key === 'users' && <UsersTab />) ||
-              (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
-              (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
-              (selectedSection.key === 'networking' && <NetworkingTab />)
-            )
-            : <ComingSoon label={selectedSection.label} />
-        )}
-        {selection.group === 'apps' && selectedApp && (
-          // max-w-lg (512px) used to cap this no matter how wide the window
-          // got, so resizing did nothing and every app panel scrolled inside a
-          // narrow column. `max-w-4xl` still keeps form text at a readable
-          // measure; `h-full min-h-0` is what lets a declarative panel's
-          // iframe grow with the window instead of sitting at its 320px floor
-          // while the pane scrolls around it (see .appcfg-appwindow in
-          // index.css). `min-h-full` not `h-full`: a panel plus a long schema
-          // form can exceed the pane, and capping it there squeezed the panel
-          // to a few px instead of letting the pane scroll.
-          <div className="flex flex-col min-h-full max-w-4xl">
-            <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{selectedApp.name}</h3>
-            <p className="text-[11px] text-[var(--color-text-muted)] mb-3">{selectedApp.slug} · v{selectedApp.version}</p>
-            <AppConfigBody app={selectedApp} />
-          </div>
-        )}
-        {selection.group === 'apps' && !selectedApp && apps.length > 0 && (
-          <div className="flex items-center justify-center h-full text-sm text-[var(--color-text-muted)]">
-            Select an app on the left.
-          </div>
-        )}
+  const content = (
+    <div className="flex-1 min-w-0 overflow-y-auto p-4">
+        {/* Keyed by selection so switching sections remounts a fresh boundary —
+            a crashed section stays contained to itself and the sidebar (outside
+            this boundary) still lets the user reach every other section. */}
+        <ErrorBoundary
+          key={`${selection.group}:${selection.key}`}
+          label={selectedSection?.label || selectedApp?.name || 'Settings section'}
+          fallback={
+            <div className="flex flex-col items-center justify-center h-full text-center px-6">
+              <p className="text-sm text-[var(--color-danger)]">
+                {selectedSection?.label || selectedApp?.name || 'This section'} crashed and
+                couldn't be displayed. The rest of Settings still works — pick another section
+                {isNarrow ? ' from the list behind Back.' : ' on the left.'}
+              </p>
+            </div>
+          }
+        >
+          {selection.group === 'general' && selectedSection && (
+            selectedSection.ready
+              ? (
+                (selectedSection.key === 'users' && <UsersTab />) ||
+                (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
+                (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
+                (selectedSection.key === 'networking' && <NetworkingTab />)
+              )
+              : <ComingSoon label={selectedSection.label} />
+          )}
+          {selection.group === 'apps' && selectedApp && (
+            // max-w-lg (512px) used to cap this no matter how wide the window
+            // got, so resizing did nothing and every app panel scrolled inside a
+            // narrow column. `max-w-4xl` still keeps form text at a readable
+            // measure; `h-full min-h-0` is what lets a declarative panel's
+            // iframe grow with the window instead of sitting at its 320px floor
+            // while the pane scrolls around it (see .appcfg-appwindow in
+            // index.css). `min-h-full` not `h-full`: a panel plus a long schema
+            // form can exceed the pane, and capping it there squeezed the panel
+            // to a few px instead of letting the pane scroll.
+            <div className="flex flex-col min-h-full max-w-4xl">
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{selectedApp.name}</h3>
+              <p className="text-[11px] text-[var(--color-text-muted)] mb-3">{selectedApp.slug} · v{selectedApp.version}</p>
+              <AppConfigBody app={selectedApp} />
+            </div>
+          )}
+          {selection.group === 'apps' && !selectedApp && apps.length > 0 && (
+            <div className="flex items-center justify-center h-full text-sm text-[var(--color-text-muted)]">
+              {isNarrow ? 'Pick an app from the list.' : 'Select an app on the left.'}
+            </div>
+          )}
+        </ErrorBoundary>
+    </div>
+  );
+
+  // Wide: nav and content side by side — the original layout, untouched.
+  if (!isNarrow) {
+    return (
+      <div className="h-full flex bg-[var(--color-bg-primary)] overflow-hidden">
+        {nav}
+        {content}
       </div>
+    );
+  }
+
+  // Narrow: one column. The list IS the screen until a section is picked, then
+  // the section is, with a back row to return. No fixed-width sidebar competing
+  // for a 390px viewport, so nothing needs horizontal panning.
+  const currentLabel = selectedSection?.label || selectedApp?.name || 'Settings';
+
+  return (
+    <div className="h-full flex flex-col bg-[var(--color-bg-primary)] overflow-hidden">
+      {!detailOpen ? nav : (
+        <>
+          <button
+            type="button"
+            onClick={() => setDetailOpen(false)}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-header)] text-[var(--color-text-primary)] text-[14px] font-medium active:bg-white/10"
+          >
+            <BackChevron />
+            <span className="text-[var(--color-text-muted)]">Settings</span>
+            <span className="text-[var(--color-text-muted)]">/</span>
+            <span className="truncate">{currentLabel}</span>
+          </button>
+          {content}
+        </>
+      )}
     </div>
   );
 }

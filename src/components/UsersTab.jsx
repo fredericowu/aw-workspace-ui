@@ -91,6 +91,7 @@ function AppChipsInput({ value, onChange, knownApps }) {
 
 export default function UsersTab() {
   const [users, setUsers] = useState(null);
+  const [loadError, setLoadError] = useState('');
   const [knownApps, setKnownApps] = useState([]);
   const [loginUrl, setLoginUrl] = useState('');
   const [message, setMessage] = useState('');
@@ -108,7 +109,19 @@ export default function UsersTab() {
 
   const load = async () => {
     const res = await apiFetch('/api/guest-users');
-    if (res.ok) setUsers(await res.json());
+    if (!res.ok) {
+      setLoadError(`Failed to load users (HTTP ${res.status})`);
+      setUsers([]);
+      return;
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      setLoadError('Failed to load users: server returned an unexpected response');
+      setUsers([]);
+      return;
+    }
+    setLoadError('');
+    setUsers(data);
   };
 
   useEffect(() => {
@@ -188,6 +201,15 @@ export default function UsersTab() {
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Users</h2>
         {message && <span className="text-xs text-[var(--color-text-muted)]">{message}</span>}
       </div>
+      {loadError && (
+        <p
+          data-testid="users-load-error"
+          role="alert"
+          className="text-xs text-[var(--color-danger)] mb-3"
+        >
+          {loadError}
+        </p>
+      )}
       <p className="text-xs text-[var(--color-text-muted)] mb-1">
         Scoped guest logins — a username/password limited to specific apps. A guest can
         never reach the dashboard, any other app, or internal APIs — only the apps you list here.
