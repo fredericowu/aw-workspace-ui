@@ -127,6 +127,26 @@ export async function fetchRemoteHosts(slug) {
  * backend speaks snake_case on every other route, and one endpoint bending to
  * this file's convention would be a worse trade than eight lines of mapping.
  */
+/**
+ * The host's own bootstrap-eligibility verdict, or `null` when its agent sent
+ * none.
+ *
+ * `null` is a THIRD answer, not a falsy "no". An agent too old for the field
+ * said nothing about root, /dev/net/tun or systemd, and
+ * `bootstrapEligibility` keeps its honest-unknown for exactly that host. A
+ * `{canEnroll: false}` here would report a refusal nobody ever made.
+ */
+function mapEligibility(raw) {
+  if (!raw || typeof raw.can_enroll !== 'boolean') return null;
+  return {
+    canEnroll: raw.can_enroll,
+    enrollRefusal: raw.enroll_refusal || '',
+    canAdvertiseExit: !!raw.can_advertise_exit,
+    exitRefusal: raw.exit_refusal || '',
+    installer: raw.installer || null,
+  };
+}
+
 export async function fetchMeshStatus(slug) {
   try {
     const s = slug || (await resolveAccountSlug());
@@ -142,6 +162,7 @@ export async function fetchMeshStatus(slug) {
         path: node?.path || null,
         via: node?.via || null,
         exitNode: node?.exit_node || null,
+        eligibility: mapEligibility(node?.eligibility),
       };
     }
     return {
@@ -157,21 +178,54 @@ export async function fetchMeshStatus(slug) {
 /**
  * Can this host be bootstrapped into the mesh — and if not, WHY.
  *
- * Three states on purpose, and the middle one is the point. Full eligibility
- * is Linux + root + `/dev/net/tun` + a reachable endpoint, and of those only
- * the OS is in the host row; root and tun are things the agent has to report
- * and nothing reports them yet. So:
+ * Three states on purpose, and the middle one is the point:
  *
- *   'no'      — provable right now from `os`. Written reason, always.
- *   'unknown' — passes the OS gate, the rest is genuinely not known here.
- *   'yes'     — reserved for when the agent actually says so. Never guessed.
+ *   'no'      — the agent said so, or it is provable from `os`. Written
+ *               reason, always.
+ *   'unknown' — passes the OS gate and no agent has answered. Genuinely not
+ *               known here.
+ *   'yes'     — ONLY when the agent said so. Never guessed.
  *
- * Claiming 'yes' off `os === 'linux'` alone would be inventing the two facts
- * that actually decide it. A greyed-out button with no sentence next to it
- * reads as a bug, which is why every 'no'/'unknown' carries `reason`.
+ * `node` is this host's mesh-status entry (see `fetchMeshStatus`), and its
+ * `eligibility` is the agent's own verdict: root, `/dev/net/tun`, systemd and
+ * the OS, probed on the machine itself, with a complete sentence attached.
+ * When it is there it WINS — including its sentence, which names the thing to
+ * fix, where a reason composed here can only restate the boolean.
+ *
+ * When it is absent nothing below changes. A host that never reported is not
+ * a host that reported "no", and collapsing the two is what this function's
+ * three states exist to prevent. In particular 'yes' is still never inferred
+ * from `os === 'linux'` — that would invent the very facts that decide it.
+ *
+ * A greyed-out button with no sentence next to it reads as a bug, which is
+ * why every verdict carries `reason`.
  */
-export function bootstrapEligibility(host) {
+export function bootstrapEligibility(host, node) {
   const os = (host?.os || '').toLowerCase();
+
+  // The agent's verdict first, whatever the OS: it measured this machine and
+  // nothing here did. A macOS host that reports itself enrollable is right
+  // and the OS rule below is out of date, not the other way round.
+  const reported = node?.eligibility;
+  if (reported) {
+    if (reported.canEnroll) {
+      return {
+        state: 'yes',
+        label: 'Eligible',
+        reason: reported.installer
+          ? `This host's agent reports it can join the mesh — tailscale would be installed with \`${reported.installer}\`.`
+          : "This host's agent reports it can join the mesh.",
+      };
+    }
+    return {
+      state: 'no',
+      label: 'Not eligible',
+      // The agent's own sentence, verbatim. It is the only part of this that
+      // says what to change on that machine.
+      reason: reported.enrollRefusal
+        || "This host's agent reports it cannot join the mesh, without saying why.",
+    };
+  }
 
   if (os === 'darwin') {
     return {
@@ -196,11 +250,15 @@ export function bootstrapEligibility(host) {
       reason: 'This host has not reported an operating system.',
     };
   }
+  // Still 'unknown', still the honest answer — but the blame moved. The
+  // verdict IS reported now; THIS host has not sent one, because it is
+  // offline, timed out, or runs an agent older than the field.
   return {
     state: 'unknown',
     label: 'Eligibility unconfirmed',
-    reason: 'Linux clears the first requirement, but root and /dev/net/tun are not '
-      + 'reported by any API yet — no agent data.',
+    reason: 'Linux clears the first requirement, but root, /dev/net/tun and systemd '
+      + "are only knowable from the host itself and this one's agent has not "
+      + 'reported them — no agent data.',
   };
 }
 

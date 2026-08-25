@@ -29,6 +29,17 @@ const MESH = {
     '11e8bd4157845a24': {
       reported: true, up: true, mesh_ip: '100.64.0.1', node_name: 'aw-baremetal',
       path: 'direct', via: '65.109.66.88:41641', exit_node: null, offers_exit: true,
+      // The agent's own verdict, as `aw-remote-host vpn` prints it on this
+      // host: root with /dev/net/tun, but nothing to keep tailscaled alive.
+      eligibility: {
+        can_enroll: false,
+        enroll_refusal: '/run/systemd/system does not exist, so systemd is not managing '
+          + 'this host and this module has no other way to keep tailscaled running '
+          + 'across reboots.',
+        can_advertise_exit: false,
+        exit_refusal: 'this host cannot join the mesh at all: /run/systemd/system does not exist.',
+        installer: '',
+      },
     },
     caf475b7032ee441: {
       reported: true, up: true, mesh_ip: '100.64.0.2', node_name: 'aw-surface-wsl',
@@ -93,6 +104,65 @@ describe('bootstrapEligibility', () => {
     for (const os of ['linux', 'windows', 'darwin', '']) {
       expect(bootstrapEligibility({ os }).reason).toBeTruthy();
     }
+  });
+
+  // The three branches the agent's verdict introduces. The third is the one
+  // that must not move: a host that never reported is NOT a host that
+  // reported "no".
+  it("prefers the agent's refusal, with the agent's own sentence", () => {
+    const verdict = bootstrapEligibility({ os: 'linux' }, {
+      eligibility: {
+        canEnroll: false,
+        enrollRefusal: '/run/systemd/system does not exist, so systemd is not managing '
+          + 'this host and this module has no other way to keep tailscaled running '
+          + 'across reboots.',
+        canAdvertiseExit: false,
+      },
+    });
+
+    expect(verdict.state).toBe('no');
+    // Verbatim — the sentence names what to fix; a generic "not eligible"
+    // does not, which is the whole reason it is carried across three repos.
+    expect(verdict.reason).toMatch(/\/run\/systemd\/system does not exist/);
+    expect(verdict.reason).not.toMatch(/no agent data/i);
+  });
+
+  it("says 'yes' only when the agent said so", () => {
+    const verdict = bootstrapEligibility({ os: 'linux' }, {
+      eligibility: { canEnroll: true, enrollRefusal: '', installer: 'tailscale.com/install.sh' },
+    });
+
+    expect(verdict.state).toBe('yes');
+    expect(verdict.reason).toMatch(/tailscale\.com\/install\.sh/);
+  });
+
+  it('leaves a host that reported no verdict exactly as it was', () => {
+    // Every shape of "no verdict here": no node at all, a node that reported
+    // nothing, and a node on the mesh whose agent predates the field. All
+    // three are the honest-unknown, none of them is a refusal.
+    for (const node of [
+      undefined,
+      null,
+      { reported: false, reason: 'the host did not answer within 25s' },
+      { reported: true, up: true, meshIp: '100.64.0.1', eligibility: null },
+    ]) {
+      const verdict = bootstrapEligibility({ os: 'linux' }, node);
+      expect(verdict.state).toBe('unknown');
+      expect(verdict.label).toBe('Eligibility unconfirmed');
+      expect(verdict.reason).toMatch(/no agent data/i);
+    }
+  });
+
+  it('does not let a non-Linux host be refused for the wrong reason when it reported', () => {
+    // The OS rules below are a fallback for hosts that never answered. An
+    // agent that measured the machine outranks them — including a macOS one
+    // that says it CAN enrol, which the os === 'darwin' rule would deny.
+    const mac = bootstrapEligibility({ os: 'darwin' }, {
+      eligibility: { canEnroll: true, enrollRefusal: '', installer: 'brew install tailscale' },
+    });
+
+    expect(mac.state).toBe('yes');
+    expect(mac.reason).toMatch(/brew install tailscale/);
   });
 });
 
@@ -203,6 +273,30 @@ describe('NetworkingTab', () => {
 
     expect(row.textContent).toMatch(/path unmeasured/i);
     expect(row.textContent).not.toMatch(/\bdirect\b|\brelay\b/);
+  });
+
+  it("renders the agent's verdict on the row, and leaves a silent host unconfirmed", async () => {
+    // Both halves in one assertion pair, because the bug was the two being
+    // confused: the host that ANSWERED reads as a refusal with its own
+    // sentence, the host that never answered still reads as unknown.
+    mockApi();
+    render(<NetworkingTab />);
+    const awRow = (await screen.findByText('b614f41828c8')).closest('div.py-3');
+
+    expect(awRow.textContent).toMatch(/Not eligible/);
+    expect(awRow.textContent).toMatch(/\/run\/systemd\/system does not exist/);
+    expect(awRow.textContent).not.toMatch(/Eligibility unconfirmed/);
+
+    // An offline Linux link — in the mesh-status response, but with nothing
+    // to say. Still 'unconfirmed', and no sentence borrowed from the host
+    // above that DID answer.
+    fireEvent.click(screen.getByRole('button', { name: /offline links \(2\)/i }));
+    const silentRow = screen.getAllByText('DESKTOP-DRMKFBT').at(-1).closest('div.py-3');
+
+    expect(silentRow.textContent).toMatch(/Eligibility unconfirmed/);
+    expect(silentRow.textContent).toMatch(/no agent data/i);
+    expect(silentRow.textContent).not.toMatch(/\/run\/systemd\/system does not exist/);
+    expect(silentRow.textContent).not.toMatch(/Not eligible/);
   });
 
   it('keeps every bootstrap button disabled — the real one is another card', async () => {

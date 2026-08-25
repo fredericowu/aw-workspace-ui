@@ -63,9 +63,21 @@ const MESH = {
       reported: true, up: false,
       reason: 'the tailscale CLI is not installed on this host',
     },
+    // Not on the mesh AND carrying its own verdict about why it could not
+    // be: the two answers arrive together, and the second is what the row
+    // used to render as "unconfirmed — not reported by any API yet".
     '11e8bd4157845a24': {
       reported: true, up: false,
       reason: 'the tailscale CLI is not installed on this host',
+      eligibility: {
+        can_enroll: false,
+        enroll_refusal: '/run/systemd/system does not exist, so systemd is not managing '
+          + 'this host and this module has no other way to keep tailscaled running '
+          + 'across reboots.',
+        can_advertise_exit: false,
+        exit_refusal: 'this host cannot join the mesh at all: /run/systemd/system does not exist.',
+        installer: '',
+      },
     },
     ...Object.fromEntries(
       ['6bb0d0fbf5b22492', '8435edb900436230', '70cd8a5a3389c542', '739ff3c351dcdd02', '5d46be8ba50b6acb']
@@ -140,6 +152,8 @@ test.describe('Settings NEW › General › Networking', () => {
     // 2. The reason, as visible text on the page — not only in a tooltip.
     await expect(page.getByText(/Not Linux \(windows\)/)).toBeVisible();
     await expect(page.getByText(/macOS — automatic bootstrap is Linux-only/)).toBeVisible();
+    //    ...and where the host itself answered, ITS sentence, not ours.
+    await expect(page.getByText(/\/run\/systemd\/system does not exist/)).toBeVisible();
 
     // 3. Real mesh state: the address each host reported, and the path
     //    somebody else measured to it.

@@ -153,7 +153,12 @@ function MeshState({ mesh, hostId }) {
 }
 
 function HostRow({ host, mesh }) {
-  const eligibility = bootstrapEligibility(host);
+  // The same mesh-status entry MeshState renders below: the agent reports
+  // "am I on the mesh" and "could I be" in one payload, and the second half
+  // is what keeps this row from saying "unconfirmed" about a fact the host
+  // already answered.
+  const node = mesh?.available ? mesh.nodes?.[host.id] : null;
+  const eligibility = bootstrapEligibility(host, node);
   const tone = { yes: 'ok', no: 'err', unknown: 'warn' }[eligibility.state] || 'muted';
 
   return (
