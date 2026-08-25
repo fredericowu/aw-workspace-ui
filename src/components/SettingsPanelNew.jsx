@@ -16,6 +16,7 @@ import { useState, useEffect, useMemo } from 'react';
 import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
+import NetworkingTab from './NetworkingTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import { listInstalledApps } from '../apps/appsApi';
@@ -26,7 +27,14 @@ const GENERAL_SECTIONS = [
   { key: 'integrations', label: 'Integrations', ready: true },
   { key: 'marketplace', label: 'Marketplace', ready: true },
   { key: 'tcp-proxy', label: 'TCP Proxy', ready: false },
-  { key: 'vpn', label: 'VPN', ready: false },
+  // Was `{ key: 'vpn', label: 'VPN' }`. Renamed, not just relabelled: the scope
+  // grew from "a VPN with an exit node" to the tenant's whole private mesh, of
+  // which the exit gate is one feature. Keeping `vpn` would also collide with
+  // the legacy SettingsPanel's own `vpn` tab, which is a different thing
+  // entirely (the WireGuard/Nord client config in VpnTab.jsx) — nothing outside
+  // this file reads these keys today, so the collision is worth removing now
+  // rather than after someone wires the two panels' ids together.
+  { key: 'networking', label: 'Networking', ready: true },
   { key: 'proxy', label: 'Cookies', ready: false },
   { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false },
   { key: 'backup', label: 'Backup', ready: false },
@@ -162,7 +170,8 @@ export default function SettingsPanelNew() {
             ? (
               (selectedSection.key === 'users' && <UsersTab />) ||
               (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
-              (selectedSection.key === 'marketplace' && <MarketplaceTab />)
+              (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
+              (selectedSection.key === 'networking' && <NetworkingTab />)
             )
             : <ComingSoon label={selectedSection.label} />
         )}
