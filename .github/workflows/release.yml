@@ -56,17 +56,17 @@ jobs:
       - name: Deploy via aw-console webhook
         env:
           WEBHOOK_TOKEN: ${{ secrets.AW_FRONTEND_DEPLOY_TOKEN }}
-          GITHUB_TOKEN_FOR_ARTIFACT: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          payload="$(jq -n \
-            --arg repository "$GITHUB_REPOSITORY" \
-            --arg run_id "$GITHUB_RUN_ID" \
-            --arg artifact_name "$ARTIFACT_NAME" \
-            --arg github_token "$GITHUB_TOKEN_FOR_ARTIFACT" \
-            --arg sha "$GITHUB_SHA" \
-            '{repository:$repository,run_id:$run_id,artifact_name:$artifact_name,github_token:$github_token,sha:$sha}')"
+          # Send the bytes we already have instead of asking aw-console to
+          # fetch them back out of the GitHub artifact API. That pull is what
+          # broke on 2026-08-25: the aw-console container has no outbound
+          # route to api.github.com (UND_ERR_CONNECT_TIMEOUT on :443), so
+          # every release failed at the download even though the build was
+          # green. It also means no GITHUB_TOKEN has to leave the runner.
+          ( cd dist && zip -qr ../dist.zip . )
+          echo "dist.zip is $(stat -c%s dist.zip) bytes"
 
           # NOT `curl -f`: on a non-2xx it discards the response body and exits
           # 22, which is all the log ever showed for the 2026-08-25 outage —
@@ -76,8 +76,11 @@ jobs:
           status="$(curl -sS -o /tmp/deploy-response.json -w '%{http_code}' \
             -X POST "$AW_CONSOLE_DEPLOY_URL" \
             -H "Authorization: Bearer $WEBHOOK_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data "$payload")"
+            -H "Content-Type: application/zip" \
+            -H "X-AW-Repository: $GITHUB_REPOSITORY" \
+            -H "X-AW-Run-Id: $GITHUB_RUN_ID" \
+            -H "X-AW-Sha: $GITHUB_SHA" \
+            --data-binary @dist.zip)"
 
           echo "aw-console responded HTTP $status:"
           cat /tmp/deploy-response.json
