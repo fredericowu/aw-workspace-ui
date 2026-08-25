@@ -19,7 +19,7 @@
 // narrow layout is list-then-detail instead: the nav fills the width, tapping
 // a section swaps to its content with a back button. Above 768px nothing
 // changed — `detailOpen` is not consulted on that path at all.
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
@@ -80,27 +80,33 @@ function ComingSoon({ label }) {
 // downgrade. The viewport is what actually decides whether there is room.
 const NARROW_QUERY = '(max-width: 767px)';
 
+function narrowMediaQuery() {
+  return typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia(NARROW_QUERY)
+    : null;
+}
+
+function subscribeNarrow(onChange) {
+  const mq = narrowMediaQuery();
+  if (!mq) return () => {};
+  // addListener is the deprecated spelling, still the only one Safari < 14
+  // supports — this screen is read on iPhones, so keep the fallback.
+  if (mq.addEventListener) mq.addEventListener('change', onChange);
+  else mq.addListener(onChange);
+  return () => {
+    if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+    else mq.removeListener(onChange);
+  };
+}
+
+const getNarrowSnapshot = () => narrowMediaQuery()?.matches ?? false;
+
+// useSyncExternalStore rather than useState+useEffect: matchMedia IS an
+// external store, and reading it in an effect meant a first paint at the wrong
+// layout plus a setState-in-effect cascade (the lint rule that flagged it is
+// right — on a phone that extra frame is a visible flash of the sidebar).
 function useIsNarrow() {
-  const [narrow, setNarrow] = useState(
-    () => (typeof window !== 'undefined' && window.matchMedia
-      ? window.matchMedia(NARROW_QUERY).matches
-      : false)
-  );
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
-    const mq = window.matchMedia(NARROW_QUERY);
-    const onChange = (e) => setNarrow(e.matches);
-    setNarrow(mq.matches);
-    // addListener is the deprecated spelling, still the only one Safari < 14
-    // supports — this screen is read on iPhones, so keep the fallback.
-    if (mq.addEventListener) mq.addEventListener('change', onChange);
-    else mq.addListener(onChange);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
-      else mq.removeListener(onChange);
-    };
-  }, []);
-  return narrow;
+  return useSyncExternalStore(subscribeNarrow, getNarrowSnapshot, () => false);
 }
 
 function BackChevron() {
@@ -310,6 +316,12 @@ export default function SettingsPanelNew() {
           <button
             type="button"
             onClick={() => setDetailOpen(false)}
+            // Explicit label: the visible crumb is three separate spans, and
+            // the computed name for those differs between jsdom ("Settings/X")
+            // and a real browser ("Settings / X") — which made the same test
+            // pass in Playwright and fail in vitest. Naming it outright also
+            // reads better than a path when it's announced aloud.
+            aria-label={`Back to Settings — ${currentLabel}`}
             className="shrink-0 flex items-center gap-1.5 px-3 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-header)] text-[var(--color-text-primary)] text-[14px] font-medium active:bg-white/10"
           >
             <BackChevron />

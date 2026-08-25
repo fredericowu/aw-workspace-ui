@@ -9,6 +9,7 @@ import AppSlot from '../apps/AppSlot';
 import { windowBodySlot } from '../apps/slotRegistry';
 import { usePluginContributions } from '../apps/usePluginContributions';
 import SettingsPanel from './SettingsPanel';
+import SettingsPanelNew from './SettingsPanelNew';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
 
@@ -2041,13 +2042,29 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
         {workspaceOpen && (
           <div className="space-y-1.5">
 
-            {/* Settings */}
+            {/* Settings — BOTH panels, mirroring the desktop shell (Workspace >
+                Settings and Profile > Settings NEW). Deliberately not a swap:
+                the legacy panel is the only place AW Config, TCP Proxy, Cookies,
+                Feed Subscriber, Backup, Skills and MCP Servers actually work —
+                they are still `ready: false` placeholders in SettingsPanelNew,
+                so replacing one with the other would take seven working screens
+                off the phone. When the legacy panel is retired on desktop, this
+                entry goes with it. */}
             <div
               onClick={() => onOpenModal('Settings', <SettingsPanel />)}
               className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--color-bg-secondary)] rounded-lg border border-[var(--color-border)] active:bg-white/5 cursor-pointer"
             >
               <span className="text-[var(--color-text-muted)]"><IconGear /></span>
               <span className="text-[13px] font-medium">Settings</span>
+            </div>
+
+            {/* Settings NEW */}
+            <div
+              onClick={() => onOpenModal('Settings NEW', <SettingsPanelNew />)}
+              className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--color-bg-secondary)] rounded-lg border border-[var(--color-border)] active:bg-white/5 cursor-pointer"
+            >
+              <span className="text-[var(--color-text-muted)]"><IconGear /></span>
+              <span className="text-[13px] font-medium">Settings NEW</span>
             </div>
 
             {/* Repos */}

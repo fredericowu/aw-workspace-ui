@@ -97,11 +97,14 @@ test.describe('Settings NEW › General › Networking', () => {
     await win.screenshot({ path: 'test-results/networking-hosts.png' });
   });
 
-  // 769px, not 390: at <=768 App.jsx swaps the whole shell for MobileApp, which
-  // mounts the LEGACY SettingsPanel — Settings NEW (and therefore this section)
-  // is not reachable from the phone shell at all today. That is pre-existing and
-  // outside this card, so what is checked here is the narrowest width at which
-  // this screen actually renders: the desktop shell one pixel above the switch.
+  // 769px, not 390: at <=768 App.jsx swaps the whole shell for MobileApp, so
+  // this is the narrowest width the DESKTOP shell ever renders — one pixel above
+  // the switch, where the sidebar layout still has to hold up.
+  //
+  // The phone side is no longer a gap: SettingsPanelNew went responsive and
+  // MobileApp mounts it, covered at a real 390px in mobile-settings-new.spec.js.
+  // This case stays because the two layouts are different code paths and the
+  // narrow end of the wide one is still worth pinning.
   test('reads at the narrowest width the desktop shell renders', async ({ page }) => {
     await page.setViewportSize({ width: 769, height: 900 });
     await openNetworking(page);
