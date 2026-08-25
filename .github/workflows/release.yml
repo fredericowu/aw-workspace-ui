@@ -68,13 +68,27 @@ jobs:
             --arg sha "$GITHUB_SHA" \
             '{repository:$repository,run_id:$run_id,artifact_name:$artifact_name,github_token:$github_token,sha:$sha}')"
 
-          response="$(curl -fsS \
+          # NOT `curl -f`: on a non-2xx it discards the response body and exits
+          # 22, which is all the log ever showed for the 2026-08-25 outage —
+          # "error: 500" and nothing about WHY. aw-console answers every
+          # failure with a JSON {ok:false,error:"…"} naming the real cause, so
+          # capture the body and the status separately and print the body.
+          status="$(curl -sS -o /tmp/deploy-response.json -w '%{http_code}' \
             -X POST "$AW_CONSOLE_DEPLOY_URL" \
             -H "Authorization: Bearer $WEBHOOK_TOKEN" \
             -H "Content-Type: application/json" \
             --data "$payload")"
 
-          echo "$response" | jq -e '.ok == true' >/dev/null
+          echo "aw-console responded HTTP $status:"
+          cat /tmp/deploy-response.json
+          echo ""
+
+          if [ "$status" != "200" ]; then
+            echo "::error::aw-console deploy webhook returned HTTP $status: $(jq -r '.error // "no error field"' /tmp/deploy-response.json 2>/dev/null || cat /tmp/deploy-response.json)"
+            exit 1
+          fi
+
+          jq -e '.ok == true' /tmp/deploy-response.json >/dev/null
 
       - name: Summary
         run: |
