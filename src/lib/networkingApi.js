@@ -28,6 +28,7 @@
  * silent-degradation failure this workspace keeps getting bitten by.
  */
 import { apiFetch } from '../auth';
+import { centralApiUrl } from '../apiBase';
 
 /**
  * Path of the mesh-status endpoint, or `null` while it doesn't exist.
@@ -64,9 +65,14 @@ async function readJson(res) {
  * the owner membership when the caller is a host token, and an owner is
  * guaranteed to pass its `is_member_of` check. Any membership works as a
  * fallback — the response is account-wide either way.
+ *
+ * This route lives on the CENTRAL aw-backend plane, not this workspace's own
+ * BYOD API — `centralApiUrl` resolves the right origin on a workspace SPA
+ * host (see apiBase.js) instead of letting it resolve same-origin, where it
+ * 404s.
  */
 export async function resolveAccountSlug() {
-  const me = await apiFetch('/api/identity/me').then(readJson);
+  const me = await apiFetch(centralApiUrl('/api/identity/me')).then(readJson);
   const memberships = Array.isArray(me?.memberships) ? me.memberships : [];
   const owner = memberships.find((m) => m.role === 'owner');
   const slug = (owner || memberships[0])?.workspace;
@@ -82,10 +88,13 @@ export async function resolveAccountSlug() {
  * with different ids. A re-link leaves the previous row behind (the Surface
  * has four), and one machine can carry both a Windows and a WSL2 link. Rows
  * are per LINK, never per machine — don't dedupe them away.
+ *
+ * Also a CENTRAL aw-backend route (see resolveAccountSlug above) — same
+ * `centralApiUrl` treatment applies.
  */
 export async function fetchRemoteHosts(slug) {
   const s = slug || (await resolveAccountSlug());
-  const data = await apiFetch(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts`).then(readJson);
+  const data = await apiFetch(centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts`)).then(readJson);
   return Array.isArray(data?.hosts) ? data.hosts : [];
 }
 

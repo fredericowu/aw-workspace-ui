@@ -147,6 +147,22 @@ export function identityLogoutUrl() {
   return `${window.location.protocol}//api.${BASES.apex}/api/identity/logout`;
 }
 
+/** Absolute URL for a path on the CENTRAL aw-backend API (`api.<apex>`) — the
+ *  cloud control-plane that owns identity and the workspace registry
+ *  (`/api/identity/*`, `/api/workspaces/*`), as opposed to THIS workspace's
+ *  own BYOD data-plane API that `apiUrl`/`activeApi` route to above. The two
+ *  are different hosts on a workspace SPA host; routing a central-plane path
+ *  through `apiFetch`'s default same-origin behavior 404s because this
+ *  workspace's own API never served it. On a non-workspace host (the
+ *  single-tenant dashboard, dev, previews) returns the path unchanged — that
+ *  host is aw-backend's own origin already. Never hardcodes the domain:
+ *  `apex` is derived from window.location the same way deriveBases() does. */
+export function centralApiUrl(path) {
+  if (!BASES.apex) return path;
+  if (typeof path !== 'string' || !path.startsWith('/')) return path;
+  return `${window.location.protocol}//api.${BASES.apex}${path}`;
+}
+
 /** Absolute URL for a same-origin `/api/*` or `/ws/*` path, routed to the
  *  workspace API. On a non-workspace host, returns the path unchanged
  *  (same-origin). */
