@@ -1011,11 +1011,84 @@ button, [role="button"] { cursor: pointer; }
 }
 .mcpgw-token-btn:hover { background: rgba(255,255,255,.1); color: var(--color-text-primary); }
 
+.mcpgw-token-btn.is-danger { color: #fca5a5; border-color: rgba(248,113,113,.3); }
+.mcpgw-token-btn.is-danger:hover { background: rgba(248,113,113,.12); color: #fecaca; }
+
+/* Named configs (scoped /mcp/{name} endpoints) */
+.mcpgw-cfg-add { display: flex; align-items: center; gap: 6px; }
+.mcpgw-cfg-add input {
+  flex: 1; min-width: 0; padding: 7px 9px; border-radius: 6px;
+  border: 1px solid var(--color-border); background: var(--color-bg-primary);
+  color: var(--color-text-primary); font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-cfg-add input:focus { outline: none; border-color: var(--color-accent); }
+.mcpgw-cfg-list { display: flex; flex-direction: column; gap: 8px; }
+.mcpgw-cfg {
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: rgba(0,0,0,.12); overflow: hidden;
+}
+.mcpgw-cfg-head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-wrap: wrap;
+}
+.mcpgw-cfg-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  text-align: left; cursor: pointer; color: var(--color-text-primary);
+}
+.mcpgw-cfg-caret { font-size: 9px; color: var(--color-text-muted); transition: transform .15s; }
+.mcpgw-cfg-caret.is-open { transform: rotate(90deg); }
+.mcpgw-cfg-endpoint {
+  min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-cfg-body { border-top: 1px solid var(--color-border); }
+.mcpgw-cfg-upstream + .mcpgw-cfg-upstream { border-top: 1px solid var(--color-border); }
+.mcpgw-cfg-upstream-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+}
+.mcpgw-cfg-spacer { flex: 1; }
+.mcpgw-switch {
+  position: relative; width: 34px; height: 19px; flex-shrink: 0; border-radius: 999px;
+  background: rgba(255,255,255,.12); border: none; cursor: pointer; transition: background .15s;
+}
+.mcpgw-switch.is-on { background: var(--color-accent); }
+.mcpgw-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px;
+  border-radius: 50%; background: #fff; transition: transform .15s;
+}
+.mcpgw-switch.is-on::after { transform: translateX(15px); }
+.mcpgw-cfg-policy {
+  margin: 0 12px 10px 26px; padding: 10px 12px;
+  border-left: 2px solid var(--color-accent); border-radius: 0 6px 6px 0;
+  background: rgba(255,255,255,.03); display: flex; flex-direction: column; gap: 8px;
+}
+.mcpgw-cfg-policy-head { display: flex; flex-direction: column; gap: 3px; }
+.mcpgw-cfg-policy-head strong { font-size: 12px; color: var(--color-text-primary); }
+.mcpgw-cfg-policy-head span { font-size: 10px; line-height: 1.45; color: var(--color-text-muted); }
+.mcpgw-cfg-policy-head code {
+  padding: 0 3px; border-radius: 3px; background: rgba(255,255,255,.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-cfg-field { display: flex; flex-direction: column; gap: 3px; }
+.mcpgw-cfg-field-label { font-size: 10px; font-weight: 700; color: var(--color-text-muted); }
+.mcpgw-cfg-field-hint { font-size: 10px; color: var(--color-text-muted); }
+.mcpgw-cfg-field input {
+  padding: 6px 9px; border-radius: 6px; border: 1px solid var(--color-border);
+  background: var(--color-bg-primary); color: var(--color-text-primary); font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-cfg-field input:focus { outline: none; border-color: var(--color-accent); }
+.mcpgw-cfg-field.is-warn input { border-color: rgba(245,166,35,.4); }
+.mcpgw-cfg-field.is-ok input { border-color: rgba(74,222,128,.35); }
+
 @media (max-width: 680px) {
   .mcpgw-head { flex-direction: column; }
   .mcpgw-grid { grid-template-columns: 1fr; }
   .mcpgw-token-row { flex-wrap: wrap; }
   .mcpgw-token-value { flex-basis: 100%; }
+  .mcpgw-cfg-endpoint { flex-basis: 100%; max-width: none; }
+  .mcpgw-cfg-policy { margin-left: 12px; }
 }
 
 /* Declarative AppWindow (windows/main.json widgets) — used standalone and

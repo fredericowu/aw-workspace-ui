@@ -8,6 +8,7 @@ import { apiFetch } from '../auth';
 import { fetchContributions } from '../apps/appsApi';
 import AppWindow from './AppWindow';
 import McpGatewayConfigEditor from './McpGatewayConfigEditor';
+import McpGatewayNamedConfigs from './McpGatewayNamedConfigs';
 import JsonConfigEditor from './JsonConfigEditor';
 
 function fieldType(spec) {
@@ -214,7 +215,10 @@ export default function AppConfigBody({ app, onSaved }) {
         <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
       )}
       {isMcpGateway && (
-        <McpGatewayConfigEditor onSaved={onSaved} />
+        <>
+          <McpGatewayConfigEditor onSaved={onSaved} />
+          <McpGatewayNamedConfigs />
+        </>
       )}
       {isMcpTools && (
         <JsonConfigEditor app={app} onSaved={onSaved} />
