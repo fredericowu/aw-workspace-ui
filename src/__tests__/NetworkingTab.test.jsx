@@ -2,6 +2,27 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../auth', () => ({ apiFetch: vi.fn() }));
+
+// The scope refusal, as a per-test switch.
+//
+// Selecting an exit gate is refused outright while it moves the whole
+// MACHINE's default route instead of the containers' egress. That refusal has
+// its own tests ("selecting a gate is refused" below), and it defaults to ON
+// here exactly as it is in production.
+//
+// Every describe that turns it OFF is testing the picker BENEATH it: which
+// gates may be offered, what the confirmation has to say, how an unconfirmed
+// gate renders. None of that stops being required by the container-scoped
+// version — it is the spec that version inherits — so it keeps being tested
+// rather than deleted while the refusal stands.
+const scope = vi.hoisted(() => ({ refused: true }));
+vi.mock('../lib/networkingApi', async (importOriginal) => {
+  const actual = await importOriginal();
+  // A getter, so each render re-reads it and one test's value cannot leak
+  // into the next through a captured constant.
+  return { ...actual, get HOST_SCOPED_GATES_REFUSED() { return scope.refused; } };
+});
+
 import { apiFetch } from '../auth';
 import NetworkingTab from '../components/NetworkingTab';
 import { bootstrapEligibility } from '../lib/networkingApi';
@@ -407,7 +428,67 @@ describe('public IP', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The scope refusal — the screen's half of it.
+//
+// Applying a gate moves the whole MACHINE's default route when only the
+// containers' egress was meant to move, so no picker may be offered. The
+// binding refusals are aw-backend's 409 and the host's own; this is about the
+// screen not offering a button that would be refused.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('selecting a gate is refused', () => {
+  beforeEach(() => { apiFetch.mockReset(); scope.refused = true; });
+
+  it('offers no picker at all, and says why', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.queryByLabelText(/^Exit gate for /)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /review change/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/exit gate unavailable/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/public IP must not change/i).length).toBeGreaterThan(0);
+  });
+
+  it('never sends the request, even for a host that could take a gate', async () => {
+    // The bare metal runs production and is reachable from this screen. The
+    // refusal is not about capability, so a capable host must be refused too.
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(apiFetch.mock.calls.some(([url]) => EXIT_GATE_PATH.test(url))).toBe(false);
+  });
+
+  // THE ONE ACTION THAT SURVIVES. A host that took a selection before this
+  // landed is stuck on it, and this screen is where anyone would go to undo
+  // that. Removing the whole control would strand exactly those machines.
+  it('still lets a host already on a gate be cleared', async () => {
+    const onGate = {
+      ...MESH,
+      nodes: {
+        ...MESH.nodes,
+        caf475b7032ee441: { ...MESH.nodes.caf475b7032ee441, exit_node: 'aw-baremetal' },
+      },
+    };
+    mockApi({ mesh: onGate, exitGate: { cleared: true, egress: '188.250.165.236' } });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const clear = await screen.findByRole('button', { name: /clear \(aw-baremetal\)/i });
+    fireEvent.click(clear);
+
+    expect(await screen.findByText(/exit gate cleared/i)).toBeInTheDocument();
+    const [url, options] = apiFetch.mock.calls.find(([u]) => EXIT_GATE_PATH.test(u));
+    expect(url).toMatch(/caf475b7032ee441/);
+    expect(options.method).toBe('DELETE');
+  });
+});
+
 describe('exit gate picker', () => {
+  // The picker beneath the scope refusal — see the vi.mock at the top.
+  beforeEach(() => { scope.refused = false; });
+
   beforeEach(() => { apiFetch.mockReset(); });
 
   const gateSelect = () => screen.getAllByLabelText(/^Exit gate for /)[0];
@@ -563,6 +644,9 @@ function meshWithSurface(over = {}) {
 }
 
 describe('offering a host as an exit gate', () => {
+  // The picker beneath the scope refusal — see the vi.mock at the top.
+  beforeEach(() => { scope.refused = false; });
+
   beforeEach(() => { apiFetch.mockReset(); });
 
   it('never offers a host on one click when its agent attached a warning', async () => {
@@ -715,6 +799,9 @@ describe('offering a host as an exit gate', () => {
 });
 
 describe('a host that cannot be pointed at a gate says so', () => {
+  // The picker beneath the scope refusal — see the vi.mock at the top.
+  beforeEach(() => { scope.refused = false; });
+
   beforeEach(() => { apiFetch.mockReset(); });
 
   // The live case, measured 2026-08-26: b614f41828c8 (link 11e8bd41…) is the

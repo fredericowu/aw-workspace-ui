@@ -13,6 +13,8 @@ import {
   resolveAccountSlug,
   withdrawExitGate,
   CONTROL_PLANE_PLACEHOLDER,
+  HOST_SCOPED_GATES_REFUSED,
+  HOST_SCOPED_GATE_REFUSAL,
 } from '../lib/networkingApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -464,6 +466,58 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   // reads as a screen that forgot to render, and the fix ("approve the route
   // in headscale") lives somewhere the user would never think to look.
   if (!node?.reported || !node.up) return null;
+
+  // THE SCOPE REFUSAL. Applying a gate moves the whole MACHINE's default route
+  // — the host and every container on it — when the only egress that should
+  // move is the containers'. The host's own public IP is now the thing that
+  // must NOT change, so there is no version of this picker that is safe to
+  // offer until the rules are per container network.
+  //
+  // The API refuses it as well (409), and so does the host. This branch is not
+  // the enforcement; it is here so the screen does not offer an action that
+  // would be refused, which reads as a broken button rather than a decision.
+  //
+  // CLEAR SURVIVES, and deliberately: a host that took a selection before this
+  // landed is stuck on it, and this screen is the only place most people would
+  // go to get it off. Removing the whole control would strand exactly the
+  // machines that most need it.
+  if (HOST_SCOPED_GATES_REFUSED) {
+    return (
+      <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
+        <div className="flex items-start gap-2 flex-wrap">
+          <Pill tone="warn">exit gate unavailable</Pill>
+          <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+            {HOST_SCOPED_GATE_REFUSAL}
+          </span>
+        </div>
+        {inForce && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-amber-300">
+              This host is currently routed through <code className="font-mono">{inForce}</code>.
+            </span>
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={clear}
+              className="px-2 py-1 text-[11px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {busy === 'clear' ? 'Clearing…' : `Clear (${inForce})`}
+            </button>
+          </div>
+        )}
+        {result?.cleared && (
+          <div className="grid gap-1">
+            <Pill tone="ok">exit gate cleared</Pill>
+            <EgressDelta before={null} after={result.egressAfter} />
+            {result.egressError && (
+              <span className="text-[11px] text-[var(--color-danger)]">{result.egressError}</span>
+            )}
+          </div>
+        )}
+        {error && <div className="text-[11px] text-[var(--color-danger)] break-all">{error}</div>}
+      </div>
+    );
+  }
   // A host that says it cannot be pointed at a gate gets the sentence, not a
   // picker that would 409 after the click. `b614f41828c8` — the aw workspace's
   // own container — is the live case: no tailscale, no systemd, no `ip`, so it

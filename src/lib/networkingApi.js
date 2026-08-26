@@ -567,6 +567,36 @@ export function exitGateCandidates(hosts, mesh, hostId) {
 }
 
 /**
+ * Why selecting an exit gate is refused, in the words the screen shows.
+ *
+ * Applying a gate moves the whole MACHINE's default route — the host and every
+ * container on it — out through the gate. Only the containers' egress was ever
+ * meant to move: the host's own public IP is the thing that must NOT change.
+ * The first real apply took a Mac off the internet, and the same action is
+ * reachable against a bare metal running production.
+ *
+ * Kept in step with EXIT_GATE_HOST_SCOPE_REFUSAL in aw-backend's
+ * `src/api/routes/host_link.py` and vpn.HostRouteScopeRefusal in
+ * aw-remote-host. Three copies of a sentence is a cost worth paying here: each
+ * layer refuses independently, because the ones below it reach hosts only once
+ * their binaries are updated.
+ *
+ * CLEARING is never refused — a host already on a gate has to be able to get
+ * off one, and this screen is where people would go to do it.
+ */
+export const HOST_SCOPED_GATE_REFUSAL =
+  'Applying an exit gate moves the whole machine’s default route, and every container on it, '
+  + 'out through the gate — but the only egress that should move is the containers’. The '
+  + 'host’s own public IP must not change. Until container-scoped routing exists this is '
+  + 'refused, rather than keep offering a change that can take a production machine off the '
+  + 'internet.';
+
+/** Flips to false when the gate routes container networks instead of the
+ *  machine. Not readable from anything a caller controls: a bypass someone can
+ *  set is not a refusal. */
+export const HOST_SCOPED_GATES_REFUSED = true;
+
+/**
  * Route `hostId`'s traffic out through `node`, or preview what that would do.
  *
  * `plan: true` resolves the gate and the exclusions and changes NOTHING —
@@ -583,6 +613,11 @@ export function exitGateCandidates(hosts, mesh, hostId) {
  * with it and the two addresses are what the user needs to see.
  */
 export async function applyExitGate(slug, hostId, { node, plan = false } = {}) {
+  // No scope refusal here on purpose. It would sit inside the same bundle as
+  // the caller that already declines to render the control, so it enforces
+  // nothing the component has not enforced — the refusals that BIND are
+  // aw-backend's 409 and the host's own, both outside this trust boundary.
+  // See HOST_SCOPED_GATE_REFUSAL.
   const s = slug || (await resolveAccountSlug());
   const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-gate`);
   const data = await apiFetch(url, {
