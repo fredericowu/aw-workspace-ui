@@ -452,6 +452,22 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   // reads as a screen that forgot to render, and the fix ("approve the route
   // in headscale") lives somewhere the user would never think to look.
   if (!node?.reported || !node.up) return null;
+  // A host that says it cannot be pointed at a gate gets the sentence, not a
+  // picker that would 409 after the click. `b614f41828c8` — the aw workspace's
+  // own container — is the live case: no tailscale, no systemd, no `ip`, so it
+  // can never select one however many gates the mesh has. `false` only;
+  // `null` means the agent is too old to have answered, which is not a no.
+  if (node.eligibility?.canSelectExit === false && !inForce) {
+    return (
+      <div className="flex items-start gap-2 flex-wrap">
+        <Pill tone="err">cannot use an exit gate</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          {node.eligibility.selectExitRefusal
+            || "This host's agent reports it cannot be pointed at an exit gate, without saying why."}
+        </span>
+      </div>
+    );
+  }
   if (candidates.length === 0 && !inForce) {
     return (
       <div className="flex items-start gap-2 flex-wrap">

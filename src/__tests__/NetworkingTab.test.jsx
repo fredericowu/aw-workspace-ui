@@ -699,3 +699,50 @@ describe('offering a host as an exit gate', () => {
     expect(posted[0]).toEqual({ node: 'aw-surface-wsl', plan: true });
   });
 });
+
+describe('a host that cannot be pointed at a gate says so', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  // The live case, measured 2026-08-26: b614f41828c8 (link 11e8bd41…) is the
+  // aw workspace's own container — no tailscale, no systemd, no `ip`. It can
+  // never select a gate however many the mesh has, and a picker there would
+  // 409 after the click instead of explaining itself.
+  it('renders the refusal instead of a picker that would fail', async () => {
+    const refusal = 'tailscale is not installed on this host, so there is no mesh to route '
+      + 'through — enrol it first.';
+    const mesh = {
+      ...MESH,
+      nodes: {
+        ...MESH.nodes,
+        '11e8bd4157845a24': {
+          ...MESH.nodes['11e8bd4157845a24'],
+          eligibility: {
+            ...MESH.nodes['11e8bd4157845a24'].eligibility,
+            can_select_exit: false,
+            select_exit_refusal: refusal,
+          },
+        },
+      },
+    };
+    mockApi({ mesh });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(await screen.findByText(/cannot use an exit gate/i)).toBeInTheDocument();
+    expect(screen.getByText(refusal)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Exit gate for b614f41828c8')).toBeNull();
+  });
+
+  // `null` is not `false`. An agent too old for the verdict said nothing, and
+  // hiding the picker on that basis would remove a working control from every
+  // host that has not been updated yet. The Surface's WSL2 link is the row
+  // that legitimately gets one — aw-baremetal is a candidate for it.
+  it('still offers the picker when no verdict was reported', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT')).toBeInTheDocument();
+    expect(screen.queryByText(/cannot use an exit gate/i)).toBeNull();
+  });
+});

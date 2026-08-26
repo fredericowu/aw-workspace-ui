@@ -150,6 +150,14 @@ function mapEligibility(raw) {
     // plain button. Empty on agents predating the field, which reads as "no
     // warning" and is right: any actual refusal still arrives in exitRefusal.
     exitWarning: raw.exit_warning || '',
+    // The CLIENT-side verdict: can this host be pointed AT a gate. A different
+    // question from canAdvertiseExit, and not implied by canEnroll either —
+    // `b614f41828c8`, the aw workspace's own container, has neither tailscale
+    // nor systemd nor `ip`, so it can host a workspace and can never select a
+    // gate. `null` when the agent predates the field, kept distinct from
+    // `false` for the same reason every other verdict here keeps it.
+    canSelectExit: typeof raw.can_select_exit === 'boolean' ? raw.can_select_exit : null,
+    selectExitRefusal: raw.select_exit_refusal || '',
     installer: raw.installer || null,
   };
 }
