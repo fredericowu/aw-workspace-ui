@@ -61,11 +61,12 @@ const MESH = {
 const MESH_PATH = /\/mesh-status$/;
 const PUBLIC_IP_PATH = /\/public-ip$/;
 const EXIT_GATE_PATH = /\/exit-gate$/;
+const EXIT_OFFER_PATH = /\/exit-offer$/;
 
 function mockApi({
   hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = false,
   publicIp = { ip: '188.250.165.236', via: 'https://api.ipify.org', host_id: '11e8bd4157845a24', host_name: 'b614f41828c8' },
-  exitGate = null,
+  exitGate = null, exitOffer = null,
 } = {}) {
   apiFetch.mockImplementation((url, options) => {
     if (url === '/api/identity/me') {
@@ -79,6 +80,13 @@ function mockApi({
     }
     if (PUBLIC_IP_PATH.test(url)) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(publicIp) });
+    }
+    if (EXIT_OFFER_PATH.test(url)) {
+      const reply = typeof exitOffer === 'function' ? exitOffer(options) : exitOffer;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || {}) });
     }
     if (EXIT_GATE_PATH.test(url)) {
       const reply = typeof exitGate === 'function' ? exitGate(options) : exitGate;
@@ -513,5 +521,181 @@ describe('exit gate picker', () => {
 
     expect(screen.getAllByText(/no exit gate available/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/approved in\s+headscale/i).length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Offering a host AS a gate, and being told what choosing one costs.
+//
+// The measured state on 2026-08-26 is the fixture these run against: exactly
+// one node on the mesh had an approved route, so the picker listed exactly one
+// gate and was right to. Nothing was broken — the capability to CREATE a
+// second gate had never been built.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The Surface's WSL2 link as its agent reports it once it knows about gates:
+// it CAN forward, and choosing it costs something.
+const WSL_WARNING = 'this is a WSL2 distro. It can forward, but its network is NATed again by '
+  + 'the Windows host it runs inside, so every byte leaves through that host and this node '
+  + 'cannot hole-punch.';
+
+const SURFACE_ELIGIBLE = {
+  can_enroll: true,
+  enroll_refusal: '',
+  can_advertise_exit: true,
+  exit_refusal: '',
+  exit_warning: WSL_WARNING,
+  installer: 'upstream-script',
+};
+
+function meshWithSurface(over = {}) {
+  return {
+    ...MESH,
+    nodes: {
+      ...MESH.nodes,
+      caf475b7032ee441: {
+        ...MESH.nodes.caf475b7032ee441,
+        eligibility: SURFACE_ELIGIBLE,
+        ...over,
+      },
+    },
+  };
+}
+
+describe('offering a host as an exit gate', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  it('never offers a host on one click when its agent attached a warning', async () => {
+    // The whole point: a WSL2 gate works and is a bad idea, and the user has
+    // to have READ that before anything is advertised. A single-click offer
+    // would put a relayed gate on the mesh with nobody told.
+    const calls = [];
+    mockApi({ mesh: meshWithSurface(), exitOffer: (o) => { calls.push(o); return { offering: true }; } });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.click(screen.getByRole('button', { name: /offer as exit gate…/i }));
+
+    expect(calls).toHaveLength(0);
+    expect(await screen.findByText(WSL_WARNING)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /offer anyway/i })).toBeInTheDocument();
+  });
+
+  it('offers once the warning has been accepted, and says it is offering', async () => {
+    const calls = [];
+    mockApi({
+      mesh: meshWithSurface(),
+      exitOffer: (o) => { calls.push(JSON.parse(o.body)); return { offering: true, node_name: 'aw-surface-wsl' }; },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.click(screen.getByRole('button', { name: /offer as exit gate…/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /offer anyway/i }));
+
+    expect(await screen.findByText(/now offering as an exit gate/i)).toBeInTheDocument();
+    expect(calls).toEqual([{ acknowledge_warning: true }]);
+  });
+
+  it('names the half-done state instead of calling it "not a gate"', async () => {
+    // Advertising with nothing approved looks armed and forwards nothing.
+    // Rendering it the same as "never advertised" hides the one state where
+    // the fix is on the control plane rather than on the machine.
+    mockApi({ mesh: meshWithSurface({ advertises_exit: true, offers_exit: false }) });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(await screen.findByText(/advertising, not approved/i)).toBeInTheDocument();
+    expect(screen.getByText(/looks armed and forwards nothing/i)).toBeInTheDocument();
+  });
+
+  it('offers a withdrawal, not another offer, for a host that is already a gate', async () => {
+    mockApi({ mesh: meshWithSurface({ offers_exit: true }) });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getAllByRole('button', { name: /stop offering/i }).length).toBeGreaterThan(0);
+  });
+
+  it('refuses with the agent’s own sentence, never a bare greyed control', async () => {
+    // Windows link c76c606b… is the real case: same physical machine as the
+    // WSL2 one, no tailscale at all. A legitimate "no" with a real reason.
+    const refusal = 'This is the Windows side of the host. aw-remote-host runs the workspace '
+      + 'inside its WSL2 distro, and that distro enrols in the mesh as an ordinary Linux node.';
+    const mesh = {
+      ...MESH,
+      nodes: {
+        ...MESH.nodes,
+        c76c606b0a2a5a8b: {
+          reported: true, up: true, mesh_ip: '100.64.0.9', node_name: 'aw-surface-win',
+          offers_exit: false, advertises_exit: false,
+          eligibility: {
+            can_enroll: false, enroll_refusal: refusal,
+            can_advertise_exit: false, exit_refusal: refusal, exit_warning: '',
+          },
+        },
+      },
+    };
+    mockApi({ mesh });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(await screen.findByText(/cannot be an exit gate/i)).toBeInTheDocument();
+    expect(screen.getAllByText(refusal).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /^offer as exit gate$/i })).toBeNull();
+  });
+
+  it('warns, before the user confirms, what routing through a relayed gate means', async () => {
+    // The Surface relays through DERP(mad) even from the same home network.
+    // Selecting it sends ALL of the workspace's traffic through a public
+    // relay in Madrid — a real performance and privacy consequence that the
+    // dead-man's switch cannot catch, because traffic does flow.
+    const mesh = meshWithSurface({ offers_exit: true });
+    mockApi({
+      mesh,
+      exitGate: (options) => (JSON.parse(options.body).plan
+        ? { plan: true, gate: 'aw-surface-wsl', exclusions: [] }
+        : { applied: true, gate: 'aw-surface-wsl' }),
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for b614f41828c8'), { target: { value: 'aw-surface-wsl' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+
+    expect(await screen.findByText(/this gate works, and it costs you something/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp('measured path to this gate is a relay \\(DERP\\(mad\\)\\)'))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(WSL_WARNING.slice(0, 40)))).toBeInTheDocument();
+  });
+
+  it('lets a NON-workspace host be pointed at a gate, not just the workspace’s own', async () => {
+    // Gap 2 on the card. The per-host route has existed since aw-backend
+    // 4313ca6; what was missing was a second gate to point anything at. This
+    // pins the behaviour so a future refactor cannot quietly narrow it back
+    // to "the workspace's own host only".
+    const mesh = meshWithSurface({ offers_exit: true });
+    const posted = [];
+    mockApi({
+      mesh,
+      exitGate: (options) => {
+        posted.push(JSON.parse(options.body));
+        return JSON.parse(options.body).plan
+          ? { plan: true, gate: 'aw-surface-wsl', exclusions: [] }
+          : { applied: true, gate: 'aw-surface-wsl' };
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // The Mac's row is the honest-unknown one; the bare-metal row is a host
+    // that is NOT this workspace's own and still gets a working picker.
+    const picker = screen.getByLabelText('Exit gate for b614f41828c8');
+    fireEvent.change(picker, { target: { value: 'aw-surface-wsl' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+
+    await screen.findByRole('button', { name: /apply aw-surface-wsl/i });
+    const url = apiFetch.mock.calls.map((c) => c[0]).find((u) => /exit-gate$/.test(u));
+    expect(url).toMatch(/remote-hosts\/11e8bd4157845a24\/exit-gate$/);
+    expect(posted[0]).toEqual({ node: 'aw-surface-wsl', plan: true });
   });
 });

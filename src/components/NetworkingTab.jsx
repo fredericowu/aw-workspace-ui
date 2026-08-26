@@ -4,11 +4,14 @@ import {
   bootstrapEligibility,
   clearExitGate,
   exitGateCandidates,
+  exitOfferState,
   fetchMeshStatus,
   fetchPublicIp,
   fetchRemoteHosts,
   installInstructions,
+  offerExitGate,
   resolveAccountSlug,
+  withdrawExitGate,
   CONTROL_PLANE_PLACEHOLDER,
 } from '../lib/networkingApi';
 
@@ -257,6 +260,143 @@ function EgressDelta({ before, after }) {
  * Only gates that ADVERTISE AND ARE APPROVED are ever listed; see
  * `exitGateCandidates`.
  */
+/**
+ * Offering THIS host as a gate — the other end of picking one.
+ *
+ * Until this existed the mesh had exactly one gate, because it was the only
+ * node a human had ever approved by hand with `headscale nodes approve-routes`
+ * on the metal. The picker below was right to list nothing else; what was
+ * missing was any way to create a second one.
+ *
+ * Two halves live behind the single button — the host advertises, the control
+ * plane approves — and the backend withdraws the first if the second fails,
+ * because a node that advertises a route nobody approved looks armed and
+ * forwards nothing. The `pending` state names that condition when something
+ * else leaves it behind.
+ *
+ * Ineligibility is never a bare greyed control: `exitOfferState` always
+ * carries the host's own sentence. Windows link `c76c606b…` is the example
+ * that matters — the same physical machine as the WSL2 one, with no tailscale
+ * at all, which is a legitimate "no" with a real reason rather than a bug.
+ */
+function ExitOfferControl({ host, mesh, slug, onChanged }) {
+  const node = mesh?.available ? mesh.nodes?.[host.id] : null;
+  const verdict = exitOfferState(node);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [ack, setAck] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const offer = useCallback(async () => {
+    setError(''); setResult(null); setBusy('offer');
+    try {
+      setResult(await offerExitGate(slug, host.id, { acknowledgeWarning: true }));
+      onChanged?.();
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally { setBusy(''); }
+  }, [slug, host.id, onChanged]);
+
+  const withdraw = useCallback(async () => {
+    setError(''); setResult(null); setBusy('withdraw'); setAck(false);
+    try {
+      const res = await withdrawExitGate(slug, host.id);
+      setResult({ offering: false, reason: res.approvalError || '' });
+      onChanged?.();
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally { setBusy(''); }
+  }, [slug, host.id, onChanged]);
+
+  if (verdict.state === 'unknown' && !node?.up) return null;
+
+  const tone = { offering: 'ok', pending: 'warn', yes: 'info', no: 'err', unknown: 'muted' }[verdict.state];
+  // A warning has to be READ before it can be agreed to, so the button that
+  // acts is gated behind the one that shows it. Nothing on this screen may
+  // change a route — or offer somebody else's — on a single click.
+  const needsAck = !!verdict.warning && verdict.state !== 'offering' && !ack;
+
+  return (
+    <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
+      <div className="flex items-start gap-2 flex-wrap">
+        <Pill tone={tone}>{verdict.label}</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          {verdict.reason}
+        </span>
+        {verdict.state === 'offering' ? (
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={withdraw}
+            className="px-2 py-1 text-[11px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy === 'withdraw' ? 'Withdrawing…' : 'Stop offering'}
+          </button>
+        ) : (verdict.state === 'yes' || verdict.state === 'pending') && (
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={needsAck ? () => setAck(true) : offer}
+            className="px-2 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy === 'offer' ? 'Offering…' : needsAck ? 'Offer as exit gate…' : 'Offer as exit gate'}
+          </button>
+        )}
+      </div>
+
+      {/* The consequence, in the host's own words, before anything is done. */}
+      {verdict.warning && ack && verdict.state !== 'offering' && (
+        <div className="p-2 rounded bg-amber-500/10 grid gap-1.5">
+          <div className="text-[11px] text-amber-300 font-medium">
+            This host can forward, but choosing it has a cost:
+          </div>
+          <div className="text-[11px] text-[var(--color-text-muted)]">{verdict.warning}</div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={offer}
+              className="px-2 py-1 text-[11px] rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {busy === 'offer' ? 'Offering…' : 'Offer anyway'}
+            </button>
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={() => setAck(false)}
+              className="px-2 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="grid gap-1">
+          <Pill tone={result.offering ? 'ok' : 'warn'}>
+            {result.offering ? 'now offering as an exit gate' : 'not offering'}
+          </Pill>
+          {result.reason && (
+            <span className="text-[11px] text-[var(--color-text-muted)]">{result.reason}</span>
+          )}
+          {/* Offering is not using. Reported from the host's own measurement,
+              because the invariant is worth catching if it ever breaks. */}
+          {result.defaultRouteUnchanged === false && (
+            <span className="text-[11px] text-[var(--color-danger)]">
+              This host&apos;s own default route CHANGED while it was only being asked to advertise
+              ({result.defaultRouteBefore} → {result.defaultRouteAfter}). Advertising must never do
+              that — treat this as a bug.
+            </span>
+          )}
+        </div>
+      )}
+
+      {error && <div className="text-[11px] text-[var(--color-danger)] break-all">{error}</div>}
+    </div>
+  );
+}
+
 function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
   const candidates = useMemo(
@@ -270,6 +410,12 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   const [error, setError] = useState('');
 
   const inForce = node?.exitNode || null;
+  // The warnings belong to the gate being CHOSEN, not to this host, so they
+  // are read off the selected candidate rather than off `node`.
+  const chosenWarnings = useMemo(
+    () => candidates.find((c) => c.name === choice)?.warnings || [],
+    [candidates, choice],
+  );
 
   const preview = useCallback(async () => {
     setError(''); setResult(null); setBusy('plan');
@@ -312,7 +458,8 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
         <Pill tone="muted">no exit gate available</Pill>
         <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
           No other host on this mesh both advertises an exit route and has it approved in
-          headscale, so there is nothing this host could route through.
+          headscale, so there is nothing this host could route through. Use “Offer as exit gate”
+          on the host you want to route through — that does both halves.
         </span>
       </div>
     );
@@ -369,6 +516,26 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
             before anything changes, and the switch is only stood down once the real public IP has
             been re-measured through the new route.
           </div>
+          {/* What choosing THIS gate costs, as opposed to whether it works.
+              A gate can be perfectly functional and still a bad idea: the
+              Surface forwards through a second layer of Windows NAT and
+              cannot hole-punch, so everything would relay through a public
+              DERP. The dead-man's switch above cannot catch that — it only
+              knows whether traffic flows, not who it flows through — so this
+              is the only place a user finds out, and it has to be before
+              they confirm rather than after. */}
+          {chosenWarnings.length > 0 && (
+            <div className="pt-1 border-t border-amber-500/20">
+              <div className="text-[11px] text-amber-300 font-medium">
+                This gate works, and it costs you something:
+              </div>
+              <ul className="mt-0.5 grid gap-0.5">
+                {chosenWarnings.map((w) => (
+                  <li key={w} className="text-[11px] text-[var(--color-text-muted)]">{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {plan.exclusions.length > 0 && (
             <div>
               <div className="text-[11px] text-[var(--color-text-muted)]">
@@ -503,6 +670,7 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
             {eligibility.reason}
           </span>
         </div>
+        <ExitOfferControl host={host} mesh={mesh} slug={slug} onChanged={onChanged} />
         <ExitGateControl host={host} mesh={mesh} hosts={hosts} slug={slug} onChanged={onChanged} />
       </div>
     </div>

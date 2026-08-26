@@ -143,6 +143,13 @@ function mapEligibility(raw) {
     enrollRefusal: raw.enroll_refusal || '',
     canAdvertiseExit: !!raw.can_advertise_exit,
     exitRefusal: raw.exit_refusal || '',
+    // A THIRD answer beside yes and no: this host may serve as a gate, and
+    // here is what choosing it costs. The Surface is the case — a WSL2 distro
+    // forwards through another layer of Windows NAT it does not control — and
+    // it is why `canAdvertiseExit: true` is not on its own enough to render a
+    // plain button. Empty on agents predating the field, which reads as "no
+    // warning" and is right: any actual refusal still arrives in exitRefusal.
+    exitWarning: raw.exit_warning || '',
     installer: raw.installer || null,
   };
 }
@@ -169,6 +176,11 @@ export async function fetchMeshStatus(slug) {
         // not forward. exitGateCandidates below is the only consumer, and
         // this is the field it filters on.
         offersExit: !!node?.offers_exit,
+        // Advertised, whether or not anybody approved it. The PAIR is what
+        // tells the two halves apart on screen: advertising with offersExit
+        // false is "waiting on the control plane", which is a different
+        // problem, for a different person, than "never advertised".
+        advertisesExit: !!node?.advertises_exit,
         eligibility: mapEligibility(node?.eligibility),
       };
     }
@@ -341,6 +353,173 @@ export async function fetchPublicIp(slug) {
 }
 
 /**
+ * What choosing this node as a gate would cost, as complete sentences.
+ *
+ * ELIGIBLE AND COSTLY ARE NOT OPPOSITES, and conflating them is how this
+ * screen would go wrong in both directions at once. `aw-surface-wsl` is the
+ * case that forced this: it CAN forward, so hiding it would remove a real
+ * capability — and routing through it means egress via WSL2 → the Windows
+ * host's NAT → a home connection, over a path that cannot hole-punch and
+ * therefore relays through a public DERP. Offering that silently would push
+ * every byte the workspace sends through a third-party relay without anybody
+ * being told.
+ *
+ * Two independent sources, deliberately not merged into one string:
+ *
+ *   - the GATE's own verdict (`eligibility.exitWarning`) — measured on that
+ *     machine, about what it is. Verbatim, like every other agent sentence
+ *     on this screen.
+ *   - the measured PATH to it (`path`/`via`) — a property of the link, which
+ *     the gate cannot know about itself. `_mesh_observation` on the backend
+ *     takes it from whichever other host measured it, so it is "the measured
+ *     path to this gate", not necessarily the path from the host about to
+ *     select it. Worded to claim only that.
+ *
+ * Returns `[]` when there is nothing to say, so a caller can render the
+ * ordinary case with no special-casing.
+ */
+export function gateWarnings(node) {
+  const out = [];
+  const own = node?.eligibility?.exitWarning;
+  if (own) out.push(own);
+  if (node?.path === 'relay') {
+    out.push(
+      `The measured path to this gate is a relay${node.via ? ` (${node.via})` : ''}, not a direct `
+      + 'connection. Routing through it sends ALL of this host’s traffic through that public '
+      + 'relay — a third party carries every byte, and every round trip takes the detour.',
+    );
+  }
+  return out;
+}
+
+/**
+ * Offer `hostId` as an exit gate for the rest of the mesh — advertise on the
+ * host, approve on the control plane.
+ *
+ * BOTH HALVES OR NEITHER: the backend withdraws the advertisement again if the
+ * approval fails, because a node that advertises a route nobody approved looks
+ * armed and forwards nothing. `offering` in the result is the host's own
+ * re-measured `offers_exit`, not "the calls returned".
+ *
+ * A host whose agent attaches a warning to its verdict is refused (409,
+ * `needs_acknowledgement`) until `acknowledgeWarning` is passed — so the
+ * sentence the user agrees to comes from the machine, not from this file.
+ */
+export async function offerExitGate(slug, hostId, { acknowledgeWarning = false } = {}) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-offer`);
+  const data = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ acknowledge_warning: acknowledgeWarning }),
+  }).then(readJson);
+  return {
+    offering: !!data?.offering,
+    nodeName: data?.node_name || null,
+    advertising: !!data?.advertising,
+    approvedRoutes: Array.isArray(data?.approved_routes) ? data.approved_routes : [],
+    servingRoutes: Array.isArray(data?.serving_routes) ? data.serving_routes : [],
+    warning: data?.warning || '',
+    // Offering is not using: the advertiser keeps its own egress. Reported
+    // from a real measurement on the host, so a regression here is visible
+    // rather than assumed away.
+    defaultRouteUnchanged: data?.default_route_unchanged,
+    defaultRouteBefore: data?.default_route_before || null,
+    defaultRouteAfter: data?.default_route_after || null,
+    reason: data?.reason || '',
+  };
+}
+
+/** Stop offering `hostId` as a gate. Does NOT clear any selection pointing at
+ *  it — that is the selecting host's decision, and its own dead-man's switch
+ *  or Clear button. */
+export async function withdrawExitGate(slug, hostId) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-offer`);
+  const data = await apiFetch(url, { method: 'DELETE' }).then(readJson);
+  return {
+    offering: !!data?.offering,
+    advertising: !!data?.advertising,
+    approvalError: data?.approval_error || '',
+  };
+}
+
+/**
+ * Can this host be OFFERED as a gate — and if not, WHY.
+ *
+ * Same three-state shape as `bootstrapEligibility`, for the same reason: a
+ * greyed control with no sentence next to it reads as a bug, not a decision.
+ * The states here are:
+ *
+ *   'offering'  — already a gate (advertised AND approved). The action is to
+ *                 withdraw.
+ *   'pending'   — advertising, nobody approved. This is the half-done state
+ *                 the offer route exists to remove, and it is worth naming:
+ *                 it looks armed and forwards nothing.
+ *   'yes'       — the agent says it may. `warning` may still be non-empty.
+ *   'no'        — the agent says it may not, with its sentence.
+ *   'unknown'   — no agent verdict. Never guessed from the OS: whether a
+ *                 kernel can forward is not knowable from `os === 'linux'`.
+ */
+export function exitOfferState(node) {
+  if (!node?.reported || !node.up) {
+    return {
+      state: 'unknown',
+      label: 'Gate eligibility unknown',
+      reason: 'This host is not up on the mesh, so it could not report whether it may serve as an '
+        + 'exit gate.',
+      warning: '',
+    };
+  }
+  if (node.offersExit) {
+    return {
+      state: 'offering',
+      label: 'Offering as exit gate',
+      reason: 'This host advertises an exit route and the control plane has approved it, so other '
+        + 'hosts on this mesh may select it.',
+      warning: node.eligibility?.exitWarning || '',
+    };
+  }
+  if (node.advertisesExit) {
+    return {
+      state: 'pending',
+      label: 'Advertising, not approved',
+      reason: 'This host advertises an exit route that nobody has approved on the control plane. '
+        + 'It looks armed and forwards nothing — offer it again to approve the route, or withdraw '
+        + 'the advertisement.',
+      warning: node.eligibility?.exitWarning || '',
+    };
+  }
+  const verdict = node.eligibility;
+  if (!verdict) {
+    return {
+      state: 'unknown',
+      label: 'Gate eligibility unknown',
+      reason: "This host's agent has not reported whether it may serve as an exit gate — it is "
+        + 'too old for that verdict. Update aw-remote-host.',
+      warning: '',
+    };
+  }
+  if (!verdict.canAdvertiseExit) {
+    return {
+      state: 'no',
+      label: 'Cannot be an exit gate',
+      // The agent's own sentence. It is the only part that says what to change.
+      reason: verdict.exitRefusal
+        || "This host's agent reports it cannot serve as an exit gate, without saying why.",
+      warning: '',
+    };
+  }
+  return {
+    state: 'yes',
+    label: 'Can be an exit gate',
+    reason: "This host's agent reports it can advertise an exit route. Offering it also approves "
+      + 'that route on the control plane — both halves, or neither.',
+    warning: verdict.exitWarning || '',
+  };
+}
+
+/**
  * The hosts that may be OFFERED as an exit gate for `hostId`.
  *
  * Three filters, and none of them is cosmetic:
@@ -364,7 +543,14 @@ export function exitGateCandidates(hosts, mesh, hostId) {
     if (!node?.reported || !node.up || !node.offersExit) continue;
     const name = node.nodeName || host.hostname;
     if (!name) continue;
-    out.push({ hostId: host.id, name, meshIp: node.meshIp || null });
+    out.push({
+      hostId: host.id,
+      name,
+      meshIp: node.meshIp || null,
+      // Eligible AND costly are not opposites. `gateWarnings` is what turns a
+      // silent "sure, pick it" into a sentence the user agrees to first.
+      warnings: gateWarnings(node),
+    });
   }
   // Stable order, and by the name the user picks by — the host list's own
   // order is by link age, which is meaningless in a gate picker.
