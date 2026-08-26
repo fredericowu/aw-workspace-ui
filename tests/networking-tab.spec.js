@@ -195,11 +195,24 @@ test.describe('Settings NEW › General › Networking', () => {
     //    error — that wording only got fixed because a live run showed it.
     await expect(page.getByText(/update aw-remote-host \(v0\.1\.51 or later\)/)).toBeVisible();
 
-    // Bootstrap stays a placeholder for every host — one button per row, and
-    // the offline links are expanded by now, so that is all ten of them.
+    // One Join mesh button per row — offline links are expanded by now, so
+    // that is all ten of them. Every one is DISABLED on this payload, and for
+    // a different reason each: two are already on the mesh, five links are
+    // offline, one reported it cannot enrol, and two never answered. Nothing
+    // says "not built yet" any more — the button is real, it is simply refused
+    // on every host in this fixture, and each refusal is written on its row.
     const buttons = page.getByRole('button', { name: 'Join mesh' });
     await expect(buttons).toHaveCount(HOSTS.length);
     for (let i = 0; i < HOSTS.length; i += 1) await expect(buttons.nth(i)).toBeDisabled();
+    expect(await page.locator('body').innerText()).not.toContain('not built yet');
+
+    // And the instructions no longer tell anyone to type a key they cannot
+    // know. Nothing is minted by opening the screen: the join command only
+    // exists once someone asks for it.
+    const text = await page.locator('body').innerText();
+    expect(text).not.toContain('--authkey=<key>');
+    expect(text).not.toContain('<name>');
+    await expect(page.getByRole('button', { name: 'Generate join command' })).toBeVisible();
 
     const win = page.locator('[data-window-key="panel:settings-new"]');
     await win.screenshot({ path: 'test-results/networking-wide.png' });

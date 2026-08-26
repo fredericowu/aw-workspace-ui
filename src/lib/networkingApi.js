@@ -296,19 +296,23 @@ export function bootstrapEligibility(host, node) {
  *
  * `controlPlane` is substituted in when known; when it isn't, the placeholder
  * stays visible so nobody copy-pastes another tenant's control plane.
+ *
+ * THE JOIN LINE IS NOT IN HERE, and that is the point of the split. Installing
+ * tailscale is a command anyone can be shown at any time; joining is a command
+ * that carries a live mesh credential, so it only exists once someone has
+ * asked for one (`mintJoinKey`) and it is built by `joinCommand` below. The
+ * previous version of this function ended each block with
+ * `--authkey=<key> --hostname=<name>` — two placeholders a reader has no way
+ * to fill, on a command that reads as if it would work.
  */
 export const CONTROL_PLANE_PLACEHOLDER = '<tenant-control-plane>';
 
-export function installInstructions(controlPlane) {
-  const cp = controlPlane || CONTROL_PLANE_PLACEHOLDER;
+export function installInstructions() {
   return [
     {
       id: 'linux',
       title: 'Linux / WSL2',
-      commands: [
-        'curl -fsSL https://tailscale.com/install.sh | sh',
-        `sudo tailscale up --login-server=${cp} --authkey=<key> --hostname=<name>`,
-      ],
+      commands: ['curl -fsSL https://tailscale.com/install.sh | sh'],
     },
     {
       id: 'macos',
@@ -317,10 +321,131 @@ export function installInstructions(controlPlane) {
       commands: [
         'brew install tailscale',
         'sudo tailscaled install-system-daemon',
-        `sudo tailscale up --login-server=${cp} --authkey=<key> --hostname=<name>`,
       ],
     },
   ];
+}
+
+/**
+ * The one command that puts a machine on this mesh, with a REAL key in it.
+ *
+ * `$(hostname -s)` rather than a `<name>` placeholder: it is a default that is
+ * both sensible and correct on the machine running it — the short hostname,
+ * evaluated by that machine's own shell, on Linux and macOS alike — where a
+ * placeholder is a hole the reader has to know to fill. Anyone who wants a
+ * different node name edits one word of a command that already works, instead
+ * of being unable to run it at all.
+ *
+ * Returns `null` without a key. There is deliberately no "show it with a
+ * placeholder" mode: rendering a command that cannot work is the bug this
+ * whole path replaces.
+ */
+export function joinCommand(controlPlane, key) {
+  if (!key) return null;
+  const cp = controlPlane || CONTROL_PLANE_PLACEHOLDER;
+  return `sudo tailscale up --login-server=${cp} --authkey=${key} --hostname=$(hostname -s)`;
+}
+
+/**
+ * Mint a join key for this tenant's mesh.
+ *
+ * REJECTS on failure, unlike the readers above, and for the same reason
+ * `applyExitGate` does: this only ever runs because somebody pressed a button,
+ * so a failure belongs next to that button. It must never be folded into a
+ * screen-wide state, and it must never be swallowed into a placeholder — the
+ * backend answers a missing admin credential with a sentence naming the config
+ * key to add, and that sentence is the useful thing to show.
+ *
+ * The key comes back exactly once and is not readable again afterwards
+ * (headscale masks it on read), so a caller that drops it mints a new one.
+ * Single-use and minutes-long expiry are fixed on the backend, not asked for
+ * here.
+ */
+export async function mintJoinKey(slug) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/mesh-join-key`);
+  const data = await apiFetch(url, { method: 'POST' }).then(readJson);
+  return {
+    key: data?.key || '',
+    // ISO-8601 from headscale itself, not from this browser's clock.
+    expiresAt: data?.expires_at || null,
+    reusable: !!data?.reusable,
+    controlPlaneUrl: data?.control_plane_url || null,
+  };
+}
+
+/**
+ * Enrol an already-linked host in the mesh, remotely — no key ever reaches
+ * this browser.
+ *
+ * The distinction from `mintJoinKey` is the whole shape of this feature: a
+ * machine that has an agent on the other end of a live link does not need a
+ * human at a keyboard in front of it, so it gets driven rather than
+ * instructed. The credential is minted, spent and (on failure) expired inside
+ * aw-backend.
+ *
+ * A REFUSAL IS A NORMAL RESULT, not a rejection: `refused: true` with the
+ * host's own sentence is the machine answering "I cannot do this, here is
+ * why", and it arrives as a 409 whose body carries that sentence.
+ */
+export async function joinMesh(slug, hostId) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/mesh-join`);
+  const data = await apiFetch(url, { method: 'POST' }).then(readJson);
+  return {
+    enrolled: !!data?.enrolled,
+    alreadyEnrolled: !!data?.already_enrolled,
+    changed: !!data?.changed,
+    refused: !!data?.refused,
+    refusal: data?.refusal || '',
+    nodeName: data?.node_name || null,
+    meshIp: data?.mesh_ip || null,
+    loginServer: data?.login_server || null,
+    // Enrolling must not move this machine's egress. Reported, not assumed.
+    usesExitNode: data?.uses_exit_node,
+    reason: data?.reason || '',
+    error: data?.error || '',
+    detail: data?.detail || '',
+  };
+}
+
+/**
+ * Can this host be enrolled from this screen right now — and if not, WHY.
+ *
+ * Three refusals, in the order they stop mattering, each with a complete
+ * sentence because a greyed control with nothing next to it reads as a bug:
+ *
+ *   - it is already on the mesh. Nothing to do, and the button must not
+ *     pretend otherwise.
+ *   - its link is offline. Remote enrolment drives the host's own agent down
+ *     the /link tunnel; with no tunnel there is nothing to drive, and that is
+ *     a different problem from the machine being unable to join.
+ *   - the agent's own eligibility verdict says no, or has not answered. That
+ *     sentence is the host's, verbatim — see `bootstrapEligibility`.
+ *
+ * `unknown` is refused along with `no`, deliberately. Sending an enrolment to
+ * a host that never reported whether it can hold one mints a live mesh
+ * credential on a guess.
+ */
+export function joinMeshAvailability(host, node, eligibility) {
+  if (node?.reported && node.up) {
+    return {
+      can: false,
+      reason: `This host is already on the mesh${node.nodeName ? ` as ${node.nodeName}` : ''}, so there is nothing to join.`,
+    };
+  }
+  if (!host?.connected) {
+    return {
+      can: false,
+      reason: 'This link is offline. Enrolling from here drives the host’s own agent over its '
+        + 'live /link connection, and there is none — bring the machine online, or run '
+        + '`aw-remote-host vpn` on it directly.',
+    };
+  }
+  if (eligibility?.state !== 'yes') {
+    return { can: false, reason: eligibility?.reason || '' };
+  }
+  return { can: true, reason: '' };
 }
 
 /**

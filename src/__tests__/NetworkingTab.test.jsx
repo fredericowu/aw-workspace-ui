@@ -83,15 +83,34 @@ const MESH_PATH = /\/mesh-status$/;
 const PUBLIC_IP_PATH = /\/public-ip$/;
 const EXIT_GATE_PATH = /\/exit-gate$/;
 const EXIT_OFFER_PATH = /\/exit-offer$/;
+const JOIN_KEY_PATH = /\/mesh-join-key$/;
+const MESH_JOIN_PATH = /\/mesh-join$/;
 
 function mockApi({
   hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = false,
   publicIp = { ip: '188.250.165.236', via: 'https://api.ipify.org', host_id: '11e8bd4157845a24', host_name: 'b614f41828c8' },
-  exitGate = null, exitOffer = null,
+  exitGate = null, exitOffer = null, joinKey = null, meshJoin = null,
 } = {}) {
   apiFetch.mockImplementation((url, options) => {
     if (url === '/api/identity/me') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ memberships: [{ workspace: 'aw', role: 'owner' }] }) });
+    }
+    // Both of these live under /api/workspaces/, so they have to be matched
+    // before the host-list catch-all below — which would otherwise answer a
+    // mint with a list of hosts and the assertion would pass on nonsense.
+    if (JOIN_KEY_PATH.test(url)) {
+      const reply = typeof joinKey === 'function' ? joinKey(options) : joinKey;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || {}) });
+    }
+    if (MESH_JOIN_PATH.test(url)) {
+      const reply = typeof meshJoin === 'function' ? meshJoin(options) : meshJoin;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || {}) });
     }
     if (MESH_PATH.test(url)) {
       if (meshFail) {
@@ -845,5 +864,155 @@ describe('a host that cannot be pointed at a gate says so', () => {
 
     expect(screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT')).toBeInTheDocument();
     expect(screen.queryByText(/cannot use an exit gate/i)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Getting a machine ONTO the mesh. Two paths, and the difference between them
+// is where the credential goes: a linked host is driven over its own link and
+// never sees one rendered, while an unlinked machine needs a command with a
+// real key in it. What both must never do is show `--authkey=<key>`, which is
+// a command that reads as if it works and cannot.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Mac.Home, connected, not on the mesh, and its agent says it CAN join — the
+// one row in HOSTS that should get a live Join mesh button.
+const MESH_WITH_ENROLLABLE = {
+  ...MESH,
+  nodes: {
+    ...MESH.nodes,
+    '824decc7e0610089': {
+      reported: true,
+      up: false,
+      reason: 'the tailscale CLI is not installed on this host',
+      eligibility: { can_enroll: true, installer: 'brew install tailscale', can_advertise_exit: false },
+    },
+  },
+};
+
+describe('the join command carries a real key', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  it('mints nothing on load, and shows no <key> placeholder anywhere', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // A screen that mints a mesh credential because somebody opened the tab
+    // hands one out to anybody who opens the tab.
+    const minted = apiFetch.mock.calls.filter(([url]) => JOIN_KEY_PATH.test(url));
+    expect(minted).toHaveLength(0);
+    expect(document.body.textContent).not.toContain('--authkey=<key>');
+    expect(document.body.textContent).not.toContain('<name>');
+    expect(screen.getByRole('button', { name: /Generate join command/ })).toBeInTheDocument();
+  });
+
+  it('builds a command that would actually work when pasted', async () => {
+    mockApi({
+      joinKey: {
+        key: 'hskey-auth-1a2b3c-realkeyvalue',
+        expires_at: new Date(Date.now() + 15 * 60000).toISOString(),
+        reusable: false,
+        control_plane_url: 'https://headscale.aw.tekflox.com',
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.click(screen.getByRole('button', { name: /Generate join command/ }));
+
+    const block = await screen.findByText(/tailscale up --login-server=/);
+    expect(block.textContent).toContain('--authkey=hskey-auth-1a2b3c-realkeyvalue');
+    expect(block.textContent).toContain('--login-server=https://headscale.aw.tekflox.com');
+    // A default that the target machine resolves for itself, not a hole the
+    // reader has to know to fill.
+    expect(block.textContent).toContain('--hostname=$(hostname -s)');
+    expect(block.textContent).not.toContain('<key>');
+    expect(block.textContent).not.toContain('<name>');
+
+    // It is a credential, and the screen says so rather than leaving the
+    // reader to assume it can be shared.
+    expect(screen.getByText(/single use/)).toBeInTheDocument();
+    // Pressing again is a REGENERATE, not a second stale copy of the first.
+    expect(screen.getByRole('button', { name: /Regenerate join command/ })).toBeInTheDocument();
+  });
+
+  it('reports a missing admin credential instead of falling back to <key>', async () => {
+    const reason = 'this workspace holds no admin credential for https://headscale.aw.tekflox.com, '
+      + 'so it cannot approve an exit route there. Add one under `mesh.control_planes`.';
+    mockApi({ joinKey: new Error(reason) });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.click(screen.getByRole('button', { name: /Generate join command/ }));
+
+    expect(await screen.findByText(new RegExp('mesh.control_planes'))).toBeInTheDocument();
+    // The bug this whole path replaces must not reappear on the error path.
+    expect(document.body.textContent).not.toContain('--authkey=<key>');
+    expect(screen.queryByText(/tailscale up --login-server=/)).toBeNull();
+  });
+});
+
+describe('Join mesh enrols a linked host for real', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  it('is live only where the agent said the host can enrol', async () => {
+    mockApi({ mesh: MESH_WITH_ENROLLABLE });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const buttons = screen.getAllByRole('button', { name: 'Join mesh' });
+    const enabled = buttons.filter((b) => !b.disabled);
+    expect(enabled).toHaveLength(1);
+    // ...and it is Mac.Home's row, the only host whose agent said yes.
+    expect(enabled[0].closest('div.py-3').textContent).toContain('Mac.Home');
+    // Nothing on the page still says the button is a placeholder.
+    expect(document.body.textContent).not.toContain('not built yet');
+  });
+
+  it('drives the host over its link, without minting a key in the browser', async () => {
+    mockApi({
+      mesh: MESH_WITH_ENROLLABLE,
+      meshJoin: { enrolled: true, changed: true, node_name: 'aw-mac-2', mesh_ip: '100.64.0.7' },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const button = screen.getAllByRole('button', { name: 'Join mesh' }).find((b) => !b.disabled);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(screen.getByText(/enrolled — aw-mac-2/)).toBeInTheDocument());
+    // The whole point of this path: the key stayed inside aw-backend.
+    expect(apiFetch.mock.calls.filter(([url]) => JOIN_KEY_PATH.test(url))).toHaveLength(0);
+    expect(document.body.textContent).not.toMatch(/hskey-/);
+  });
+
+  it("renders the host's own refusal when the enrolment is declined", async () => {
+    // Not the same sentence 11e8bd41's row already carries: the point of this
+    // assertion is that the OUTCOME renders the host's words, and a string
+    // that is on the page twice would pass without proving that.
+    const refusal = 'this host has no /dev/net/tun, so tailscale cannot open the interface it '
+      + 'needs — load the tun module and try again.';
+    mockApi({
+      mesh: MESH_WITH_ENROLLABLE,
+      meshJoin: { enrolled: false, refused: true, refusal },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Join mesh' }).find((b) => !b.disabled));
+
+    await waitFor(() => expect(screen.getByText(/not enrolled/)).toBeInTheDocument());
+    expect(screen.getByText(refusal)).toBeInTheDocument();
+  });
+
+  it('refuses a host already on the mesh, and says so in a sentence', async () => {
+    mockApi({ mesh: MESH_WITH_ENROLLABLE });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // aw-surface-wsl is up on the mesh — a greyed button there needs a reason
+    // as much as an ineligible one does.
+    expect(screen.getByText(/already on the mesh as aw-surface-wsl/)).toBeInTheDocument();
   });
 });

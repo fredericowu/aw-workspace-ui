@@ -9,6 +9,10 @@ import {
   fetchPublicIp,
   fetchRemoteHosts,
   installInstructions,
+  joinCommand,
+  joinMesh,
+  joinMeshAvailability,
+  mintJoinKey,
   offerExitGate,
   resolveAccountSlug,
   withdrawExitGate,
@@ -705,6 +709,31 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
   const eligibility = bootstrapEligibility(host, node);
   const tone = { yes: 'ok', no: 'err', unknown: 'warn' }[eligibility.state] || 'muted';
+  // Whether THIS row gets the button or the written refusal. Same verdict the
+  // rest of the row renders, read through one function so the button and the
+  // sentence under it can never disagree.
+  const join = joinMeshAvailability(host, node, eligibility);
+
+  const [joining, setJoining] = useState(false);
+  const [joinResult, setJoinResult] = useState(null);
+  const [joinError, setJoinError] = useState(null);
+
+  const runJoin = useCallback(async () => {
+    setJoining(true);
+    setJoinError(null);
+    setJoinResult(null);
+    try {
+      const res = await joinMesh(slug, host.id);
+      setJoinResult(res);
+      // Re-read the mesh so the row stops offering a join it just completed —
+      // and so the address it now has appears without a manual reload.
+      if (res.enrolled && onChanged) await onChanged();
+    } catch (e) {
+      setJoinError(String(e.message || e));
+    } finally {
+      setJoining(false);
+    }
+  }, [slug, host.id, onChanged]);
 
   return (
     <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
@@ -725,20 +754,25 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
           </div>
         </div>
 
-        {/* Remote bootstrap — still a PLACEHOLDER. The enrolment module itself
-            shipped, but driving it remotely from here is a separate card and
-            nothing behind this button exists. Disabled for every host, and the
-            label says "not built yet" rather than naming an action, so a
-            disabled control is never read as one that merely failed. */}
+        {/* Remote bootstrap, for real. The key this needs is minted inside
+            aw-backend and handed straight to the host's agent, so pressing
+            this never puts a mesh credential in front of anybody — that is
+            what separates this path from the paste-it-yourself command in the
+            instructions below. A host that cannot take it stays disabled AND
+            carries its sentence as text further down; the title alone would be
+            invisible on touch. */}
         <button
           type="button"
-          disabled
-          title={eligibility.state === 'no'
-            ? `Unavailable: ${eligibility.reason}`
-            : 'Enrolling a host from this screen is not implemented yet — today it is `aw-remote-host vpn` run on the machine itself.'}
-          className="shrink-0 px-3 py-1 text-[12px] rounded bg-white/5 text-[var(--color-text-muted)] opacity-50 cursor-not-allowed"
+          disabled={!join.can || joining}
+          onClick={runJoin}
+          title={join.can
+            ? 'Install tailscale on this host and enrol it in this tenant’s mesh, over its own link.'
+            : `Unavailable: ${join.reason}`}
+          className={`shrink-0 px-3 py-1 text-[12px] rounded ${join.can
+            ? 'bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 disabled:opacity-40'
+            : 'bg-white/5 text-[var(--color-text-muted)] opacity-50 cursor-not-allowed'}`}
         >
-          Join mesh — not built yet
+          {joining ? 'Joining…' : 'Join mesh'}
         </button>
       </div>
 
@@ -752,6 +786,33 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
             {eligibility.reason}
           </span>
         </div>
+        {/* Only when the button is refused for a reason the eligibility line
+            does not already give — offline, or already enrolled. Repeating the
+            same sentence twice on a row would be noise; omitting a different
+            one would be a greyed control with no explanation. */}
+        {!join.can && join.reason && join.reason !== eligibility.reason && (
+          <div className="text-[11px] text-[var(--color-text-muted)]">{join.reason}</div>
+        )}
+        {joinResult && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <Pill tone={joinResult.enrolled ? 'ok' : 'warn'}>
+              {joinResult.alreadyEnrolled
+                ? 'already on the mesh'
+                : joinResult.enrolled
+                  ? `enrolled${joinResult.nodeName ? ` — ${joinResult.nodeName}` : ''}`
+                  : 'not enrolled'}
+            </Pill>
+            <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+              {joinResult.refusal || joinResult.reason || joinResult.error
+                || (joinResult.enrolled
+                  ? `This host is on the mesh${joinResult.meshIp ? ` at ${joinResult.meshIp}` : ''}.`
+                  : 'The host did not enrol, and did not say why.')}
+            </span>
+          </div>
+        )}
+        {joinError && (
+          <div className="text-[11px] text-[var(--color-danger)] break-all">{joinError}</div>
+        )}
         <ExitOfferControl host={host} mesh={mesh} slug={slug} onChanged={onChanged} />
         <ExitGateControl host={host} mesh={mesh} hosts={hosts} slug={slug} onChanged={onChanged} />
       </div>
@@ -764,6 +825,105 @@ function CommandBlock({ commands }) {
     <pre className="mt-1 p-2 rounded bg-black/30 text-[11px] font-mono text-[var(--color-text-secondary)] overflow-x-auto whitespace-pre">
       {commands.join('\n')}
     </pre>
+  );
+}
+
+/** Minutes left on a minted key, as a sentence rather than a timestamp: what a
+ *  reader needs from it is "do I still have time to paste this", and a
+ *  wall-clock time in some timezone answers that question badly. */
+function minutesLeft(expiresAt) {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return Math.max(1, Math.round(ms / 60000));
+}
+
+/**
+ * The join command, with a real key in it — for machines that are NOT linked
+ * to this account. Everything linked gets the Join mesh button on its row
+ * instead, which never shows a key to anybody.
+ *
+ * MINTED ON A PRESS, NEVER ON A RENDER. This component holds no key until
+ * someone asks for one, and drops it again the moment it expires: a screen
+ * that mints a mesh credential because a tab was opened hands one to whoever
+ * opens the tab, and a key still sitting in a component an hour later is a
+ * credential nobody is watching. Both rules are why there is a button here at
+ * all rather than a command block that is simply always correct.
+ *
+ * A failure shows the backend's sentence — which names the missing config when
+ * that is the cause — and NEVER falls back to a `<key>` placeholder. That
+ * placeholder is the bug this whole path replaces; reintroducing it on the
+ * error path would be the same bug wearing a smaller hat.
+ */
+function JoinCommandSection({ slug, controlPlane }) {
+  const [minted, setMinted] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Drop the key when it dies. The command block would otherwise keep offering
+  // a credential that has stopped working, which sends the reader debugging
+  // their machine instead of pressing Regenerate.
+  useEffect(() => {
+    if (!minted?.expiresAt) return undefined;
+    const ms = new Date(minted.expiresAt).getTime() - Date.now();
+    if (!Number.isFinite(ms)) return undefined;
+    const timer = setTimeout(() => setMinted(null), Math.max(0, ms));
+    return () => clearTimeout(timer);
+  }, [minted]);
+
+  const generate = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setMinted(await mintJoinKey(slug));
+    } catch (e) {
+      setMinted(null);
+      setError(String(e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [slug]);
+
+  const command = joinCommand(minted?.controlPlaneUrl || controlPlane, minted?.key);
+  const left = minted?.expiresAt ? minutesLeft(minted.expiresAt) : null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={generate}
+          disabled={busy}
+          className="px-2 py-1 text-[11px] rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 disabled:opacity-40"
+        >
+          {busy ? 'Generating…' : minted ? 'Regenerate join command' : 'Generate join command'}
+        </button>
+        {minted && (
+          <Pill tone="warn">
+            single use{left ? ` · expires in ${left} min` : ' · expiring'}
+          </Pill>
+        )}
+      </div>
+
+      {command ? (
+        <>
+          <CommandBlock commands={[command]} />
+          <div className="text-[11px] text-[var(--color-text-muted)] mt-1">
+            Run it after the install step for that machine&apos;s OS. The key works once and then
+            it is spent — a second machine needs a second command.
+          </div>
+        </>
+      ) : (
+        <div className="text-[11px] text-[var(--color-text-muted)] mt-1">
+          The join command carries a live key to this tenant&apos;s private mesh, so it is minted
+          only when you ask for it — never just because this screen was opened. It is single-use
+          and expires in minutes.
+        </div>
+      )}
+
+      {error && (
+        <div className="text-[11px] text-[var(--color-danger)] break-all mt-1">{error}</div>
+      )}
+    </div>
   );
 }
 
@@ -949,7 +1109,7 @@ export default function NetworkingTab() {
         title="Install tailscale"
         description="Per operating system. The macOS path is genuinely different — the Linux installer does not work there."
       >
-        {installInstructions(controlPlane).map((entry) => (
+        {installInstructions().map((entry) => (
           <div key={entry.id} className="mb-3 last:mb-0">
             <div className="text-[12px] font-medium text-[var(--color-text-primary)]">{entry.title}</div>
             {entry.note && (
@@ -958,6 +1118,13 @@ export default function NetworkingTab() {
             <CommandBlock commands={entry.commands} />
           </div>
         ))}
+      </Section>
+
+      <Section
+        title="Join this mesh"
+        description="For a machine that is NOT linked to this account. Anything in the list above is enrolled with its own Join mesh button instead — no key ever leaves the backend on that path."
+      >
+        <JoinCommandSection slug={slug} controlPlane={controlPlane} />
       </Section>
     </div>
   );
