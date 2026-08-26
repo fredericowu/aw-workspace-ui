@@ -344,6 +344,18 @@ function ExitOfferControl({ host, mesh, slug, onChanged }) {
         )}
       </div>
 
+      {/* A gate that is ALREADY offering still costs what it costs. The
+          confirmation dialog on the picker says so at selection time, but a
+          row that reads "Offering as exit gate" with nothing beside it invites
+          somebody to pick it from the list above without ever meeting that
+          sentence. Caught by screenshotting the live screen, 2026-08-26 — the
+          Surface's row said only the good half. */}
+      {verdict.warning && verdict.state === 'offering' && (
+        <div className="text-[11px] text-amber-300">
+          Costly gate: {verdict.warning}
+        </div>
+      )}
+
       {/* The consequence, in the host's own words, before anything is done. */}
       {verdict.warning && ack && verdict.state !== 'offering' && (
         <div className="p-2 rounded bg-amber-500/10 grid gap-1.5">

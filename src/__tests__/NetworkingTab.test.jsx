@@ -617,6 +617,18 @@ describe('offering a host as an exit gate', () => {
     expect(screen.getAllByRole('button', { name: /stop offering/i }).length).toBeGreaterThan(0);
   });
 
+  it('keeps saying what a gate costs after it is already offering', async () => {
+    // Caught by screenshotting the live screen: the Surface's row read
+    // "Offering as exit gate" and nothing else, which invites picking it from
+    // the list above without ever meeting the sentence.
+    mockApi({ mesh: meshWithSurface({ offers_exit: true }) });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(await screen.findByText(/Costly gate:/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(WSL_WARNING.slice(0, 40)))).toBeInTheDocument();
+  });
+
   it('refuses with the agent’s own sentence, never a bare greyed control', async () => {
     // Windows link c76c606b… is the real case: same physical machine as the
     // WSL2 one, no tailscale at all. A legitimate "no" with a real reason.
@@ -665,7 +677,9 @@ describe('offering a host as an exit gate', () => {
 
     expect(await screen.findByText(/this gate works, and it costs you something/i)).toBeInTheDocument();
     expect(screen.getByText(new RegExp('measured path to this gate is a relay \\(DERP\\(mad\\)\\)'))).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(WSL_WARNING.slice(0, 40)))).toBeInTheDocument();
+    // Twice on purpose: once on the gate's own row ("Costly gate: …"), once
+    // inside the confirmation the selecting host is about to accept.
+    expect(screen.getAllByText(new RegExp(WSL_WARNING.slice(0, 40)))).toHaveLength(2);
   });
 
   it('lets a NON-workspace host be pointed at a gate, not just the workspace’s own', async () => {
