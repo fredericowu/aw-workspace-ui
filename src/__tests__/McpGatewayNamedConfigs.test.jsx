@@ -128,3 +128,33 @@ describe('McpGatewayNamedConfigs', () => {
     await waitFor(() => expect(screen.getByTestId('mcpgw-configs-msg')).toHaveTextContent(/invalid config name/));
   });
 });
+
+describe('McpGatewayNamedConfigs — profile-wide tool ACL', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockLoad(); });
+
+  it('shows the tool ACL above the upstream rows, not nested under one', async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByText('crispal'));
+
+    // Present with no upstream toggled on — it is profile-wide.
+    const field = screen.getByText('Tool name patterns').closest('label');
+    expect(within(field).getByRole('textbox')).toHaveValue('');
+  });
+
+  it('saves tool globs as a list', async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByText('crispal'));
+    const field = screen.getByText('Tool name patterns').closest('label');
+    fireEvent.blur(within(field).getByRole('textbox'), {
+      target: { value: 'get_site_info, crispal_image_*' },
+    });
+
+    apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve(PAYLOAD) });
+    fireEvent.click(screen.getByTestId('mcpgw-configs-save'));
+
+    await waitFor(() => expect(screen.getByTestId('mcpgw-configs-msg')).toBeInTheDocument());
+    const put = apiFetch.mock.calls.find(([, o]) => o?.method === 'PUT');
+    expect(JSON.parse(put[1].body).configs.crispal.tools_allow)
+      .toEqual(['get_site_info', 'crispal_image_*']);
+  });
+});

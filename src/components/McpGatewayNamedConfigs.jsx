@@ -335,6 +335,25 @@ export default function McpGatewayNamedConfigs() {
 
               {open && (
                 <div className="mcpgw-cfg-body">
+                  {/* Profile-wide, so it sits above the upstream rows rather
+                      than nested under one of them. */}
+                  <div className="mcpgw-cfg-policy is-profile">
+                    <div className="mcpgw-cfg-policy-head">
+                      <strong>Allowed tools</strong>
+                      <span>
+                        Globs over individual tool names, on top of the upstream
+                        toggles below. Qualify with an upstream to disambiguate
+                        (<code>{'agents-platform-runners__agent_crispal_*'}</code>).
+                        Empty = every tool of every enabled upstream.
+                      </span>
+                    </div>
+                    <GlobField
+                      label="Tool name patterns"
+                      value={joinList(spec.tools_allow)}
+                      placeholder="(empty = all tools)"
+                      onCommit={(raw) => setKey(name, 'tools_allow', parseList(raw))}
+                    />
+                  </div>
                   {rows.length === 0 && (
                     <p className="mcpgw-empty">No upstreams available on this gateway yet.</p>
                   )}
