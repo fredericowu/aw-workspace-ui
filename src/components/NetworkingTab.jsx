@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  advertiseConflictWarning,
   applyExitGate,
   bootstrapEligibility,
   clearExitGate,
   exitGateCandidates,
+  exitGateSelectRefusal,
   exitOfferState,
   fetchMeshStatus,
   fetchPublicIp,
@@ -17,8 +19,6 @@ import {
   resolveAccountSlug,
   withdrawExitGate,
   CONTROL_PLANE_PLACEHOLDER,
-  HOST_SCOPED_GATES_REFUSED,
-  HOST_SCOPED_GATE_REFUSAL,
 } from '../lib/networkingApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,13 +241,55 @@ function EgressAddr({ value }) {
     : <span className="text-[var(--color-text-muted)] italic">not measured</span>;
 }
 
-function EgressDelta({ before, after }) {
+function EgressDelta({ before, after, label }) {
   return (
     <div className="text-[11px] flex items-center gap-2 flex-wrap">
+      {label && <span className="text-[var(--color-text-secondary)] w-[5.5rem]">{label}</span>}
       <span className="text-[var(--color-text-muted)]">before</span>
       <EgressAddr value={before} />
       <span className="text-[var(--color-text-muted)]">→ after</span>
       <EgressAddr value={after} />
+    </div>
+  );
+}
+
+/**
+ * The four addresses an apply comes back with, read as the two pairs they are.
+ *
+ * CONTAINERS is the feature: those two are supposed to DIFFER, and if they do
+ * not, nothing moved. HOST is the assertion: those two are supposed to be
+ * IDENTICAL, and a host whose address moved is a failed apply that gets
+ * reverted however healthy the container's egress looks. The verdict line is
+ * the host's own `host_held`/`host_moved`, not something inferred here by
+ * comparing strings — an absent address means NOT MEASURED, and inferring
+ * "unchanged" from two blanks is exactly the false all-clear this screen must
+ * never print.
+ */
+function EgressPairs({ result }) {
+  const containers = result.containerEgressAfter || result.containerEgressBefore;
+  return (
+    <div className="grid gap-0.5">
+      <EgressDelta
+        label="containers"
+        before={result.containerEgressBefore?.ip || null}
+        after={result.containerEgressAfter?.ip || null}
+      />
+      <EgressDelta label="host" before={result.egressBefore} after={result.egressAfter} />
+      {result.hostMoved && (
+        <span className="text-[11px] text-[var(--color-danger)]">
+          The HOST&apos;s own address moved. That is the failure this must never produce, so the
+          apply was reverted — the machine, not just its containers, had been routed through the
+          gate.
+        </span>
+      )}
+      {result.hostHeld && !result.hostMoved && (
+        <span className="text-[11px] text-[var(--color-text-muted)]">
+          The host held its own address — only the containers moved.
+        </span>
+      )}
+      {containers?.error && (
+        <span className="text-[11px] text-[var(--color-danger)]">{containers.error}</span>
+      )}
     </div>
   );
 }
@@ -434,6 +476,11 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
     () => candidates.find((c) => c.name === choice)?.warnings || [],
     [candidates, choice],
   );
+  // THIS host's own state, not the gate's: tailscale will not advertise a gate
+  // and select one at the same time, so a host that is offering itself cannot
+  // take a selection. Read here, before anything is attempted — the measured
+  // failure was a user finding out halfway through a mutation.
+  const advertiseConflict = advertiseConflictWarning(node);
 
   const preview = useCallback(async () => {
     setError(''); setResult(null); setBusy('plan');
@@ -471,27 +518,31 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   // in headscale") lives somewhere the user would never think to look.
   if (!node?.reported || !node.up) return null;
 
-  // THE SCOPE REFUSAL. Applying a gate moves the whole MACHINE's default route
-  // — the host and every container on it — when the only egress that should
-  // move is the containers'. The host's own public IP is now the thing that
-  // must NOT change, so there is no version of this picker that is safe to
-  // offer until the rules are per container network.
+  // THE SCOPE REFUSAL, narrowed. Since aw-remote-host v0.1.58 the gate routes
+  // the CONTAINER networks and asserts the host's own address did not move, so
+  // the safe path is offered — but two cases are still refused, and neither is
+  // a leftover: an agent too old to have that code (it would move the machine's
+  // route, and it cannot refuse on its own behalf, because the refusal ships
+  // with the update), and macOS, whose containers sit behind a VM's NAT with
+  // no source-prefix routing to key a rule on.
   //
-  // The API refuses it as well (409), and so does the host. This branch is not
-  // the enforcement; it is here so the screen does not offer an action that
-  // would be refused, which reads as a broken button rather than a decision.
+  // The API refuses both as well (409), computed from the same two columns.
+  // This branch is not the enforcement; it is here so the screen does not offer
+  // an action that would be refused, which reads as a broken button rather than
+  // a decision.
   //
   // CLEAR SURVIVES, and deliberately: a host that took a selection before this
   // landed is stuck on it, and this screen is the only place most people would
   // go to get it off. Removing the whole control would strand exactly the
   // machines that most need it.
-  if (HOST_SCOPED_GATES_REFUSED) {
+  const scopeRefusal = exitGateSelectRefusal(host);
+  if (scopeRefusal) {
     return (
       <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
         <div className="flex items-start gap-2 flex-wrap">
           <Pill tone="warn">exit gate unavailable</Pill>
           <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-            {HOST_SCOPED_GATE_REFUSAL}
+            {scopeRefusal}
           </span>
         </div>
         {inForce && (
@@ -588,20 +639,54 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
         )}
       </div>
 
+      {/* BEFORE the attempt, not halfway through it. tailscale refuses to
+          advertise a gate and select one at the same time, and until now the
+          only way to learn that was to watch an apply die at `tailscale set`
+          and revert. It sits beside the picker as well as inside the
+          confirmation, because somebody who never presses Review still needs
+          to see why this row will not work. */}
+      {advertiseConflict && (
+        <div className="text-[11px] text-amber-300">{advertiseConflict}</div>
+      )}
+
       {/* The confirmation. Everything in it was measured on the host by the
-          plan call — the gate, the path to it, and every prefix that stays
-          outside the tunnel. */}
+          plan call — the gate, the path to it, the container networks that
+          would move, and every prefix that stays outside the tunnel. */}
       {plan && (
         <div className="p-2 rounded bg-amber-500/10 grid gap-1.5">
           <div className="text-[11px] text-amber-300 font-medium">
-            This moves {host.hostname || 'this host'}&apos;s DEFAULT ROUTE — and every container on
-            it — out through {plan.gate}{plan.gateIp ? ` (${plan.gateIp})` : ''}.
+            This moves the CONTAINERS on {host.hostname || 'this host'} out through {plan.gate}
+            {plan.gateIp ? ` (${plan.gateIp})` : ''}. The machine&apos;s own public IP must NOT
+            change, and the host checks that it did not.
           </div>
           <div className="text-[11px] text-[var(--color-text-muted)]">
-            If the gate does not forward, the host reverts itself: a dead-man&apos;s switch is armed
-            before anything changes, and the switch is only stood down once the real public IP has
-            been re-measured through the new route.
+            If the gate does not forward — or if the host&apos;s own address moves — the host
+            reverts itself: a dead-man&apos;s switch is armed before anything changes, and it is
+            only stood down once both addresses have been re-measured.
           </div>
+          {/* Which networks, named, rather than a promise about "your
+              containers". Straight off the plan the host just computed. */}
+          {plan.containerRoutes.length > 0 && (
+            <div>
+              <div className="text-[11px] text-[var(--color-text-muted)]">
+                These {plan.runtime ? `${plan.runtime} ` : ''}container networks would leave through
+                the gate:
+              </div>
+              <ul className="mt-0.5">
+                {plan.containerRoutes.map((r) => (
+                  <li key={r.prefix} className="text-[11px] text-[var(--color-text-muted)]">
+                    <code className="font-mono text-[var(--color-text-secondary)]">{r.prefix}</code>
+                    {r.networks.length > 0 ? ` — ${r.networks.join(', ')}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {advertiseConflict && (
+            <div className="pt-1 border-t border-amber-500/20 text-[11px] text-amber-300">
+              {advertiseConflict}
+            </div>
+          )}
           {/* What choosing THIS gate costs, as opposed to whether it works.
               A gate can be perfectly functional and still a bad idea: the
               Surface forwards through a second layer of Windows NAT and
@@ -658,8 +743,14 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
       )}
 
       {/* The outcome. An unconfirmed gate is NOT an error — the host reverted
-          itself and is fine — so it renders as its own state, with the two
-          addresses that explain it. */}
+          itself and is fine — so it renders as its own state, with the
+          addresses that explain it.
+
+          TWO PAIRS, always both. The container pair is the feature: it is
+          supposed to differ. The host pair is the assertion: it is supposed to
+          be identical, and a host that moved is a FAILED apply however healthy
+          the container's egress looks. Showing only one of them would hide
+          exactly the failure this redesign exists to catch. */}
       {result && (
         <div className="grid gap-1">
           {result.cleared ? (
@@ -673,12 +764,12 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
           ) : result.applied ? (
             <>
               <Pill tone="ok">exit gate in force — {result.gate}</Pill>
-              <EgressDelta before={result.egressBefore} after={result.egressAfter} />
+              <EgressPairs result={result} />
             </>
           ) : (
             <>
               <Pill tone="warn">{result.reverted ? 'not confirmed — reverted' : 'not applied'}</Pill>
-              <EgressDelta before={result.egressBefore} after={result.egressAfter} />
+              <EgressPairs result={result} />
               <span className="text-[11px] text-[var(--color-text-muted)]">
                 {result.refusal || result.reason || result.error
                   || 'The host did not confirm the switch, so it put the route back.'}

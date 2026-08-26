@@ -3,42 +3,35 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../auth', () => ({ apiFetch: vi.fn() }));
 
-// The scope refusal, as a per-test switch.
-//
-// Selecting an exit gate is refused outright while it moves the whole
-// MACHINE's default route instead of the containers' egress. That refusal has
-// its own tests ("selecting a gate is refused" below), and it defaults to ON
-// here exactly as it is in production.
-//
-// Every describe that turns it OFF is testing the picker BENEATH it: which
-// gates may be offered, what the confirmation has to say, how an unconfirmed
-// gate renders. None of that stops being required by the container-scoped
-// version — it is the spec that version inherits — so it keeps being tested
-// rather than deleted while the refusal stands.
-const scope = vi.hoisted(() => ({ refused: true }));
-vi.mock('../lib/networkingApi', async (importOriginal) => {
-  const actual = await importOriginal();
-  // A getter, so each render re-reads it and one test's value cannot leak
-  // into the next through a captured constant.
-  return { ...actual, get HOST_SCOPED_GATES_REFUSED() { return scope.refused; } };
-});
-
 import { apiFetch } from '../auth';
 import NetworkingTab from '../components/NetworkingTab';
 import { bootstrapEligibility } from '../lib/networkingApi';
 
+// The aw-remote-host release whose exit gate routes the CONTAINER networks
+// rather than the machine. A host below it is refused by the screen and by the
+// API — see `exitGateSelectRefusal` — so the fixtures below have to carry a
+// version, and which version they carry is the whole difference between "may
+// be offered a gate" and "must not be".
+const CONTAINER_SCOPED = 'v0.1.58';
+const HOST_SCOPED = 'v0.1.54';
+
 // Real payload, captured 2026-08-25 from
 // `aw-workspace-cli remote-hosts hosts` — same route the tab calls. Trimmed to
 // the rows that carry the cases this screen has to get right: two ineligible
-// OSes, a Linux host, and the duplicate hostname/offline links.
+// OSes, a Linux host, and the duplicate hostname/offline links. `cli_version`
+// joined the route on 2026-08-26 for the refusal above.
 const HOSTS = [
-  { id: '11e8bd4157845a24', workspace_slug: 'aw', hostname: 'b614f41828c8', os: 'linux', arch: 'amd64', last_seen_at: 1787646690.5, connected: true },
-  { id: 'c76c606b0a2a5a8b', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'windows', arch: 'amd64', last_seen_at: 1787646684.5, connected: true },
-  { id: 'caf475b7032ee441', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'linux', arch: 'amd64', last_seen_at: 1787646678.5, connected: true },
-  { id: '824decc7e0610089', workspace_slug: 'fredericowu', hostname: 'Mac.Home', os: 'darwin', arch: 'arm64', last_seen_at: 1787646670.5, connected: true },
-  { id: '6bb0d0fbf5b22492', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'linux', arch: 'amd64', last_seen_at: 1787000000.0, connected: false },
-  { id: '8435edb900436230', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'linux', arch: 'amd64', last_seen_at: 1787000000.0, connected: false },
+  { id: '11e8bd4157845a24', workspace_slug: 'aw', hostname: 'b614f41828c8', os: 'linux', arch: 'amd64', cli_version: CONTAINER_SCOPED, last_seen_at: 1787646690.5, connected: true },
+  { id: 'c76c606b0a2a5a8b', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'windows', arch: 'amd64', cli_version: CONTAINER_SCOPED, last_seen_at: 1787646684.5, connected: true },
+  { id: 'caf475b7032ee441', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'linux', arch: 'amd64', cli_version: CONTAINER_SCOPED, last_seen_at: 1787646678.5, connected: true },
+  { id: '824decc7e0610089', workspace_slug: 'fredericowu', hostname: 'Mac.Home', os: 'darwin', arch: 'arm64', cli_version: CONTAINER_SCOPED, last_seen_at: 1787646670.5, connected: true },
+  { id: '6bb0d0fbf5b22492', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'linux', arch: 'amd64', cli_version: CONTAINER_SCOPED, last_seen_at: 1787000000.0, connected: false },
+  { id: '8435edb900436230', workspace_slug: 'surface', hostname: 'DESKTOP-DRMKFBT', os: 'linux', arch: 'amd64', cli_version: CONTAINER_SCOPED, last_seen_at: 1787000000.0, connected: false },
 ];
+
+/** The same host list with `cli_version` overridden on every row — the
+ *  "nobody has updated their agent yet" fleet. */
+const hostsOnVersion = (version) => HOSTS.map((h) => ({ ...h, cli_version: version }));
 
 // The mesh-status payload as aw-backend's `mesh_status` builds it — snake_case
 // on the wire, keyed by remote-host id. Values are the real mesh measured
@@ -448,41 +441,85 @@ describe('public IP', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The scope refusal — the screen's half of it.
+// The scope refusal — the screen's half of it, now that it is NARROW.
 //
-// Applying a gate moves the whole MACHINE's default route when only the
-// containers' egress was meant to move, so no picker may be offered. The
-// binding refusals are aw-backend's 409 and the host's own; this is about the
-// screen not offering a button that would be refused.
+// It used to be blanket, and rightly: `use-exit` moved the whole MACHINE's
+// default route. v0.1.58 inverted that, so the safe path is offered — and what
+// is still refused is a host that would move its own route anyway: an agent
+// too old to have the container-scoped code, and macOS, which has no scope
+// narrower than the machine at all.
+//
+// The binding refusals are aw-backend's 409 and the host's own; this is about
+// the screen not offering a button that would be refused.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('selecting a gate is refused', () => {
-  beforeEach(() => { apiFetch.mockReset(); scope.refused = true; });
+describe('selecting a gate is refused for a host that would move its own route', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
 
-  it('offers no picker at all, and says why', async () => {
-    mockApi();
+  it('offers no picker to an agent older than the container-scoped release', async () => {
+    // The one the control plane must refuse ON THE HOST'S BEHALF: an old
+    // binary still carries the host-scoped code and cannot refuse for itself,
+    // because that refusal only arrives with the update.
+    mockApi({ hosts: hostsOnVersion(HOST_SCOPED) });
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236');
 
     expect(screen.queryByLabelText(/^Exit gate for /)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /review change/i })).not.toBeInTheDocument();
     expect(screen.getAllByText(/exit gate unavailable/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/public IP must not change/i).length).toBeGreaterThan(0);
+    // The reason AND the version to update to — a refusal that names neither
+    // leaves the reader with nothing to do about it.
+    expect(screen.getAllByText(/v0\.1\.58/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/reports v0\.1\.54/).length).toBeGreaterThan(0);
   });
 
-  it('never sends the request, even for a host that could take a gate', async () => {
-    // The bare metal runs production and is reachable from this screen. The
-    // refusal is not about capability, so a capable host must be refused too.
-    mockApi();
+  it('treats a host that reported no version as too old, not as fine', async () => {
+    // A version nobody can compare proves nothing about what is in the binary,
+    // and the destructive code is what an unknown one is assumed to carry.
+    mockApi({ hosts: hostsOnVersion(null) });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.queryByLabelText(/^Exit gate for /)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/has not reported a version/).length).toBeGreaterThan(0);
+  });
+
+  it('never sends the request for a refused host', async () => {
+    mockApi({ hosts: hostsOnVersion(HOST_SCOPED) });
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236');
 
     expect(apiFetch.mock.calls.some(([url]) => EXIT_GATE_PATH.test(url))).toBe(false);
   });
 
+  it('refuses macOS for architecture, and names the thing that would work', async () => {
+    // Not "not supported yet": a Mac's containers sit behind a VM that NATs
+    // them to its own address, and macOS has no source-prefix policy routing
+    // to key a rule with. The alternative has to be named, or the refusal is a
+    // dead end. The Mac has to be UP on the mesh for the control to render at
+    // all — an unreported host is an honest unknown, not a refusal — so this
+    // is the Mac the fixture leaves silent, brought online.
+    const macOnMesh = {
+      ...MESH,
+      nodes: {
+        ...MESH.nodes,
+        '824decc7e0610089': {
+          reported: true, up: true, mesh_ip: '100.64.0.3', node_name: 'mac-home',
+          path: 'direct', exit_node: null, offers_exit: false,
+        },
+      },
+    };
+    mockApi({ mesh: macOnMesh });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(await screen.findByText(/run aw-remote-host INSIDE the VM/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Exit gate for Mac.Home')).not.toBeInTheDocument();
+  });
+
   // THE ONE ACTION THAT SURVIVES. A host that took a selection before this
   // landed is stuck on it, and this screen is where anyone would go to undo
   // that. Removing the whole control would strand exactly those machines.
-  it('still lets a host already on a gate be cleared', async () => {
+  it('still lets a refused host already on a gate be cleared', async () => {
     const onGate = {
       ...MESH,
       nodes: {
@@ -490,7 +527,11 @@ describe('selecting a gate is refused', () => {
         caf475b7032ee441: { ...MESH.nodes.caf475b7032ee441, exit_node: 'aw-baremetal' },
       },
     };
-    mockApi({ mesh: onGate, exitGate: { cleared: true, egress: '188.250.165.236' } });
+    mockApi({
+      hosts: hostsOnVersion(HOST_SCOPED),
+      mesh: onGate,
+      exitGate: { cleared: true, egress: '188.250.165.236' },
+    });
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236');
 
@@ -505,9 +546,6 @@ describe('selecting a gate is refused', () => {
 });
 
 describe('exit gate picker', () => {
-  // The picker beneath the scope refusal — see the vi.mock at the top.
-  beforeEach(() => { scope.refused = false; });
-
   beforeEach(() => { apiFetch.mockReset(); });
 
   const gateSelect = () => screen.getAllByLabelText(/^Exit gate for /)[0];
@@ -537,20 +575,22 @@ describe('exit gate picker', () => {
     expect(screen.getAllByText(/no exit gate available/i).length).toBeGreaterThan(0);
   });
 
-  it('requires a confirmation that names the route change and the exclusions', async () => {
-    // Changing a default route can island a machine. The dead-man's switch
-    // covers the machine; this covers the user, who has to know what the
-    // button does BEFORE pressing it.
+  it('requires a confirmation that names the containers, the exclusions, and the invariant', async () => {
+    // Rewriting routing policy on a live machine can island it. The dead-man's
+    // switch covers the machine; this covers the user, who has to know what
+    // the button does BEFORE pressing it — including the half that is a
+    // promise, that the host's own address will not move.
     mockApi({
       exitGate: (options) => {
         const body = JSON.parse(options.body);
         if (body.plan) {
           return {
-            plan: true, gate: 'aw-baremetal', gate_ip: '100.64.0.1',
+            plan: true, gate: 'aw-baremetal', gate_ip: '100.64.0.1', runtime: 'docker',
+            container_routes: [{ prefix: '172.17.0.0/16', networks: ['bridge'] }],
             exclusions: [{ prefix: '65.109.66.88/32', reason: 'the control plane / /link tunnel endpoint' }],
           };
         }
-        return { applied: true, confirmed: true, gate: 'aw-baremetal', egress_before: '188.250.165.236', egress_after: '65.109.66.88' };
+        return { applied: true, confirmed: true, gate: 'aw-baremetal' };
       },
     });
     render(<NetworkingTab />);
@@ -560,17 +600,31 @@ describe('exit gate picker', () => {
     fireEvent.change(sel, { target: { value: 'aw-baremetal' } });
     fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
 
-    expect(await screen.findByText(/DEFAULT ROUTE/)).toBeInTheDocument();
+    expect(await screen.findByText(/moves the CONTAINERS/)).toBeInTheDocument();
+    // The invariant, stated before the click rather than discovered after it.
+    expect(screen.getByText(/public IP must NOT/)).toBeInTheDocument();
+    // WHICH networks, named off the plan the host just computed — not a
+    // promise about "your containers".
+    expect(screen.getByText('172.17.0.0/16')).toBeInTheDocument();
     expect(screen.getByText('65.109.66.88/32')).toBeInTheDocument();
     // Nothing has been applied yet — an Apply button is still waiting.
     expect(screen.getByRole('button', { name: /apply aw-baremetal/i })).toBeInTheDocument();
   });
 
-  it('shows the before and the after once applied — the point of the feature', async () => {
+  it('shows BOTH pairs once applied — the containers moved and the host did not', async () => {
+    // The whole difference between this feature and the bug it replaced. A
+    // container pair alone would hide a host that moved too; a host pair alone
+    // would prove nothing happened at all.
     mockApi({
       exitGate: (options) => (JSON.parse(options.body).plan
         ? { plan: true, gate: 'aw-baremetal', exclusions: [] }
-        : { applied: true, confirmed: true, gate: 'aw-baremetal', egress_before: '188.250.165.236', egress_after: '65.109.66.88' }),
+        : {
+          applied: true, confirmed: true, gate: 'aw-baremetal',
+          egress_before: '188.250.165.236', egress_after: '188.250.165.236',
+          host_held: true, host_moved: false,
+          container_egress_before: { ip: '188.250.165.236', network: 'bridge' },
+          container_egress_after: { ip: '65.109.66.88', network: 'bridge' },
+        }),
     });
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236');
@@ -580,8 +634,56 @@ describe('exit gate picker', () => {
     fireEvent.click(await screen.findByRole('button', { name: /apply aw-baremetal/i }));
 
     expect(await screen.findByText(/exit gate in force/i)).toBeInTheDocument();
-    expect(screen.getByText('before')).toBeInTheDocument();
-    expect(screen.getByText('→ after')).toBeInTheDocument();
+    expect(screen.getByText('containers')).toBeInTheDocument();
+    expect(screen.getByText('host')).toBeInTheDocument();
+    expect(screen.getByText('65.109.66.88')).toBeInTheDocument();
+    expect(screen.getByText(/host held its own address/i)).toBeInTheDocument();
+  });
+
+  it('calls out a host whose OWN address moved as the failure it is', async () => {
+    // The one outcome that damages the box. It has to read as a failure even
+    // though the container's egress looks perfectly healthy.
+    mockApi({
+      exitGate: (options) => (JSON.parse(options.body).plan
+        ? { plan: true, gate: 'aw-baremetal', exclusions: [] }
+        : {
+          applied: false, confirmed: false, reverted: true, gate: 'aw-baremetal',
+          egress_before: '188.250.165.236', egress_after: '65.109.66.88',
+          host_held: false, host_moved: true,
+          container_egress_before: { ip: '188.250.165.236' },
+          container_egress_after: { ip: '65.109.66.88' },
+        }),
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT'), { target: { value: 'aw-baremetal' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /apply aw-baremetal/i }));
+
+    expect(await screen.findByText(/HOST's own address moved/i)).toBeInTheDocument();
+    expect(screen.getByText(/not confirmed — reverted/i)).toBeInTheDocument();
+  });
+
+  it('says a host that ADVERTISES a gate cannot select one, before the attempt', async () => {
+    // Measured and unfixable on the host side: tailscale refuses to advertise
+    // an exit node and select one at the same time. The Surface is in exactly
+    // this state. Until now the user found out halfway through a mutation.
+    const advertising = {
+      ...MESH,
+      nodes: {
+        ...MESH.nodes,
+        caf475b7032ee441: { ...MESH.nodes.caf475b7032ee441, advertises_exit: true },
+      },
+    };
+    mockApi({ mesh: advertising });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // Beside the picker, with no click at all — and no exit-gate request sent.
+    expect(await screen.findByText(/tailscale refuses to advertise one and select one/i))
+      .toBeInTheDocument();
+    expect(apiFetch.mock.calls.some(([url]) => EXIT_GATE_PATH.test(url))).toBe(false);
   });
 
   it('renders an unconfirmed-and-reverted gate as its own state, not as an error', async () => {
@@ -663,9 +765,6 @@ function meshWithSurface(over = {}) {
 }
 
 describe('offering a host as an exit gate', () => {
-  // The picker beneath the scope refusal — see the vi.mock at the top.
-  beforeEach(() => { scope.refused = false; });
-
   beforeEach(() => { apiFetch.mockReset(); });
 
   it('never offers a host on one click when its agent attached a warning', async () => {
@@ -818,9 +917,6 @@ describe('offering a host as an exit gate', () => {
 });
 
 describe('a host that cannot be pointed at a gate says so', () => {
-  // The picker beneath the scope refusal — see the vi.mock at the top.
-  beforeEach(() => { scope.refused = false; });
-
   beforeEach(() => { apiFetch.mockReset(); });
 
   // The live case, measured 2026-08-26: b614f41828c8 (link 11e8bd41…) is the

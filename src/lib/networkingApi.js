@@ -691,58 +691,147 @@ export function exitGateCandidates(hosts, mesh, hostId) {
   return out;
 }
 
+/** The aw-remote-host release whose exit gate routes the CONTAINER networks
+ *  (commit `8b2fbb3`) instead of the machine. Kept in step with
+ *  EXIT_GATE_MIN_AGENT_LABEL in aw-backend's `src/api/routes/host_link.py`,
+ *  which is the copy that BINDS — this one only decides what the screen
+ *  offers. */
+export const CONTAINER_SCOPED_GATE_VERSION = 'v0.1.58';
+
 /**
- * Why selecting an exit gate is refused, in the words the screen shows.
+ * `"v0.1.58"` → `[0, 1, 58]`, or `null` when the string is not a release tag.
  *
- * Applying a gate moves the whole MACHINE's default route — the host and every
- * container on it — out through the gate. Only the containers' egress was ever
- * meant to move: the host's own public IP is the thing that must NOT change.
- * The first real apply took a Mac off the internet, and the same action is
- * reachable against a bare metal running production.
+ * `null` for `dev` (a locally built agent) and for a host that reported no
+ * version at all, both of which the caller treats as too old — a version
+ * nobody can compare proves nothing about what is in the binary. A `git
+ * describe` suffix truncates to its TAG rather than rounding up: a build after
+ * v0.1.57 is not v0.1.58.
+ */
+export function parseAgentVersion(raw) {
+  if (!raw) return null;
+  const text = String(raw).trim().replace(/^v/i, '').split(/[-+]/)[0];
+  const parts = text.split('.');
+  if (parts.length !== 3) return null;
+  const nums = parts.map((p) => (/^\d+$/.test(p) ? Number(p) : NaN));
+  return nums.some(Number.isNaN) ? null : nums;
+}
+
+/**
+ * Why selecting an exit gate is refused for THIS host, in the words the screen
+ * shows — or `''` when it may be offered one.
  *
- * Kept in step with EXIT_GATE_HOST_SCOPE_REFUSAL in aw-backend's
- * `src/api/routes/host_link.py` and vpn.HostRouteScopeRefusal in
- * aw-remote-host. Three copies of a sentence is a cost worth paying here: each
- * layer refuses independently, because the ones below it reach hosts only once
- * their binaries are updated.
+ * The refusal used to be blanket, and it was right to be: `use-exit` moved the
+ * whole machine's default route, the first real apply took a Mac off the
+ * internet, and the same action was reachable against a bare metal running
+ * production. aw-remote-host v0.1.58 inverted the scope — the rules key on
+ * each container network's source prefix and the confirmation FAILS if the
+ * host's own address moved — so a blanket refusal now blocks the fix along
+ * with the bug.
+ *
+ * What is still refused, and why each one is not a leftover. The PERMANENT one
+ * is checked first — telling a Mac to update its agent would promise a fix it
+ * is never going to get:
+ *
+ *   - macOS, permanently. Its containers live inside a Linux VM that NATs them
+ *     to its own address before macOS sees them, and macOS has no
+ *     source-prefix policy routing to key a rule with — so the only scope out
+ *     there is the whole machine. The alternative is named rather than left as
+ *     a dead end.
+ *   - an agent BELOW v0.1.58, including one that reported no version. It still
+ *     carries the host-scoped code and would move the machine's route; it
+ *     cannot refuse that on its own behalf, because the refusal ships with the
+ *     update.
+ *
+ * This is not the enforcement — aw-backend's 409 is, computed from the same
+ * two columns — it is here so the screen does not offer a button that would be
+ * refused, which reads as broken rather than as a decision. The refusal a host
+ * measures for itself (no container runtime, no container network) cannot be
+ * known from here and arrives from the API instead.
  *
  * CLEARING is never refused — a host already on a gate has to be able to get
  * off one, and this screen is where people would go to do it.
  */
-export const HOST_SCOPED_GATE_REFUSAL =
-  'Applying an exit gate moves the whole machine’s default route, and every container on it, '
-  + 'out through the gate — but the only egress that should move is the containers’. The '
-  + 'host’s own public IP must not change. Until container-scoped routing exists this is '
-  + 'refused, rather than keep offering a change that can take a production machine off the '
-  + 'internet.';
+const CONTAINER_SCOPED_GATE_MIN = [0, 1, 58];
 
-/** Flips to false when the gate routes container networks instead of the
- *  machine. Not readable from anything a caller controls: a bypass someone can
- *  set is not a refusal. */
-export const HOST_SCOPED_GATES_REFUSED = true;
+/** `a < b` over `[major, minor, patch]`. */
+function versionBelow(a, b) {
+  for (let i = 0; i < b.length; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return false;
+}
+
+export function exitGateSelectRefusal(host) {
+  if ((host?.os || '').toLowerCase() === 'darwin') {
+    return 'macOS cannot route its containers without routing the Mac itself, and that is '
+      + 'architecture rather than a feature nobody has written yet. Docker Desktop and '
+      + '`podman machine` run containers inside a Linux VM which NATs their traffic to its own '
+      + 'address before macOS ever sees it, so there is no container CIDR left out here to key a '
+      + 'rule on — and macOS has no `ip rule` to key one with either, only destination routes. To '
+      + 'route a Mac’s containers through a gate, run aw-remote-host INSIDE the VM and select the '
+      + 'gate there, the same way a Windows host selects one from its WSL2 distro.';
+  }
+  const version = parseAgentVersion(host?.cli_version);
+  if (!version || versionBelow(version, CONTAINER_SCOPED_GATE_MIN)) {
+    const seen = host?.cli_version ? `reports ${host.cli_version}` : 'has not reported a version';
+    return `This host’s agent ${seen}, and the exit gate only routes CONTAINER networks from `
+      + `aw-remote-host ${CONTAINER_SCOPED_GATE_VERSION} onwards. An older binary still carries `
+      + 'the host-scoped code: it would move the MACHINE’s default route, and every container '
+      + 'with it, when the only egress that should move is the containers’. Update aw-remote-host '
+      + `to ${CONTAINER_SCOPED_GATE_VERSION} or later. Clearing a gate is never refused, so a host `
+      + 'already on one can still be taken off it.';
+  }
+  return '';
+}
 
 /**
- * Route `hostId`'s traffic out through `node`, or preview what that would do.
+ * The one thing the other run measured and could not fix: **a host that
+ * ADVERTISES a gate cannot SELECT one.** tailscale will not do both at once,
+ * so an apply from this host fails at `tailscale set` — the sequence reverts
+ * cleanly, but only after the user has committed to it.
  *
- * `plan: true` resolves the gate and the exclusions and changes NOTHING —
- * that is what the confirmation dialog shows, so the sentence a user agrees
- * to is generated from the real machine rather than written here.
+ * Read from this host's OWN advertise state, which mesh-status already carries
+ * (`advertises_exit`, whether or not headscale approved it), so it can be said
+ * BEFORE the attempt instead of being discovered halfway through a mutation.
+ * The Surface's WSL2 link is in exactly this state today.
+ *
+ * A warning and not a refusal: it is a live tailscale pref, changeable from
+ * the row right above this one, and the host's own sequence already fails
+ * safely if somebody proceeds anyway.
+ */
+export function advertiseConflictWarning(node) {
+  if (!node?.advertisesExit) return '';
+  return 'This host currently ADVERTISES itself as an exit gate, and tailscale refuses to '
+    + 'advertise one and select one at the same time. Applying a gate here will fail at '
+    + '`tailscale set` and revert. Stop offering this host as a gate first, then select one.';
+}
+
+/**
+ * Route the CONTAINERS on `hostId` out through `node`, or preview what that
+ * would do.
+ *
+ * `plan: true` resolves the gate, the exclusions and the container networks
+ * and changes NOTHING — that is what the confirmation dialog shows, so the
+ * sentence a user agrees to is generated from the real machine rather than
+ * written here.
  *
  * Unlike the two readers above this DOES reject, and deliberately: it is a
  * deliberate action with a button behind it, so a failure belongs next to
- * that button rather than folded into a screen-wide state.
+ * that button rather than folded into a screen-wide state. A REFUSAL rejects
+ * too — the API answers 409 whether it or the host decided, and nothing on
+ * the machine was touched either way.
  *
  * A gate that could not be confirmed is NOT a rejection. It comes back as a
- * normal result with `applied: false` and the before/after addresses that
- * say why — the host reverted itself before answering, so nothing is wrong
- * with it and the two addresses are what the user needs to see.
+ * normal result with `applied: false` and the addresses that say why — the
+ * host reverted itself before answering, so nothing is wrong with it and
+ * those addresses are what the user needs to see.
  */
 export async function applyExitGate(slug, hostId, { node, plan = false } = {}) {
-  // No scope refusal here on purpose. It would sit inside the same bundle as
-  // the caller that already declines to render the control, so it enforces
-  // nothing the component has not enforced — the refusals that BIND are
-  // aw-backend's 409 and the host's own, both outside this trust boundary.
-  // See HOST_SCOPED_GATE_REFUSAL.
+  // No scope refusal re-checked here on purpose. It would sit inside the same
+  // bundle as the caller that already declines to render the control, so it
+  // enforces nothing the component has not enforced — the refusals that BIND
+  // are aw-backend's 409 and the host's own, both outside this trust boundary.
+  // See exitGateSelectRefusal.
   const s = slug || (await resolveAccountSlug());
   const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-gate`);
   const data = await apiFetch(url, {
@@ -780,13 +869,46 @@ function mapExitGateResult(data) {
     gate: data?.gate || null,
     gateIp: data?.gate_ip || null,
     gatePath: data?.gate_path || null,
+    // FOUR addresses, read as TWO PAIRS, and that is the whole point of the
+    // container-scoped version. The host pair is supposed to be IDENTICAL —
+    // `hostHeld` is the machine's own assertion that it was, and `hostMoved`
+    // is the one failure that damages the box. The container pair is supposed
+    // to DIFFER, and to differ from the host's.
+    //
     // Empty means NOT MEASURED, never "unchanged". The renderer must show an
     // absent address as unknown rather than repeating the other one.
     egressBefore: data?.egress_before || null,
     egressAfter: data?.egress_after || null,
+    hostHeld: !!data?.host_held,
+    hostMoved: !!data?.host_moved,
+    containerEgressBefore: mapContainerEgress(data?.container_egress_before),
+    containerEgressAfter: mapContainerEgress(data?.container_egress_after),
+    // What would actually move, so a confirmation can name the networks
+    // rather than promise "your containers" and hope.
+    runtime: data?.runtime || null,
+    containerRoutes: Array.isArray(data?.container_routes)
+      ? data.container_routes.map((r) => ({
+        prefix: r?.prefix || '',
+        networks: Array.isArray(r?.networks) ? r.networks : [],
+      }))
+      : [],
     exclusions: Array.isArray(data?.exclusions)
       ? data.exclusions.map((e) => ({ prefix: e?.prefix || '', reason: e?.reason || '' }))
       : [],
     deadmanStillArmed: !!data?.deadman_still_armed,
+  };
+}
+
+/** `{ip, via, runtime, network, error}` as the host measured it from inside a
+ *  container, or `null` when it sent nothing. `null` is NOT "no address" — the
+ *  renderer has to keep "not measured" apart from "measured and unchanged". */
+function mapContainerEgress(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    ip: raw.ip || null,
+    via: raw.via || null,
+    runtime: raw.runtime || null,
+    network: raw.network || null,
+    error: raw.error || '',
   };
 }
