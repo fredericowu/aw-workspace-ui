@@ -59,9 +59,15 @@ const MESH = {
 };
 
 const MESH_PATH = /\/mesh-status$/;
+const PUBLIC_IP_PATH = /\/public-ip$/;
+const EXIT_GATE_PATH = /\/exit-gate$/;
 
-function mockApi({ hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = false } = {}) {
-  apiFetch.mockImplementation((url) => {
+function mockApi({
+  hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = false,
+  publicIp = { ip: '188.250.165.236', via: 'https://api.ipify.org', host_id: '11e8bd4157845a24', host_name: 'b614f41828c8' },
+  exitGate = null,
+} = {}) {
+  apiFetch.mockImplementation((url, options) => {
     if (url === '/api/identity/me') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ memberships: [{ workspace: 'aw', role: 'owner' }] }) });
     }
@@ -70,6 +76,16 @@ function mockApi({ hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = fal
         return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: 'Bad Gateway' }) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(mesh) });
+    }
+    if (PUBLIC_IP_PATH.test(url)) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(publicIp) });
+    }
+    if (EXIT_GATE_PATH.test(url)) {
+      const reply = typeof exitGate === 'function' ? exitGate(options) : exitGate;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || {}) });
     }
     if (url.startsWith('/api/workspaces/')) {
       if (hostsFail) {
@@ -325,5 +341,177 @@ describe('NetworkingTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /offline links \(2\)/i }));
     await waitFor(() => expect(screen.getAllByText('DESKTOP-DRMKFBT')).toHaveLength(4));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The public IP at the top, and the exit-gate picker under each host.
+//
+// These two are one feature: the address is the only honest evidence that
+// picking a gate did anything. So the tests that matter are the ones about
+// what happens when the truth is NOT known — a screen that guesses here is
+// worse than one that shows nothing, because somebody flips a route and reads
+// this to find out whether it worked.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('public IP', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  it('shows the address AND says whose machine it is', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    expect(await screen.findByText('188.250.165.236')).toBeInTheDocument();
+    // A number with no owner is worse than no number. The host that measured
+    // it is on screen, not only in the payload.
+    expect(screen.getByText(/measured on b614f41828c8/)).toBeInTheDocument();
+  });
+
+  it('says it does not know rather than showing a stale address', async () => {
+    mockApi({ publicIp: { ip: null, error: 'this host is not connected, so it could not be asked' } });
+    render(<NetworkingTab />);
+    expect(await screen.findByText('not known')).toBeInTheDocument();
+    expect(screen.getByText(/not connected, so it could not be asked/)).toBeInTheDocument();
+    expect(screen.queryByText('188.250.165.236')).not.toBeInTheDocument();
+  });
+
+  it('blanks the old address while re-measuring, instead of leaving it up', async () => {
+    // THE failure this guards: the instant after a route change is the one
+    // moment anybody is looking, and the old IP still on screen would read as
+    // "nothing happened" — or worse, a new IP arriving later would look like
+    // it had been there all along.
+    let resolveSecond;
+    mockApi();
+    render(<NetworkingTab />);
+    expect(await screen.findByText('188.250.165.236')).toBeInTheDocument();
+
+    apiFetch.mockImplementation((url) => {
+      if (PUBLIC_IP_PATH.test(url)) {
+        return new Promise((r) => { resolveSecond = () => r({ ok: true, json: () => Promise.resolve({ ip: '65.109.66.88' }) }); });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /re-measure/i }));
+    await waitFor(() => {
+      expect(screen.queryByText('188.250.165.236')).not.toBeInTheDocument();
+    });
+    resolveSecond();
+    expect(await screen.findByText('65.109.66.88')).toBeInTheDocument();
+  });
+});
+
+describe('exit gate picker', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  const gateSelect = () => screen.getAllByLabelText(/^Exit gate for /)[0];
+
+  it('only ever offers a node whose exit route headscale has APPROVED', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // aw-baremetal is offers_exit:true; aw-surface-wsl is offers_exit:false
+    // (it advertises, but no admin approved the route). Offering the second
+    // would move a default route onto a gate that cannot forward.
+    const options = Array.from(gateSelect().querySelectorAll('option')).map((o) => o.textContent);
+    expect(options.join(' ')).toMatch(/aw-baremetal/);
+    expect(options.join(' ')).not.toMatch(/aw-surface-wsl/);
+  });
+
+  it('never offers a host itself as its own exit', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText(/measured on b614f41828c8/);
+
+    // aw-baremetal is the ONLY approved gate in this fixture, so its own row
+    // has nothing to offer — a host cannot route through itself. It says so
+    // instead of rendering an empty dropdown.
+    expect(screen.queryByLabelText('Exit gate for b614f41828c8')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/no exit gate available/i).length).toBeGreaterThan(0);
+  });
+
+  it('requires a confirmation that names the route change and the exclusions', async () => {
+    // Changing a default route can island a machine. The dead-man's switch
+    // covers the machine; this covers the user, who has to know what the
+    // button does BEFORE pressing it.
+    mockApi({
+      exitGate: (options) => {
+        const body = JSON.parse(options.body);
+        if (body.plan) {
+          return {
+            plan: true, gate: 'aw-baremetal', gate_ip: '100.64.0.1',
+            exclusions: [{ prefix: '65.109.66.88/32', reason: 'the control plane / /link tunnel endpoint' }],
+          };
+        }
+        return { applied: true, confirmed: true, gate: 'aw-baremetal', egress_before: '188.250.165.236', egress_after: '65.109.66.88' };
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const sel = screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT');
+    fireEvent.change(sel, { target: { value: 'aw-baremetal' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+
+    expect(await screen.findByText(/DEFAULT ROUTE/)).toBeInTheDocument();
+    expect(screen.getByText('65.109.66.88/32')).toBeInTheDocument();
+    // Nothing has been applied yet — an Apply button is still waiting.
+    expect(screen.getByRole('button', { name: /apply aw-baremetal/i })).toBeInTheDocument();
+  });
+
+  it('shows the before and the after once applied — the point of the feature', async () => {
+    mockApi({
+      exitGate: (options) => (JSON.parse(options.body).plan
+        ? { plan: true, gate: 'aw-baremetal', exclusions: [] }
+        : { applied: true, confirmed: true, gate: 'aw-baremetal', egress_before: '188.250.165.236', egress_after: '65.109.66.88' }),
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT'), { target: { value: 'aw-baremetal' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /apply aw-baremetal/i }));
+
+    expect(await screen.findByText(/exit gate in force/i)).toBeInTheDocument();
+    expect(screen.getByText('before')).toBeInTheDocument();
+    expect(screen.getByText('→ after')).toBeInTheDocument();
+  });
+
+  it('renders an unconfirmed-and-reverted gate as its own state, not as an error', async () => {
+    // The host reverted itself and is perfectly fine. Showing this as a
+    // failure of the request would send the reader looking for a broken host
+    // instead of a gate that does not forward.
+    mockApi({
+      exitGate: (options) => (JSON.parse(options.body).plan
+        ? { plan: true, gate: 'aw-baremetal', exclusions: [] }
+        : {
+          applied: false, confirmed: false, reverted: true, gate: 'aw-baremetal',
+          egress_before: '188.250.165.236', egress_after: '188.250.165.236',
+          reason: 'egress is still 188.250.165.236, the same address as before the switch',
+        }),
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT'), { target: { value: 'aw-baremetal' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /apply aw-baremetal/i }));
+
+    expect(await screen.findByText(/not confirmed — reverted/i)).toBeInTheDocument();
+    expect(screen.getByText(/same address as before the switch/)).toBeInTheDocument();
+  });
+
+  it('says why there is no picker rather than rendering nothing', async () => {
+    // A silent absence reads as a screen that failed to render, and the fix —
+    // approve the route in headscale — lives somewhere nobody would look.
+    const noGates = {
+      ...MESH,
+      nodes: { ...MESH.nodes, '11e8bd4157845a24': { ...MESH.nodes['11e8bd4157845a24'], offers_exit: false } },
+    };
+    mockApi({ mesh: noGates });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getAllByText(/no exit gate available/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/approved in\s+headscale/i).length).toBeGreaterThan(0);
   });
 });

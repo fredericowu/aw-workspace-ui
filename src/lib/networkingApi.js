@@ -162,6 +162,13 @@ export async function fetchMeshStatus(slug) {
         path: node?.path || null,
         via: node?.via || null,
         exitNode: node?.exit_node || null,
+        // Tailscale's ExitNodeOption: advertised AND approved by headscale.
+        // A node that advertises 0.0.0.0/0 but is still waiting on an admin
+        // reads false, which is the answer that matters — until the route is
+        // approved, selecting it moves a default route onto a gate that will
+        // not forward. exitGateCandidates below is the only consumer, and
+        // this is the field it filters on.
+        offersExit: !!node?.offers_exit,
         eligibility: mapEligibility(node?.eligibility),
       };
     }
@@ -294,4 +301,138 @@ export function installInstructions(controlPlane) {
       ],
     },
   ];
+}
+
+/**
+ * The public IP this workspace's own host goes out through, right now.
+ *
+ * Resolves to `{ip, via, hostId, hostName, error}` and NEVER rejects — same
+ * bargain as fetchMeshStatus, for the same reason: it is fetched alongside
+ * the host list, and a throw would report an egress problem as "could not
+ * list the hosts".
+ *
+ * `ip` is null unless a live measurement came back on THIS call. There is no
+ * cache and no last-known value to fall back on, and that is the whole point:
+ * somebody flips a route and reads this number to find out whether it worked.
+ * A remembered address rendered as the current one would answer that question
+ * wrongly, with total confidence. `error` always carries a sentence when `ip`
+ * is null, because "offline", "agent too old" and "up but no internet" need
+ * three different things done about them.
+ *
+ * `hostName` is not decoration either. This is one machine's egress, not the
+ * account's, and a public IP with no owner is worse than none — see
+ * aw-backend's `public_ip` docstring for why the workspace's own host is the
+ * one worth measuring.
+ */
+export async function fetchPublicIp(slug) {
+  try {
+    const s = slug || (await resolveAccountSlug());
+    const data = await apiFetch(centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/public-ip`)).then(readJson);
+    return {
+      ip: data?.ip || null,
+      via: data?.via || null,
+      hostId: data?.host_id || null,
+      hostName: data?.host_name || null,
+      error: data?.error || null,
+    };
+  } catch (e) {
+    return { ip: null, via: null, hostId: null, hostName: null, error: String(e.message || e) };
+  }
+}
+
+/**
+ * The hosts that may be OFFERED as an exit gate for `hostId`.
+ *
+ * Three filters, and none of them is cosmetic:
+ *
+ *   - `offersExit` — advertised AND approved by headscale. Offering a node
+ *     that only advertises would put a default route onto a gate that cannot
+ *     forward, which is the exact way a machine ends up stranded.
+ *   - `up` — a gate that is not on the mesh right now cannot carry anything.
+ *   - not itself — a host cannot be its own exit.
+ *
+ * The host refuses all three again on its side (`vpn.ResolveExitPeer`), so
+ * this is defence in depth. It is here as well because a control the user
+ * cannot press is a better answer than an error after they press it.
+ */
+export function exitGateCandidates(hosts, mesh, hostId) {
+  if (!mesh?.available) return [];
+  const out = [];
+  for (const host of hosts || []) {
+    if (host.id === hostId) continue;
+    const node = mesh.nodes?.[host.id];
+    if (!node?.reported || !node.up || !node.offersExit) continue;
+    const name = node.nodeName || host.hostname;
+    if (!name) continue;
+    out.push({ hostId: host.id, name, meshIp: node.meshIp || null });
+  }
+  // Stable order, and by the name the user picks by — the host list's own
+  // order is by link age, which is meaningless in a gate picker.
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/**
+ * Route `hostId`'s traffic out through `node`, or preview what that would do.
+ *
+ * `plan: true` resolves the gate and the exclusions and changes NOTHING —
+ * that is what the confirmation dialog shows, so the sentence a user agrees
+ * to is generated from the real machine rather than written here.
+ *
+ * Unlike the two readers above this DOES reject, and deliberately: it is a
+ * deliberate action with a button behind it, so a failure belongs next to
+ * that button rather than folded into a screen-wide state.
+ *
+ * A gate that could not be confirmed is NOT a rejection. It comes back as a
+ * normal result with `applied: false` and the before/after addresses that
+ * say why — the host reverted itself before answering, so nothing is wrong
+ * with it and the two addresses are what the user needs to see.
+ */
+export async function applyExitGate(slug, hostId, { node, plan = false } = {}) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-gate`);
+  const data = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ node, plan }),
+  }).then(readJson);
+  return mapExitGateResult(data);
+}
+
+/** Put `hostId`'s default route back. No body, no preconditions — an undo
+ *  that can refuse is one that fails exactly when it is most needed. */
+export async function clearExitGate(slug, hostId) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-gate`);
+  const data = await apiFetch(url, { method: 'DELETE' }).then(readJson);
+  return {
+    cleared: data?.cleared !== false,
+    egress: data?.egress || null,
+    egressError: data?.egress_error || null,
+    exclusionsRemoved: data?.exclusions_removed || 0,
+  };
+}
+
+function mapExitGateResult(data) {
+  return {
+    plan: !!data?.plan,
+    applied: !!data?.applied,
+    confirmed: !!data?.confirmed,
+    reverted: !!data?.reverted,
+    refused: !!data?.refused,
+    refusal: data?.refusal || '',
+    reason: data?.reason || '',
+    error: data?.error || '',
+    gate: data?.gate || null,
+    gateIp: data?.gate_ip || null,
+    gatePath: data?.gate_path || null,
+    // Empty means NOT MEASURED, never "unchanged". The renderer must show an
+    // absent address as unknown rather than repeating the other one.
+    egressBefore: data?.egress_before || null,
+    egressAfter: data?.egress_after || null,
+    exclusions: Array.isArray(data?.exclusions)
+      ? data.exclusions.map((e) => ({ prefix: e?.prefix || '', reason: e?.reason || '' }))
+      : [],
+    deadmanStillArmed: !!data?.deadman_still_armed,
+  };
 }

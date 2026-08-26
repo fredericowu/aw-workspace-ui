@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  applyExitGate,
   bootstrapEligibility,
+  clearExitGate,
+  exitGateCandidates,
   fetchMeshStatus,
+  fetchPublicIp,
   fetchRemoteHosts,
   installInstructions,
   resolveAccountSlug,
@@ -152,7 +156,299 @@ function MeshState({ mesh, hostId }) {
   );
 }
 
-function HostRow({ host, mesh }) {
+/**
+ * The public egress IP, at the top of the screen.
+ *
+ * WHOSE address it is, is rendered next to it and is not optional. This is one
+ * machine's egress — the workspace's own host — and an unlabelled number would
+ * repeat, in the most prominent place on the screen, the exact mistake the
+ * rest of it is built to avoid. The backend names the host for precisely this.
+ *
+ * A measurement that failed shows "not known" and the reason, never a
+ * remembered address. Somebody reads this number right after flipping a route
+ * to find out whether it worked; a stale one would answer that wrongly and
+ * confidently.
+ */
+function PublicIpBanner({ egress, loading, onRefresh }) {
+  return (
+    <Section
+      title="Public IP"
+      description="The address this workspace's own host leaves the internet from. Measured live on every load — never cached, because the whole point is to watch it change."
+    >
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          {loading ? (
+            <div className="text-[12px] text-[var(--color-text-muted)]">Measuring…</div>
+          ) : egress?.ip ? (
+            <>
+              <code className="text-[18px] font-mono text-[var(--color-text-primary)] break-all">
+                {egress.ip}
+              </code>
+              {/* The label. Never a bare number.
+                  The host name is a TEXT NODE here, deliberately not its own
+                  <span>: a bare element whose whole content is a hostname
+                  would collide with the host row that legitimately renders
+                  the same string, and every getByText for that row would
+                  start matching two elements. */}
+              <div className="text-[11px] text-[var(--color-text-muted)] mt-1 break-all">
+                measured on {egress.hostName || 'this workspace’s host'}
+                {egress.via && <> · via <code className="font-mono">{egress.via}</code></>}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-start gap-2 flex-wrap">
+              <Pill tone="warn">not known</Pill>
+              <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+                {egress?.error || 'This host’s public IP could not be measured.'}
+              </span>
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="shrink-0 px-3 py-1 text-[12px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Measuring…' : 'Re-measure'}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+/**
+ * Before/after, which is the entire value of the feature: the point is to
+ * WATCH the address change.
+ *
+ * A missing address renders as "not measured", never as a repeat of the other
+ * one. `applyExitGate` deliberately leaves those fields null when nothing came
+ * back, and filling the gap here with the value we do have would manufacture
+ * the very evidence the user is reading this to check.
+ */
+function EgressAddr({ value }) {
+  return value
+    ? <code className="font-mono text-[var(--color-text-primary)]">{value}</code>
+    : <span className="text-[var(--color-text-muted)] italic">not measured</span>;
+}
+
+function EgressDelta({ before, after }) {
+  return (
+    <div className="text-[11px] flex items-center gap-2 flex-wrap">
+      <span className="text-[var(--color-text-muted)]">before</span>
+      <EgressAddr value={before} />
+      <span className="text-[var(--color-text-muted)]">→ after</span>
+      <EgressAddr value={after} />
+    </div>
+  );
+}
+
+/**
+ * The exit-gate control for one host.
+ *
+ * The confirmation step is not ceremony. Moving a default route can take a
+ * machine off the internet, and although the host arms a dead-man's switch
+ * before it touches anything (aw-remote-host `internal/vpn/usexit.go`), a user
+ * who did not know that was going to happen is the one failure mode none of
+ * those layers can cover. So: pick a gate, see what it would actually do
+ * — the exclusions come back from a real `plan` call against the machine
+ * itself, not from a sentence written here — then confirm.
+ *
+ * Only gates that ADVERTISE AND ARE APPROVED are ever listed; see
+ * `exitGateCandidates`.
+ */
+function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
+  const node = mesh?.available ? mesh.nodes?.[host.id] : null;
+  const candidates = useMemo(
+    () => exitGateCandidates(hosts, mesh, host.id),
+    [hosts, mesh, host.id],
+  );
+  const [choice, setChoice] = useState('');
+  const [plan, setPlan] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const inForce = node?.exitNode || null;
+
+  const preview = useCallback(async () => {
+    setError(''); setResult(null); setBusy('plan');
+    try {
+      setPlan(await applyExitGate(slug, host.id, { node: choice, plan: true }));
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally { setBusy(''); }
+  }, [slug, host.id, choice]);
+
+  const confirm = useCallback(async () => {
+    setError(''); setBusy('apply');
+    try {
+      const res = await applyExitGate(slug, host.id, { node: choice });
+      setResult(res); setPlan(null);
+      onChanged?.();
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally { setBusy(''); }
+  }, [slug, host.id, choice, onChanged]);
+
+  const clear = useCallback(async () => {
+    setError(''); setBusy('clear'); setPlan(null);
+    try {
+      const res = await clearExitGate(slug, host.id);
+      setResult({ cleared: true, egressAfter: res.egress, egressError: res.egressError });
+      onChanged?.();
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally { setBusy(''); }
+  }, [slug, host.id, onChanged]);
+
+  // Nothing to offer, and the reason is worth saying: a silent absence here
+  // reads as a screen that forgot to render, and the fix ("approve the route
+  // in headscale") lives somewhere the user would never think to look.
+  if (!node?.reported || !node.up) return null;
+  if (candidates.length === 0 && !inForce) {
+    return (
+      <div className="flex items-start gap-2 flex-wrap">
+        <Pill tone="muted">no exit gate available</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          No other host on this mesh both advertises an exit route and has it approved in
+          headscale, so there is nothing this host could route through.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-[var(--color-text-muted)]">Exit gate</span>
+        <select
+          aria-label={`Exit gate for ${host.hostname || host.id}`}
+          value={choice}
+          onChange={(e) => { setChoice(e.target.value); setPlan(null); setResult(null); setError(''); }}
+          className="text-[12px] px-2 py-1 rounded bg-[var(--color-bg-header)] border border-[var(--color-border)] text-[var(--color-text-primary)]"
+        >
+          <option value="">— none —</option>
+          {candidates.map((c) => (
+            <option key={c.hostId} value={c.name}>
+              {c.name}{c.meshIp ? ` (${c.meshIp})` : ''}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={!choice || !!busy}
+          onClick={preview}
+          className="px-2 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy === 'plan' ? 'Checking…' : 'Review change'}
+        </button>
+        {inForce && (
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={clear}
+            className="px-2 py-1 text-[11px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy === 'clear' ? 'Clearing…' : `Clear (${inForce})`}
+          </button>
+        )}
+      </div>
+
+      {/* The confirmation. Everything in it was measured on the host by the
+          plan call — the gate, the path to it, and every prefix that stays
+          outside the tunnel. */}
+      {plan && (
+        <div className="p-2 rounded bg-amber-500/10 grid gap-1.5">
+          <div className="text-[11px] text-amber-300 font-medium">
+            This moves {host.hostname || 'this host'}&apos;s DEFAULT ROUTE — and every container on
+            it — out through {plan.gate}{plan.gateIp ? ` (${plan.gateIp})` : ''}.
+          </div>
+          <div className="text-[11px] text-[var(--color-text-muted)]">
+            If the gate does not forward, the host reverts itself: a dead-man&apos;s switch is armed
+            before anything changes, and the switch is only stood down once the real public IP has
+            been re-measured through the new route.
+          </div>
+          {plan.exclusions.length > 0 && (
+            <div>
+              <div className="text-[11px] text-[var(--color-text-muted)]">
+                These stay OUTSIDE the tunnel, so the host stays manageable:
+              </div>
+              <ul className="mt-0.5">
+                {plan.exclusions.map((e) => (
+                  <li key={e.prefix} className="text-[11px] text-[var(--color-text-muted)]">
+                    <code className="font-mono text-[var(--color-text-secondary)]">{e.prefix}</code> — {e.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={confirm}
+              className="px-2 py-1 text-[11px] rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {busy === 'apply' ? 'Applying…' : `Apply ${plan.gate}`}
+            </button>
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={() => setPlan(null)}
+              className="px-2 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* The outcome. An unconfirmed gate is NOT an error — the host reverted
+          itself and is fine — so it renders as its own state, with the two
+          addresses that explain it. */}
+      {result && (
+        <div className="grid gap-1">
+          {result.cleared ? (
+            <>
+              <Pill tone="ok">exit gate cleared</Pill>
+              <EgressDelta before={null} after={result.egressAfter} />
+              {result.egressError && (
+                <span className="text-[11px] text-[var(--color-danger)]">{result.egressError}</span>
+              )}
+            </>
+          ) : result.applied ? (
+            <>
+              <Pill tone="ok">exit gate in force — {result.gate}</Pill>
+              <EgressDelta before={result.egressBefore} after={result.egressAfter} />
+            </>
+          ) : (
+            <>
+              <Pill tone="warn">{result.reverted ? 'not confirmed — reverted' : 'not applied'}</Pill>
+              <EgressDelta before={result.egressBefore} after={result.egressAfter} />
+              <span className="text-[11px] text-[var(--color-text-muted)]">
+                {result.refusal || result.reason || result.error
+                  || 'The host did not confirm the switch, so it put the route back.'}
+              </span>
+              {result.deadmanStillArmed && (
+                <span className="text-[11px] text-amber-300">
+                  A revert is still pending on the host — its dead-man&apos;s switch is armed and
+                  will finish the job.
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="text-[11px] text-[var(--color-danger)] break-all">{error}</div>
+      )}
+    </div>
+  );
+}
+
+function HostRow({ host, mesh, hosts, slug, onChanged }) {
   // The same mesh-status entry MeshState renders below: the agent reports
   // "am I on the mesh" and "could I be" in one payload, and the second half
   // is what keeps this row from saying "unconfirmed" about a fact the host
@@ -207,6 +503,7 @@ function HostRow({ host, mesh }) {
             {eligibility.reason}
           </span>
         </div>
+        <ExitGateControl host={host} mesh={mesh} hosts={hosts} slug={slug} onChanged={onChanged} />
       </div>
     </div>
   );
@@ -223,6 +520,9 @@ function CommandBlock({ commands }) {
 export default function NetworkingTab() {
   const [hosts, setHosts] = useState(null);
   const [mesh, setMesh] = useState(null);
+  const [slug, setSlug] = useState(null);
+  const [egress, setEgress] = useState(null);
+  const [egressLoading, setEgressLoading] = useState(true);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOffline, setShowOffline] = useState(false);
@@ -233,21 +533,51 @@ export default function NetworkingTab() {
 
   useEffect(() => {
     let alive = true;
-    // The slug is resolved once and handed to both calls: each would otherwise
-    // look it up itself, doubling the identity round-trip for one screen.
+    // The slug is resolved once and handed to all three calls: each would
+    // otherwise look it up itself, tripling the identity round-trip for one
+    // screen.
     resolveAccountSlug()
-      .then((slug) => Promise.all([fetchRemoteHosts(slug), fetchMeshStatus(slug)]))
-      .then(([h, m]) => { if (alive) { setHosts(h); setMesh(m); } })
+      .then((s) => {
+        if (alive) setSlug(s);
+        return Promise.all([fetchRemoteHosts(s), fetchMeshStatus(s), fetchPublicIp(s)]);
+      })
+      .then(([h, m, e]) => { if (alive) { setHosts(h); setMesh(m); setEgress(e); } })
       .catch((e) => { if (alive) setError(String(e.message || e)); })
-      .finally(() => { if (alive) setLoading(false); });
+      .finally(() => { if (alive) { setLoading(false); setEgressLoading(false); } });
     return () => { alive = false; };
   }, [reloadToken]);
 
   const retry = useCallback(() => {
     setLoading(true);
+    setEgressLoading(true);
     setError(null);
     setReloadToken((t) => t + 1);
   }, []);
+
+  /** Re-measure the egress alone, without reloading the whole screen.
+   *
+   *  `setEgress(null)` FIRST is the load-bearing line: while a new
+   *  measurement is in flight the old address must not stay on screen, or the
+   *  moment right after a route change — the one moment anybody is looking —
+   *  would show the pre-change IP as if it were the new one. Blank is honest;
+   *  stale is not. */
+  const remeasure = useCallback(async () => {
+    setEgressLoading(true);
+    setEgress(null);
+    try {
+      setEgress(await fetchPublicIp(slug));
+    } finally {
+      setEgressLoading(false);
+    }
+  }, [slug]);
+
+  /** After a gate is applied or cleared: the egress is the whole point, and
+   *  the mesh's `exit_node` needs re-reading so the Clear button appears (or
+   *  goes away) without a manual reload. */
+  const afterGateChange = useCallback(async () => {
+    await remeasure();
+    if (slug) setMesh(await fetchMeshStatus(slug));
+  }, [remeasure, slug]);
 
   const { online, offline } = useMemo(() => {
     const rows = hosts || [];
@@ -268,6 +598,8 @@ export default function NetworkingTab() {
           their tailscale state, and the path to each peer.
         </p>
       </div>
+
+      <PublicIpBanner egress={egress} loading={egressLoading} onRefresh={remeasure} />
 
       <Section
         title="Control plane"
@@ -326,7 +658,9 @@ export default function NetworkingTab() {
               </div>
             )}
 
-            {online.map((h) => <HostRow key={h.id} host={h} mesh={mesh} />)}
+            {online.map((h) => (
+              <HostRow key={h.id} host={h} mesh={mesh} hosts={hosts} slug={slug} onChanged={afterGateChange} />
+            ))}
 
             {offline.length > 0 && (
               <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
@@ -339,7 +673,9 @@ export default function NetworkingTab() {
                 </button>
                 {showOffline && (
                   <div className="mt-1 opacity-70">
-                    {offline.map((h) => <HostRow key={h.id} host={h} mesh={mesh} />)}
+                    {offline.map((h) => (
+                      <HostRow key={h.id} host={h} mesh={mesh} hosts={hosts} slug={slug} onChanged={afterGateChange} />
+                    ))}
                   </div>
                 )}
               </div>
