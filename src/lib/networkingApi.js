@@ -1,44 +1,18 @@
 /**
- * Settings → Networking: where the tenant's mesh data comes from.
+ * Settings → Networking: host list and tailscale/mesh state, both from
+ * `aw-backend` (`GET /api/workspaces/{slug}/remote-hosts` and
+ * `GET /api/workspaces/{slug}/mesh-status`), account-scoped by `{slug}`.
  *
- * TWO sources, deliberately kept apart because only one of them exists today.
- *
- * 1. The host list — REAL, already answering.
- *    `aw-backend`'s `GET /api/workspaces/{slug}/remote-hosts`
- *    (repos/aw-backend/src/api/routes/host_link.py:813 →
- *    `list_account_remote_hosts`), the same route `aw-workspace-cli
- *    remote-hosts hosts` calls through the remote-host-cli app's client.py.
- *    `{slug}` only picks WHICH ACCOUNT to resolve — the response covers every
- *    workspace that account owns, so any slug the caller is a member of gives
- *    the same answer. The route takes a human `Identity` as well as a host
- *    token, so the browser's apex `aw_id_jwt` cookie is enough; no new
- *    endpoint was invented for this screen.
- *
- * 2. The tailscale/mesh state — REAL since 2026-08-25.
- *    `aw-backend`'s `GET /api/workspaces/{slug}/mesh-status`
- *    (repos/aw-backend/src/api/routes/host_link.py → `mesh_status`), which
- *    asks each CONNECTED host for its tailscale state over the live /link
- *    tunnel and returns it keyed by remote-host id. Same account scoping and
- *    same plane as the host list above — it delegates to the very same
- *    resolver — so the two are always about the same set of hosts.
- *
- * The split matters for honesty: a host whose row we have but whose agent has
- * told us nothing is UNKNOWN, not offline. Rendering an invented
- * "disconnected", or a plausible-looking 100.64.x.x, would be exactly the
- * silent-degradation failure this workspace keeps getting bitten by.
+ * A host whose row we have but whose agent has told us nothing is UNKNOWN,
+ * not offline. Rendering an invented "disconnected", or a plausible-looking
+ * 100.64.x.x, would be exactly the silent-degradation failure this workspace
+ * keeps getting bitten by.
  */
 import { apiFetch } from '../auth';
 import { centralApiUrl } from '../apiBase';
 
-/**
- * Path of the mesh-status endpoint. Account-scoped like the host list, so it
- * is built from a slug rather than being a constant.
- *
- * This was `null` until 2026-08-25 — deliberately, rather than a guessed path:
- * pointing it at a route nobody had written would have made every open of this
- * screen fire a 404 and turn "not built yet" into what looks like a broken
- * deployment.
- */
+/** Path of the mesh-status endpoint. Account-scoped like the host list, so
+ *  it is built from a slug rather than being a constant. */
 export const MESH_STATUS_PATH = (slug) => `/api/workspaces/${encodeURIComponent(slug)}/mesh-status`;
 
 /** Human-readable why-there-is-no-data, shown verbatim in the UI. Kept for the
@@ -56,18 +30,13 @@ async function readJson(res) {
 }
 
 /**
- * The workspace slug to address the host-list route with.
+ * The workspace slug to address the host-list route with, from this
+ * identity's memberships (`GET /api/identity/me`) — an `owner` membership
+ * preferred, any membership as fallback since the response is account-wide.
  *
- * `GET /api/identity/me` returns this identity's memberships; an `owner` one
- * is preferred because `list_account_remote_hosts` resolves the account from
- * the owner membership when the caller is a host token, and an owner is
- * guaranteed to pass its `is_member_of` check. Any membership works as a
- * fallback — the response is account-wide either way.
- *
- * This route lives on the CENTRAL aw-backend plane, not this workspace's own
- * BYOD API — `centralApiUrl` resolves the right origin on a workspace SPA
- * host (see apiBase.js) instead of letting it resolve same-origin, where it
- * 404s.
+ * `centralApiUrl` because this route lives on the CENTRAL aw-backend plane,
+ * not this workspace's own BYOD API — resolving same-origin 404s on a
+ * workspace SPA host.
  */
 export async function resolveAccountSlug() {
   const me = await apiFetch(centralApiUrl('/api/identity/me')).then(readJson);
@@ -82,13 +51,10 @@ export async function resolveAccountSlug() {
  * `{count, hosts:[{id, workspace_slug, hostname, os, arch, last_seen_at,
  * connected}]}` — every non-revoked link across the account, connected or not.
  *
- * Note for callers: the same `hostname` legitimately appears more than once
- * with different ids. A re-link leaves the previous row behind (the Surface
- * has four), and one machine can carry both a Windows and a WSL2 link. Rows
- * are per LINK, never per machine — don't dedupe them away.
- *
- * Also a CENTRAL aw-backend route (see resolveAccountSlug above) — same
- * `centralApiUrl` treatment applies.
+ * Rows are per LINK, never per machine — the same `hostname` legitimately
+ * appears more than once with different ids (a re-link leaves the previous
+ * row behind, and one machine can carry both a Windows and a WSL2 link), so
+ * don't dedupe them away.
  */
 export async function fetchRemoteHosts(slug) {
   const s = slug || (await resolveAccountSlug());
@@ -97,44 +63,26 @@ export async function fetchRemoteHosts(slug) {
 }
 
 /**
- * Mesh state, keyed by remote-host id.
+ * Mesh state, keyed by remote-host id. `nodes[hostId]` carries `{ reported,
+ * reason, up, meshIp, nodeName, path: 'direct'|'relay', via, exitNode }`.
  *
- * ALWAYS resolves, never rejects — and that is load-bearing, not politeness.
+ * ALWAYS resolves, never rejects — load-bearing, not politeness:
  * NetworkingTab fetches this in a `Promise.all` with the host list, so a
- * throw here would blank the host list too and report a mesh problem as
- * "could not list the hosts". A failed request is data about the mesh, not
- * about the hosts:
+ * throw here would blank the host list too and blame the hosts for a mesh
+ * outage.
  *
  *   { available: false, reason }                  ← the endpoint did not answer
  *   { available: true, controlPlaneUrl, nodes }   ← real data
  *
- * `nodes[hostId]` carries `{ reported, reason, up, meshIp, nodeName,
- * path: 'direct'|'relay', via, exitNode }`. `via` is the relay actually in the
- * path (e.g. `DERP(mad)`), which is what makes "works, but through Madrid"
- * visible at all.
- *
- * `reported: false` is the honest-unknown, and every field but `reason` is
- * then absent: a host that is offline, timed out, or runs an agent too old for
- * the verb told us NOTHING, which is not the same as telling us it is down.
- * The backend refuses to guess its address and so does this — see
- * MeshState in NetworkingTab for how the two cases render apart.
- *
- * `controlPlaneUrl` is PER TENANT and only ever comes from here. It is never
- * hardcoded: today's `https://headscale.aw.tekflox.com` is one tenant's value,
- * not the product's.
- *
- * The snake_case→camelCase mapping is done here rather than by the API: the
- * backend speaks snake_case on every other route, and one endpoint bending to
- * this file's convention would be a worse trade than eight lines of mapping.
+ * `reported: false` is the honest-unknown: a host that is offline, timed
+ * out, or runs an agent too old for the verb told us NOTHING, which is not
+ * the same as telling us it is down. See MeshState in NetworkingTab for how
+ * the two cases render apart.
  */
 /**
- * The host's own bootstrap-eligibility verdict, or `null` when its agent sent
- * none.
- *
- * `null` is a THIRD answer, not a falsy "no". An agent too old for the field
- * said nothing about root, /dev/net/tun or systemd, and
- * `bootstrapEligibility` keeps its honest-unknown for exactly that host. A
- * `{canEnroll: false}` here would report a refusal nobody ever made.
+ * The host's own bootstrap-eligibility verdict, or `null` when its agent
+ * sent none — a THIRD answer, not a falsy "no". `{canEnroll: false}` here
+ * would report a refusal nobody ever made.
  */
 function mapEligibility(raw) {
   if (!raw || typeof raw.can_enroll !== 'boolean') return null;
@@ -143,19 +91,15 @@ function mapEligibility(raw) {
     enrollRefusal: raw.enroll_refusal || '',
     canAdvertiseExit: !!raw.can_advertise_exit,
     exitRefusal: raw.exit_refusal || '',
-    // A THIRD answer beside yes and no: this host may serve as a gate, and
-    // here is what choosing it costs. The Surface is the case — a WSL2 distro
-    // forwards through another layer of Windows NAT it does not control — and
-    // it is why `canAdvertiseExit: true` is not on its own enough to render a
-    // plain button. Empty on agents predating the field, which reads as "no
-    // warning" and is right: any actual refusal still arrives in exitRefusal.
+    // A THIRD answer beside yes/no: this host may serve as a gate, but at a
+    // cost worth showing before offering a plain button. Empty on agents
+    // predating the field, which reads as "no warning" and is right — any
+    // actual refusal still arrives in exitRefusal.
     exitWarning: raw.exit_warning || '',
-    // The CLIENT-side verdict: can this host be pointed AT a gate. A different
-    // question from canAdvertiseExit, and not implied by canEnroll either —
-    // `b614f41828c8`, the aw workspace's own container, has neither tailscale
-    // nor systemd nor `ip`, so it can host a workspace and can never select a
-    // gate. `null` when the agent predates the field, kept distinct from
-    // `false` for the same reason every other verdict here keeps it.
+    // The CLIENT-side verdict: can this host be pointed AT a gate — a
+    // different question from canAdvertiseExit, and not implied by
+    // canEnroll. `null` when the agent predates the field, kept distinct
+    // from `false` for the same reason every other verdict here keeps it.
     canSelectExit: typeof raw.can_select_exit === 'boolean' ? raw.can_select_exit : null,
     selectExitRefusal: raw.select_exit_refusal || '',
     installer: raw.installer || null,
@@ -178,16 +122,13 @@ export async function fetchMeshStatus(slug) {
         via: node?.via || null,
         exitNode: node?.exit_node || null,
         // Tailscale's ExitNodeOption: advertised AND approved by headscale.
-        // A node that advertises 0.0.0.0/0 but is still waiting on an admin
-        // reads false, which is the answer that matters — until the route is
-        // approved, selecting it moves a default route onto a gate that will
-        // not forward. exitGateCandidates below is the only consumer, and
-        // this is the field it filters on.
+        // False while the route is unapproved, even if advertised —
+        // selecting it would point a default route at a gate that will not
+        // yet forward. This is the field exitGateCandidates filters on.
         offersExit: !!node?.offers_exit,
-        // Advertised, whether or not anybody approved it. The PAIR is what
-        // tells the two halves apart on screen: advertising with offersExit
-        // false is "waiting on the control plane", which is a different
-        // problem, for a different person, than "never advertised".
+        // Advertised, whether or not approved. Paired with offersExit so the
+        // UI can tell "waiting on control plane" apart from "never
+        // advertised".
         advertisesExit: !!node?.advertises_exit,
         eligibility: mapEligibility(node?.eligibility),
       };
@@ -203,36 +144,27 @@ export async function fetchMeshStatus(slug) {
 }
 
 /**
- * Can this host be bootstrapped into the mesh — and if not, WHY.
- *
- * Three states on purpose, and the middle one is the point:
+ * Can this host be bootstrapped into the mesh — and if not, WHY. Three
+ * states, and 'unknown' is the point: a host that never reported is not the
+ * same as one that reported "no", and collapsing them is what these three
+ * states exist to prevent.
  *
  *   'no'      — the agent said so, or it is provable from `os`. Written
  *               reason, always.
- *   'unknown' — passes the OS gate and no agent has answered. Genuinely not
- *               known here.
- *   'yes'     — ONLY when the agent said so. Never guessed.
+ *   'unknown' — passes the OS gate and no agent has answered.
+ *   'yes'     — ONLY when the agent said so. Never guessed — not even from
+ *               `os === 'linux'`.
  *
- * `node` is this host's mesh-status entry (see `fetchMeshStatus`), and its
- * `eligibility` is the agent's own verdict: root, `/dev/net/tun`, systemd and
- * the OS, probed on the machine itself, with a complete sentence attached.
- * When it is there it WINS — including its sentence, which names the thing to
- * fix, where a reason composed here can only restate the boolean.
- *
- * When it is absent nothing below changes. A host that never reported is not
- * a host that reported "no", and collapsing the two is what this function's
- * three states exist to prevent. In particular 'yes' is still never inferred
- * from `os === 'linux'` — that would invent the very facts that decide it.
- *
- * A greyed-out button with no sentence next to it reads as a bug, which is
- * why every verdict carries `reason`.
+ * The agent's own verdict (`node.eligibility`), when present, WINS over any
+ * OS-based guess here, sentence included. A greyed-out button with no
+ * sentence next to it reads as a bug, which is why every verdict carries
+ * `reason`.
  */
 export function bootstrapEligibility(host, node) {
   const os = (host?.os || '').toLowerCase();
 
-  // The agent's verdict first, whatever the OS: it measured this machine and
-  // nothing here did. A macOS host that reports itself enrollable is right
-  // and the OS rule below is out of date, not the other way round.
+  // The agent's verdict first, whatever the OS: it measured this machine,
+  // the OS rule below did not.
   const reported = node?.eligibility;
   if (reported) {
     if (reported.canEnroll) {
@@ -277,9 +209,8 @@ export function bootstrapEligibility(host, node) {
       reason: 'This host has not reported an operating system.',
     };
   }
-  // Still 'unknown', still the honest answer — but the blame moved. The
-  // verdict IS reported now; THIS host has not sent one, because it is
-  // offline, timed out, or runs an agent older than the field.
+  // Still 'unknown', but THIS host has not sent a verdict — offline, timed
+  // out, or an agent older than the field.
   return {
     state: 'unknown',
     label: 'Eligibility unconfirmed',
@@ -290,20 +221,12 @@ export function bootstrapEligibility(host, node) {
 }
 
 /**
- * Install instructions per OS. macOS is a genuinely different path — the Linux
- * one-liner installer does not work there — so it is listed separately rather
- * than as a footnote.
+ * Install instructions per OS. macOS is listed separately — the Linux
+ * one-liner installer does not work there.
  *
- * `controlPlane` is substituted in when known; when it isn't, the placeholder
- * stays visible so nobody copy-pastes another tenant's control plane.
- *
- * THE JOIN LINE IS NOT IN HERE, and that is the point of the split. Installing
- * tailscale is a command anyone can be shown at any time; joining is a command
- * that carries a live mesh credential, so it only exists once someone has
- * asked for one (`mintJoinKey`) and it is built by `joinCommand` below. The
- * previous version of this function ended each block with
- * `--authkey=<key> --hostname=<name>` — two placeholders a reader has no way
- * to fill, on a command that reads as if it would work.
+ * THE JOIN LINE IS NOT IN HERE, deliberately: it carries a live mesh
+ * credential, so it only exists once someone has asked for one
+ * (`mintJoinKey`), built by `joinCommand` below.
  */
 export const CONTROL_PLANE_PLACEHOLDER = '<tenant-control-plane>';
 
@@ -329,14 +252,11 @@ export function installInstructions() {
 /**
  * The one command that puts a machine on this mesh, with a REAL key in it.
  *
- * `$(hostname -s)` rather than a `<name>` placeholder: it is a default that is
- * both sensible and correct on the machine running it — the short hostname,
- * evaluated by that machine's own shell, on Linux and macOS alike — where a
- * placeholder is a hole the reader has to know to fill. Anyone who wants a
- * different node name edits one word of a command that already works, instead
- * of being unable to run it at all.
+ * `$(hostname -s)` rather than a `<name>` placeholder: evaluated by the
+ * machine's own shell, so the command works as printed instead of needing a
+ * value filled in first.
  *
- * Returns `null` without a key. There is deliberately no "show it with a
+ * Returns `null` without a key — deliberately no "show it with a
  * placeholder" mode: rendering a command that cannot work is the bug this
  * whole path replaces.
  */
@@ -349,17 +269,13 @@ export function joinCommand(controlPlane, key) {
 /**
  * Mint a join key for this tenant's mesh.
  *
- * REJECTS on failure, unlike the readers above, and for the same reason
- * `applyExitGate` does: this only ever runs because somebody pressed a button,
- * so a failure belongs next to that button. It must never be folded into a
- * screen-wide state, and it must never be swallowed into a placeholder — the
- * backend answers a missing admin credential with a sentence naming the config
- * key to add, and that sentence is the useful thing to show.
+ * REJECTS on failure, unlike the readers above: this only runs because
+ * somebody pressed a button, so the failure belongs next to that button —
+ * never folded into a screen-wide state. The backend's own sentence (e.g.
+ * naming a missing admin credential) is the useful thing to show.
  *
- * The key comes back exactly once and is not readable again afterwards
- * (headscale masks it on read), so a caller that drops it mints a new one.
- * Single-use and minutes-long expiry are fixed on the backend, not asked for
- * here.
+ * The key comes back exactly once — headscale masks it on read afterwards —
+ * so a caller that drops it mints a new one.
  */
 export async function mintJoinKey(slug) {
   const s = slug || (await resolveAccountSlug());
@@ -376,17 +292,11 @@ export async function mintJoinKey(slug) {
 
 /**
  * Enrol an already-linked host in the mesh, remotely — no key ever reaches
- * this browser.
- *
- * The distinction from `mintJoinKey` is the whole shape of this feature: a
- * machine that has an agent on the other end of a live link does not need a
- * human at a keyboard in front of it, so it gets driven rather than
- * instructed. The credential is minted, spent and (on failure) expired inside
- * aw-backend.
+ * this browser. The credential is minted, spent and (on failure) expired
+ * inside aw-backend.
  *
  * A REFUSAL IS A NORMAL RESULT, not a rejection: `refused: true` with the
- * host's own sentence is the machine answering "I cannot do this, here is
- * why", and it arrives as a 409 whose body carries that sentence.
+ * host's own sentence arrives as a 409 whose body carries it.
  */
 export async function joinMesh(slug, hostId) {
   const s = slug || (await resolveAccountSlug());
@@ -450,24 +360,16 @@ export function joinMeshAvailability(host, node, eligibility) {
 
 /**
  * The public IP this workspace's own host goes out through, right now.
- *
  * Resolves to `{ip, via, hostId, hostName, error}` and NEVER rejects — same
- * bargain as fetchMeshStatus, for the same reason: it is fetched alongside
- * the host list, and a throw would report an egress problem as "could not
- * list the hosts".
+ * bargain as fetchMeshStatus: fetched alongside the host list, so a throw
+ * would report an egress problem as "could not list the hosts".
  *
- * `ip` is null unless a live measurement came back on THIS call. There is no
- * cache and no last-known value to fall back on, and that is the whole point:
- * somebody flips a route and reads this number to find out whether it worked.
- * A remembered address rendered as the current one would answer that question
- * wrongly, with total confidence. `error` always carries a sentence when `ip`
- * is null, because "offline", "agent too old" and "up but no internet" need
- * three different things done about them.
+ * `ip` is null unless a live measurement came back on THIS call — no cache,
+ * no last-known fallback, because a remembered address rendered as current
+ * would answer "did the route change" wrongly, with total confidence.
  *
- * `hostName` is not decoration either. This is one machine's egress, not the
- * account's, and a public IP with no owner is worse than none — see
- * aw-backend's `public_ip` docstring for why the workspace's own host is the
- * one worth measuring.
+ * `hostName` is not decoration: this is one machine's egress, not the
+ * account's, and a public IP with no owner is worse than none.
  */
 export async function fetchPublicIp(slug) {
   try {
@@ -488,28 +390,17 @@ export async function fetchPublicIp(slug) {
 /**
  * What choosing this node as a gate would cost, as complete sentences.
  *
- * ELIGIBLE AND COSTLY ARE NOT OPPOSITES, and conflating them is how this
- * screen would go wrong in both directions at once. `aw-surface-wsl` is the
- * case that forced this: it CAN forward, so hiding it would remove a real
- * capability — and routing through it means egress via WSL2 → the Windows
- * host's NAT → a home connection, over a path that cannot hole-punch and
- * therefore relays through a public DERP. Offering that silently would push
- * every byte the workspace sends through a third-party relay without anybody
- * being told.
+ * ELIGIBLE AND COSTLY ARE NOT OPPOSITES: a gate can genuinely forward and
+ * still be a bad idea (e.g. relaying every byte through a third party), so
+ * hiding it would remove a real capability, and offering it silently would
+ * hide what it costs.
  *
- * Two independent sources, deliberately not merged into one string:
+ * Two independent sources, kept as separate sentences rather than merged:
+ *   - the GATE's own verdict (`eligibility.exitWarning`), verbatim.
+ *   - the measured PATH to it (`path`/`via`) — a property of the link, not
+ *     knowable by the gate itself.
  *
- *   - the GATE's own verdict (`eligibility.exitWarning`) — measured on that
- *     machine, about what it is. Verbatim, like every other agent sentence
- *     on this screen.
- *   - the measured PATH to it (`path`/`via`) — a property of the link, which
- *     the gate cannot know about itself. `_mesh_observation` on the backend
- *     takes it from whichever other host measured it, so it is "the measured
- *     path to this gate", not necessarily the path from the host about to
- *     select it. Worded to claim only that.
- *
- * Returns `[]` when there is nothing to say, so a caller can render the
- * ordinary case with no special-casing.
+ * Returns `[]` when there is nothing to say.
  */
 export function gateWarnings(node) {
   const out = [];
@@ -717,39 +608,28 @@ export function parseAgentVersion(raw) {
 }
 
 /**
- * Why selecting an exit gate is refused for THIS host, in the words the screen
- * shows — or `''` when it may be offered one.
+ * Why selecting an exit gate is refused for THIS host, in the words the
+ * screen shows — or `''` when it may be offered one.
  *
- * The refusal used to be blanket, and it was right to be: `use-exit` moved the
- * whole machine's default route, the first real apply took a Mac off the
- * internet, and the same action was reachable against a bare metal running
- * production. aw-remote-host v0.1.58 inverted the scope — the rules key on
- * each container network's source prefix and the confirmation FAILS if the
- * host's own address moved — so a blanket refusal now blocks the fix along
- * with the bug.
+ * Two refusals, neither a leftover. The PERMANENT one is checked first —
+ * telling a Mac to update its agent would promise a fix it is never going
+ * to get:
  *
- * What is still refused, and why each one is not a leftover. The PERMANENT one
- * is checked first — telling a Mac to update its agent would promise a fix it
- * is never going to get:
+ *   - macOS, permanently. Its containers live inside a Linux VM that NATs
+ *     them to its own address before macOS sees them, and macOS has no
+ *     source-prefix routing to key a rule with — the only scope left is the
+ *     whole machine.
+ *   - an agent BELOW v0.1.58, including one that reported no version. It
+ *     still carries the host-scoped code and would move the machine's
+ *     route; it cannot refuse that on its own behalf, because the refusal
+ *     ships with the update.
  *
- *   - macOS, permanently. Its containers live inside a Linux VM that NATs them
- *     to its own address before macOS sees them, and macOS has no
- *     source-prefix policy routing to key a rule with — so the only scope out
- *     there is the whole machine. The alternative is named rather than left as
- *     a dead end.
- *   - an agent BELOW v0.1.58, including one that reported no version. It still
- *     carries the host-scoped code and would move the machine's route; it
- *     cannot refuse that on its own behalf, because the refusal ships with the
- *     update.
+ * Not the enforcement — aw-backend's 409 is, from the same two columns —
+ * this is here so the screen does not offer a button that would be
+ * refused, which reads as broken rather than a decision.
  *
- * This is not the enforcement — aw-backend's 409 is, computed from the same
- * two columns — it is here so the screen does not offer a button that would be
- * refused, which reads as broken rather than as a decision. The refusal a host
- * measures for itself (no container runtime, no container network) cannot be
- * known from here and arrives from the API instead.
- *
- * CLEARING is never refused — a host already on a gate has to be able to get
- * off one, and this screen is where people would go to do it.
+ * CLEARING is never refused — a host already on a gate has to be able to
+ * get off one.
  */
 const CONTAINER_SCOPED_GATE_MIN = [0, 1, 58];
 
@@ -785,15 +665,13 @@ export function exitGateSelectRefusal(host) {
 }
 
 /**
- * The one thing the other run measured and could not fix: **a host that
- * ADVERTISES a gate cannot SELECT one.** tailscale will not do both at once,
- * so an apply from this host fails at `tailscale set` — the sequence reverts
- * cleanly, but only after the user has committed to it.
+ * **A host that ADVERTISES a gate cannot SELECT one.** tailscale will not
+ * do both at once, so an apply from this host fails at `tailscale set` and
+ * reverts — cleanly, but only after the user has committed to it.
  *
- * Read from this host's OWN advertise state, which mesh-status already carries
- * (`advertises_exit`, whether or not headscale approved it), so it can be said
- * BEFORE the attempt instead of being discovered halfway through a mutation.
- * The Surface's WSL2 link is in exactly this state today.
+ * Read from this host's OWN advertise state (`advertises_exit`) so it can
+ * be said BEFORE the attempt instead of discovered halfway through a
+ * mutation.
  *
  * A warning and not a refusal: it is a live tailscale pref, changeable from
  * the row right above this one, and the host's own sequence already fails
@@ -827,11 +705,8 @@ export function advertiseConflictWarning(node) {
  * those addresses are what the user needs to see.
  */
 export async function applyExitGate(slug, hostId, { node, plan = false } = {}) {
-  // No scope refusal re-checked here on purpose. It would sit inside the same
-  // bundle as the caller that already declines to render the control, so it
-  // enforces nothing the component has not enforced — the refusals that BIND
-  // are aw-backend's 409 and the host's own, both outside this trust boundary.
-  // See exitGateSelectRefusal.
+  // No scope refusal re-checked here — the refusals that BIND are
+  // aw-backend's 409 and the host's own. See exitGateSelectRefusal.
   const s = slug || (await resolveAccountSlug());
   const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/exit-gate`);
   const data = await apiFetch(url, {
@@ -869,14 +744,13 @@ function mapExitGateResult(data) {
     gate: data?.gate || null,
     gateIp: data?.gate_ip || null,
     gatePath: data?.gate_path || null,
-    // FOUR addresses, read as TWO PAIRS, and that is the whole point of the
-    // container-scoped version. The host pair is supposed to be IDENTICAL —
-    // `hostHeld` is the machine's own assertion that it was, and `hostMoved`
-    // is the one failure that damages the box. The container pair is supposed
-    // to DIFFER, and to differ from the host's.
+    // FOUR addresses, read as TWO PAIRS. The host pair should be IDENTICAL —
+    // `hostHeld` is the machine's own assertion, `hostMoved` is the failure
+    // that damages the box. The container pair should DIFFER, from each
+    // other and from the host's.
     //
-    // Empty means NOT MEASURED, never "unchanged". The renderer must show an
-    // absent address as unknown rather than repeating the other one.
+    // Empty means NOT MEASURED, never "unchanged" — the renderer must show
+    // an absent address as unknown, not a repeat of the other one.
     egressBefore: data?.egress_before || null,
     egressAfter: data?.egress_after || null,
     hostHeld: !!data?.host_held,

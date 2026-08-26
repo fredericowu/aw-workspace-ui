@@ -21,30 +21,25 @@ import {
   CONTROL_PLANE_PLACEHOLDER,
 } from '../lib/networkingApi';
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Settings → General → Networking
 //
 // The tenant's private mesh: every aw-remote-host linked to this account,
-// whether each one is on the mesh, at which IP, and whether the path to it is
-// direct or relayed — the last of which is measured by a `tailscale ping` on
-// the host, because `tailscale status` cannot tell an idle direct peer from a
-// relayed one.
+// whether each one is on the mesh, at which IP, and whether the path to it
+// is direct or relayed.
 //
-// Two rules this screen exists to keep, both from the same doctrine — a screen
-// that quietly shows less than the truth is worse than one that shows nothing:
+// Two rules this screen exists to keep, both from the same doctrine — a
+// screen that quietly shows less than the truth is worse than one that
+// shows nothing:
 //
-//   1. Every disabled bootstrap button carries a WRITTEN reason. A greyed
-//      control with no sentence next to it reads as a bug, not as a decision.
-//   2. Nothing is invented. A host that reported nothing says "no agent data"
-//      and carries the reason — never a made-up "disconnected", never a
-//      plausible-looking 100.64.x.x. See MeshState: the three cases it keeps
-//      apart are the whole point of the cell.
+//   1. Every disabled bootstrap button carries a WRITTEN reason.
+//   2. Nothing is invented. A host that reported nothing says "no agent
+//      data" and carries the reason — never a made-up "disconnected", never
+//      a plausible-looking 100.64.x.x. See MeshState for the three cases.
 //
-// The host rows are per LINK, not per machine: a re-link leaves the old row
-// behind (the Surface carries four, two offline) and one machine can hold both
-// a Windows and a WSL2 link. Offline links are folded into a collapsed group so
-// they neither disappear nor drown the live ones.
-// ─────────────────────────────────────────────────────────────────────────────
+// Host rows are per LINK, not per machine — a re-link leaves the old row
+// behind, and one machine can hold more than one link. Offline links are
+// folded into a collapsed group so they neither disappear nor drown the
+// live ones.
 
 function Pill({ tone = 'muted', children, title }) {
   const tones = {
@@ -86,19 +81,18 @@ function relativeSeen(ts) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/** Mesh cell — the honest-unknown lives here, and it has THREE cases that a
+/** Mesh cell — the honest-unknown lives here, and it has THREE cases a
  *  careless reading would collapse into two:
  *
- *    1. nothing was learned about this host — it is offline, it timed out, or
- *       its agent is too old for the verb. UNKNOWN. Never "disconnected", and
- *       never an address: the backend refuses to guess one (it often could,
- *       from another host's peer list) and so must this.
- *    2. the host ANSWERED, and said it is not on the mesh. That is a fact,
- *       with the agent's own reason attached.
+ *    1. nothing was learned about this host — offline, timed out, or an
+ *       agent too old for the verb. UNKNOWN. Never "disconnected", and
+ *       never an address: the backend refuses to guess one and so must this.
+ *    2. the host ANSWERED, and said it is not on the mesh — a fact, with
+ *       the agent's own reason attached.
  *    3. the host is on the mesh, with a measured path.
  *
- *  `mesh.available === false` is case 1 for every host at once: the endpoint
- *  itself did not answer. */
+ *  `mesh.available === false` is case 1 for every host at once: the
+ *  endpoint itself did not answer. */
 function MeshState({ mesh, hostId }) {
   const node = mesh?.available ? mesh.nodes?.[hostId] : null;
   const unknownReason = !mesh?.available
@@ -168,14 +162,12 @@ function MeshState({ mesh, hostId }) {
 /**
  * The public egress IP, at the top of the screen.
  *
- * WHOSE address it is, is rendered next to it and is not optional. This is one
- * machine's egress — the workspace's own host — and an unlabelled number would
- * repeat, in the most prominent place on the screen, the exact mistake the
- * rest of it is built to avoid. The backend names the host for precisely this.
+ * WHOSE address it is renders next to it and is not optional — an
+ * unlabelled number would repeat, in the most prominent place on the
+ * screen, the exact mistake this screen is built to avoid.
  *
  * A measurement that failed shows "not known" and the reason, never a
- * remembered address. Somebody reads this number right after flipping a route
- * to find out whether it worked; a stale one would answer that wrongly and
+ * remembered address — a stale one would answer "did it work" wrongly and
  * confidently.
  */
 function PublicIpBanner({ egress, loading, onRefresh }) {
@@ -193,12 +185,10 @@ function PublicIpBanner({ egress, loading, onRefresh }) {
               <code className="text-[18px] font-mono text-[var(--color-text-primary)] break-all">
                 {egress.ip}
               </code>
-              {/* The label. Never a bare number.
-                  The host name is a TEXT NODE here, deliberately not its own
-                  <span>: a bare element whose whole content is a hostname
-                  would collide with the host row that legitimately renders
-                  the same string, and every getByText for that row would
-                  start matching two elements. */}
+              {/* TEXT NODE, deliberately not its own <span>: an element whose
+                  whole content is a hostname would collide with the host
+                  row rendering the same string, and getByText would then
+                  match two elements. */}
               <div className="text-[11px] text-[var(--color-text-muted)] mt-1 break-all">
                 measured on {egress.hostName || 'this workspace’s host'}
                 {egress.via && <> · via <code className="font-mono">{egress.via}</code></>}
@@ -227,13 +217,11 @@ function PublicIpBanner({ egress, loading, onRefresh }) {
 }
 
 /**
- * Before/after, which is the entire value of the feature: the point is to
- * WATCH the address change.
- *
- * A missing address renders as "not measured", never as a repeat of the other
- * one. `applyExitGate` deliberately leaves those fields null when nothing came
- * back, and filling the gap here with the value we do have would manufacture
- * the very evidence the user is reading this to check.
+ * Before/after — the point is to WATCH the address change. A missing
+ * address renders as "not measured", never as a repeat of the other one:
+ * `applyExitGate` leaves those fields null when nothing came back, and
+ * filling the gap here would manufacture the evidence the user is reading
+ * this to check.
  */
 function EgressAddr({ value }) {
   return value
@@ -254,16 +242,14 @@ function EgressDelta({ before, after, label }) {
 }
 
 /**
- * The four addresses an apply comes back with, read as the two pairs they are.
- *
- * CONTAINERS is the feature: those two are supposed to DIFFER, and if they do
- * not, nothing moved. HOST is the assertion: those two are supposed to be
- * IDENTICAL, and a host whose address moved is a failed apply that gets
- * reverted however healthy the container's egress looks. The verdict line is
- * the host's own `host_held`/`host_moved`, not something inferred here by
- * comparing strings — an absent address means NOT MEASURED, and inferring
- * "unchanged" from two blanks is exactly the false all-clear this screen must
- * never print.
+ * The four addresses an apply comes back with, read as the two pairs they
+ * are. CONTAINERS is the feature — those two should DIFFER. HOST is the
+ * assertion — those two should be IDENTICAL, and a host whose address
+ * moved is a failed apply regardless of how healthy the container egress
+ * looks. The verdict line is the host's own `host_held`/`host_moved`, not
+ * inferred here: an absent address means NOT MEASURED, and inferring
+ * "unchanged" from two blanks is the false all-clear this screen must never
+ * print.
  */
 function EgressPairs({ result }) {
   const containers = result.containerEgressAfter || result.containerEgressBefore;
@@ -295,37 +281,15 @@ function EgressPairs({ result }) {
 }
 
 /**
- * The exit-gate control for one host.
- *
- * The confirmation step is not ceremony. Moving a default route can take a
- * machine off the internet, and although the host arms a dead-man's switch
- * before it touches anything (aw-remote-host `internal/vpn/usexit.go`), a user
- * who did not know that was going to happen is the one failure mode none of
- * those layers can cover. So: pick a gate, see what it would actually do
- * — the exclusions come back from a real `plan` call against the machine
- * itself, not from a sentence written here — then confirm.
- *
- * Only gates that ADVERTISE AND ARE APPROVED are ever listed; see
- * `exitGateCandidates`.
- */
-/**
  * Offering THIS host as a gate — the other end of picking one.
  *
- * Until this existed the mesh had exactly one gate, because it was the only
- * node a human had ever approved by hand with `headscale nodes approve-routes`
- * on the metal. The picker below was right to list nothing else; what was
- * missing was any way to create a second one.
- *
- * Two halves live behind the single button — the host advertises, the control
- * plane approves — and the backend withdraws the first if the second fails,
- * because a node that advertises a route nobody approved looks armed and
- * forwards nothing. The `pending` state names that condition when something
- * else leaves it behind.
+ * Two halves live behind the single button — the host advertises, the
+ * control plane approves — and the backend withdraws the first if the
+ * second fails, since a node that advertises a route nobody approved looks
+ * armed and forwards nothing. The `pending` state names that condition.
  *
  * Ineligibility is never a bare greyed control: `exitOfferState` always
- * carries the host's own sentence. Windows link `c76c606b…` is the example
- * that matters — the same physical machine as the WSL2 one, with no tailscale
- * at all, which is a legitimate "no" with a real reason rather than a bug.
+ * carries the host's own sentence.
  */
 function ExitOfferControl({ host, mesh, slug, onChanged }) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
@@ -393,11 +357,9 @@ function ExitOfferControl({ host, mesh, slug, onChanged }) {
       </div>
 
       {/* A gate that is ALREADY offering still costs what it costs. The
-          confirmation dialog on the picker says so at selection time, but a
-          row that reads "Offering as exit gate" with nothing beside it invites
-          somebody to pick it from the list above without ever meeting that
-          sentence. Caught by screenshotting the live screen, 2026-08-26 — the
-          Surface's row said only the good half. */}
+          confirmation dialog says so at selection time, but a row that
+          only reads "Offering as exit gate" invites picking it from the
+          list above without ever meeting that sentence. */}
       {verdict.warning && verdict.state === 'offering' && (
         <div className="text-[11px] text-amber-300">
           Costly gate: {verdict.warning}
@@ -457,6 +419,18 @@ function ExitOfferControl({ host, mesh, slug, onChanged }) {
   );
 }
 
+/**
+ * The exit-gate control for one host.
+ *
+ * The confirmation step is not ceremony: moving a default route can take a
+ * machine off the internet. The host arms a dead-man's switch before it
+ * touches anything, but a user who did not expect that is a failure mode
+ * those layers can't cover — so: pick a gate, see what it would actually do
+ * (a real `plan` call against the machine), then confirm.
+ *
+ * Only gates that ADVERTISE AND ARE APPROVED are ever listed; see
+ * `exitGateCandidates`.
+ */
 function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
   const candidates = useMemo(
@@ -518,23 +492,12 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   // in headscale") lives somewhere the user would never think to look.
   if (!node?.reported || !node.up) return null;
 
-  // THE SCOPE REFUSAL, narrowed. Since aw-remote-host v0.1.58 the gate routes
-  // the CONTAINER networks and asserts the host's own address did not move, so
-  // the safe path is offered — but two cases are still refused, and neither is
-  // a leftover: an agent too old to have that code (it would move the machine's
-  // route, and it cannot refuse on its own behalf, because the refusal ships
-  // with the update), and macOS, whose containers sit behind a VM's NAT with
-  // no source-prefix routing to key a rule on.
+  // THE SCOPE REFUSAL. See exitGateSelectRefusal for what still doesn't fit
+  // v0.1.58's container-scoped gate and why.
   //
-  // The API refuses both as well (409), computed from the same two columns.
-  // This branch is not the enforcement; it is here so the screen does not offer
-  // an action that would be refused, which reads as a broken button rather than
-  // a decision.
-  //
-  // CLEAR SURVIVES, and deliberately: a host that took a selection before this
-  // landed is stuck on it, and this screen is the only place most people would
-  // go to get it off. Removing the whole control would strand exactly the
-  // machines that most need it.
+  // CLEAR SURVIVES, deliberately: a host that took a selection before this
+  // landed is stuck on it, and this screen is the only place most people
+  // would go to get it off.
   const scopeRefusal = exitGateSelectRefusal(host);
   if (scopeRefusal) {
     return (
@@ -574,10 +537,8 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
     );
   }
   // A host that says it cannot be pointed at a gate gets the sentence, not a
-  // picker that would 409 after the click. `b614f41828c8` — the aw workspace's
-  // own container — is the live case: no tailscale, no systemd, no `ip`, so it
-  // can never select one however many gates the mesh has. `false` only;
-  // `null` means the agent is too old to have answered, which is not a no.
+  // picker that would 409 after the click. `false` only; `null` means the
+  // agent is too old to have answered, which is not a no.
   if (node.eligibility?.canSelectExit === false && !inForce) {
     return (
       <div className="flex items-start gap-2 flex-wrap">
@@ -639,12 +600,9 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
         )}
       </div>
 
-      {/* BEFORE the attempt, not halfway through it. tailscale refuses to
-          advertise a gate and select one at the same time, and until now the
-          only way to learn that was to watch an apply die at `tailscale set`
-          and revert. It sits beside the picker as well as inside the
-          confirmation, because somebody who never presses Review still needs
-          to see why this row will not work. */}
+      {/* BEFORE the attempt, not halfway through it — sits beside the picker
+          as well as inside the confirmation, because somebody who never
+          presses Review still needs to see why this row will not work. */}
       {advertiseConflict && (
         <div className="text-[11px] text-amber-300">{advertiseConflict}</div>
       )}
@@ -687,14 +645,11 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
               {advertiseConflict}
             </div>
           )}
-          {/* What choosing THIS gate costs, as opposed to whether it works.
-              A gate can be perfectly functional and still a bad idea: the
-              Surface forwards through a second layer of Windows NAT and
-              cannot hole-punch, so everything would relay through a public
-              DERP. The dead-man's switch above cannot catch that — it only
-              knows whether traffic flows, not who it flows through — so this
-              is the only place a user finds out, and it has to be before
-              they confirm rather than after. */}
+          {/* What choosing THIS gate costs, as opposed to whether it works —
+              a gate can be perfectly functional and still a bad idea. The
+              dead-man's switch above only knows whether traffic flows, not
+              who it flows through, so this is the only place a user finds
+              out, and it has to be before they confirm. */}
           {chosenWarnings.length > 0 && (
             <div className="pt-1 border-t border-amber-500/20">
               <div className="text-[11px] text-amber-300 font-medium">
@@ -742,15 +697,9 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
         </div>
       )}
 
-      {/* The outcome. An unconfirmed gate is NOT an error — the host reverted
-          itself and is fine — so it renders as its own state, with the
-          addresses that explain it.
-
-          TWO PAIRS, always both. The container pair is the feature: it is
-          supposed to differ. The host pair is the assertion: it is supposed to
-          be identical, and a host that moved is a FAILED apply however healthy
-          the container's egress looks. Showing only one of them would hide
-          exactly the failure this redesign exists to catch. */}
+      {/* The outcome. An unconfirmed gate is NOT an error — the host
+          reverted itself and is fine — so it renders as its own state,
+          with the addresses that explain it (see EgressPairs). */}
       {result && (
         <div className="grid gap-1">
           {result.cleared ? (
@@ -845,13 +794,11 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
           </div>
         </div>
 
-        {/* Remote bootstrap, for real. The key this needs is minted inside
-            aw-backend and handed straight to the host's agent, so pressing
-            this never puts a mesh credential in front of anybody — that is
-            what separates this path from the paste-it-yourself command in the
-            instructions below. A host that cannot take it stays disabled AND
-            carries its sentence as text further down; the title alone would be
-            invisible on touch. */}
+        {/* Remote bootstrap, for real: the key is minted inside aw-backend
+            and handed straight to the host's agent, so pressing this never
+            puts a mesh credential in front of anybody. A host that cannot
+            take it stays disabled AND carries its sentence as text further
+            down — the title alone would be invisible on touch. */}
         <button
           type="button"
           disabled={!join.can || joining}
@@ -929,21 +876,17 @@ function minutesLeft(expiresAt) {
 }
 
 /**
- * The join command, with a real key in it — for machines that are NOT linked
- * to this account. Everything linked gets the Join mesh button on its row
- * instead, which never shows a key to anybody.
+ * The join command, with a real key in it — for machines NOT linked to this
+ * account. Everything linked gets the Join mesh button instead, which never
+ * shows a key to anybody.
  *
- * MINTED ON A PRESS, NEVER ON A RENDER. This component holds no key until
- * someone asks for one, and drops it again the moment it expires: a screen
- * that mints a mesh credential because a tab was opened hands one to whoever
- * opens the tab, and a key still sitting in a component an hour later is a
- * credential nobody is watching. Both rules are why there is a button here at
- * all rather than a command block that is simply always correct.
+ * MINTED ON A PRESS, NEVER ON A RENDER: this component holds no key until
+ * someone asks for one, and drops it again the moment it expires — a key
+ * sitting in a component after a tab was merely opened is a credential
+ * nobody is watching.
  *
- * A failure shows the backend's sentence — which names the missing config when
- * that is the cause — and NEVER falls back to a `<key>` placeholder. That
- * placeholder is the bug this whole path replaces; reintroducing it on the
- * error path would be the same bug wearing a smaller hat.
+ * A failure shows the backend's sentence and NEVER falls back to a `<key>`
+ * placeholder — that placeholder is the bug this whole path replaces.
  */
 function JoinCommandSection({ slug, controlPlane }) {
   const [minted, setMinted] = useState(null);
