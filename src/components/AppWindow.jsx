@@ -315,6 +315,7 @@ function WidgetBody({ widget }) {
             title={widget.title || 'app'}
             src={apiUrl(widget.src)}
             sandbox="allow-scripts allow-forms allow-same-origin"
+            allow={widget.allow || undefined}
           />
           {!isFocused && <div className="absolute inset-0 z-10" onMouseDown={onFocus} />}
         </div>
@@ -330,6 +331,7 @@ function WidgetBody({ widget }) {
             title={widget.title || 'app'}
             src={widget.path ? `${base}${widget.path}` : base}
             sandbox="allow-scripts allow-forms allow-same-origin"
+            allow={widget.allow || undefined}
           />
           {!isFocused && <div className="absolute inset-0 z-10" onMouseDown={onFocus} />}
         </div>

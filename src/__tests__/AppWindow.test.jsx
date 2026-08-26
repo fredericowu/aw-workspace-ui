@@ -93,6 +93,14 @@ describe('AppWindow iframe widget focus overlay', () => {
     fireEvent.mouseDown(container.querySelector('.appwin-iframe-wrap'));
     expect(onFocus).toHaveBeenCalled();
   });
+
+  it('delegates only the permissions explicitly requested by the widget', () => {
+    const spec = {
+      regions: [{ id: 'main', widgets: [{ type: 'iframe', src: '/camera', allow: 'camera' }] }],
+    };
+    const { container } = render(<AppWindow spec={spec} isFocused />);
+    expect(container.querySelector('iframe')).toHaveAttribute('allow', 'camera');
+  });
 });
 
 describe('AppWindow button auto-poll (device-flow-style)', () => {
