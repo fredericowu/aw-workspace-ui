@@ -115,6 +115,57 @@ describe('ObservabilityTab', () => {
     }));
   });
 
+  it('shows a warning and asks to retry when the AP-MT push fails on save', async () => {
+    apiFetch.mockImplementation((url, opts) => {
+      if (url === '/api/settings/observability' && opts?.method === 'PUT') {
+        return getJson({
+          mode: 'local', local_available: true, custom: { endpoint: '', api_key: '' },
+          resolved: { endpoint: 'https://signoz.app.ws.example.com', api_key: 'k', source: 'local' },
+          warning: null,
+          push: { ok: false, reason: 'agents-platform-multitenant unreachable' },
+        });
+      }
+      return getJson({
+        mode: 'off', local_available: true, custom: { endpoint: '', api_key: '' },
+        resolved: null, warning: null,
+      });
+    });
+
+    render(<ObservabilityTab />);
+    const local = await screen.findByRole('radio', { name: /Local \(auto\)/i });
+    fireEvent.click(local);
+
+    const warning = await screen.findByTestId('observability-push-warning');
+    expect(warning.textContent).toMatch(/agents-platform-multitenant unreachable/i);
+    expect(warning.textContent).toMatch(/save again to retry/i);
+  });
+
+  it('does not show a push warning when the push succeeds', async () => {
+    apiFetch.mockImplementation((url, opts) => {
+      if (url === '/api/settings/observability' && opts?.method === 'PUT') {
+        return getJson({
+          mode: 'local', local_available: true, custom: { endpoint: '', api_key: '' },
+          resolved: { endpoint: 'https://signoz.app.ws.example.com', api_key: 'k', source: 'local' },
+          warning: null,
+          push: { ok: true, reason: null },
+        });
+      }
+      return getJson({
+        mode: 'off', local_available: true, custom: { endpoint: '', api_key: '' },
+        resolved: null, warning: null,
+      });
+    });
+
+    render(<ObservabilityTab />);
+    const local = await screen.findByRole('radio', { name: /Local \(auto\)/i });
+    fireEvent.click(local);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('observability-resolved-endpoint')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('observability-push-warning')).toBeNull();
+  });
+
   it('shows the fallback warning when Local was reset to Desligado', async () => {
     apiFetch.mockImplementation(() => getJson({
       mode: 'off', local_available: false, custom: { endpoint: '', api_key: '' },

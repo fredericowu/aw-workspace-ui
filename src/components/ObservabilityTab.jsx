@@ -40,6 +40,7 @@ export default function ObservabilityTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [keyVisible, setKeyVisible] = useState(false);
+  const [pushWarning, setPushWarning] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +80,12 @@ export default function ObservabilityTab() {
       if (!res.ok) throw new Error(body?.detail || `Save failed (${res.status})`);
       setData(body);
       setSelectedMode(body.mode);
+      // The setting itself always persisted at this point (a push failure
+      // never fails the PUT) — this only flags that AP-MT didn't get the
+      // new target. No auto-retry: clicking Save again is the retry.
+      setPushWarning(body.push && body.push.ok === false
+        ? `Config saved locally, but reaching AP-MT failed (${body.push.reason || 'unknown error'}) — save again to retry.`
+        : null);
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -112,6 +119,14 @@ export default function ObservabilityTab() {
       {data?.warning && (
         <div className="text-xs text-amber-400 mb-3 px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30">
           {data.warning}
+        </div>
+      )}
+      {pushWarning && (
+        <div
+          className="text-xs text-amber-400 mb-3 px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30"
+          data-testid="observability-push-warning"
+        >
+          {pushWarning}
         </div>
       )}
 
