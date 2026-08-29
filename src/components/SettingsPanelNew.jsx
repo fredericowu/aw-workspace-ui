@@ -24,6 +24,7 @@ import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
 import NetworkingTab from './NetworkingTab';
+import ObservabilityTab from './ObservabilityTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
@@ -34,6 +35,7 @@ const GENERAL_SECTIONS = [
   { key: 'users', label: 'Users', ready: true },
   { key: 'integrations', label: 'Integrations', ready: true },
   { key: 'marketplace', label: 'Marketplace', ready: true },
+  { key: 'observability', label: 'Observability', ready: true },
   { key: 'tcp-proxy', label: 'TCP Proxy', ready: false },
   // Was `{ key: 'vpn', label: 'VPN' }`. Renamed, not just relabelled: the scope
   // grew from "a VPN with an exit node" to the tenant's whole private mesh, of
@@ -265,7 +267,8 @@ export default function SettingsPanelNew() {
                 (selectedSection.key === 'users' && <UsersTab />) ||
                 (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
                 (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
-                (selectedSection.key === 'networking' && <NetworkingTab />)
+                (selectedSection.key === 'networking' && <NetworkingTab />) ||
+                (selectedSection.key === 'observability' && <ObservabilityTab />)
               )
               : <ComingSoon label={selectedSection.label} />
           )}
