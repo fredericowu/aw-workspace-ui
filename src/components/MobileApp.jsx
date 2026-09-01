@@ -8,7 +8,7 @@ import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
 import { windowBodySlot } from '../apps/slotRegistry';
 import { usePluginContributions } from '../apps/usePluginContributions';
-import { listInstalledApps } from '../apps/appsApi';
+import { listInstalledApps, fetchContributions } from '../apps/appsApi';
 import { appChrome, defaultLaunchWindow } from '../apps/appWindowChrome';
 import { appWindowKey } from '../apps/appWindowKeys';
 import AppWindowBody from './AppWindowBody';
@@ -74,11 +74,13 @@ export default function MobileApp() {
   // No `onFirstLoad`: window rehydration is desktop-only (localStorage
   // openWindows / WindowManager), which mobile has no equivalent of.
   //
-  // The ref is captured (not discarded) — the Apps section below needs the
-  // live contributions payload to resolve each installed app's launchable
-  // windows. Do NOT call usePluginContributions() a second time anywhere
-  // else: its `activeWirings` guard turns a second call into a warned no-op.
-  const contributionsRef = usePluginContributions();
+  // Its return ref is deliberately discarded — the Apps section below needs
+  // the live contributions payload too, but as reactive state (so a render
+  // picks up a fresh fetch), not a ref read synchronously during render.
+  // See the `contributions` state below, fetched independently. Do NOT call
+  // usePluginContributions() a second time anywhere else in this component:
+  // its `activeWirings` guard turns a second call into a warned no-op.
+  usePluginContributions();
 
   const { components, refetch } = useComponentStatus();
   // menuOpen removed — hamburger menu removed, dashboard shows everything
@@ -216,6 +218,20 @@ export default function MobileApp() {
   const [installedApps, setInstalledApps] = useState(null);
   useEffect(() => {
     const load = () => listInstalledApps().then(setInstalledApps).catch(() => setInstalledApps([]));
+    load();
+    window.addEventListener('aw-apps-changed', load);
+    return () => window.removeEventListener('aw-apps-changed', load);
+  }, []);
+
+  // Window contributions (GET /api/apps/-/contributions) — resolves each
+  // installed app's launchable windows (appChrome/defaultLaunchWindow).
+  // usePluginContributions() above fetches the same payload into a ref for
+  // its own event-handler-only use; this is a separate, independent fetch
+  // into React state on purpose, so a render can read a fresh value instead
+  // of dereferencing a ref during render.
+  const [contributions, setContributions] = useState(null);
+  useEffect(() => {
+    const load = () => fetchContributions().then(setContributions).catch(() => {});
     load();
     window.addEventListener('aw-apps-changed', load);
     return () => window.removeEventListener('aw-apps-changed', load);
@@ -841,7 +857,7 @@ export default function MobileApp() {
     // `.id`, never `.slug`, so this never misfires on the other branches.
     if (kindOrApp && typeof kindOrApp === 'object' && kindOrApp.slug) {
       const installedApp = kindOrApp;
-      const windowSpec = defaultLaunchWindow(installedApp, contributionsRef.current);
+      const windowSpec = defaultLaunchWindow(installedApp, contributions);
       if (!windowSpec) return;
 
       const legacyApp = workspaceApps.find(a => a.id === installedApp.slug);
@@ -934,7 +950,7 @@ export default function MobileApp() {
 
       startIfOff(target.compKey);
     }
-  }, [workspaceApps, buildProxyUrl, components, componentMap, startIfOff]);
+  }, [workspaceApps, buildProxyUrl, componentMap, contributions, startIfOff]);
 
   // Remote Desktop used to live here as its own fullscreen overlay (it
   // wasn't a URL-backed workspace app, so it couldn't go through openApp's
@@ -1504,12 +1520,11 @@ export default function MobileApp() {
             agentPickerOpen={agentPickerOpen}
             setAgentPickerOpen={setAgentPickerOpen}
             terminals={terminals}
-            components={components}
             componentMap={componentMap}
             grouped={grouped}
             workspaceApps={workspaceApps}
             installedApps={installedApps}
-            contributions={contributionsRef.current}
+            contributions={contributions}
             onOpenWindow={openWindow}
             onOpenModal={openModal}
             onAction={handleAction}
@@ -1773,7 +1788,7 @@ function AppIcon({ name, size = 18 }) {
   }
 }
 
-function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, components, componentMap, grouped, workspaceApps, installedApps, contributions, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
+function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, componentMap, grouped, workspaceApps, installedApps, contributions, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
   // Lookup helpers for the Agents list — get the agent definition
   // (label, color) by type so each row can render with its CLI's brand.
   const agentByType = (type) => aiAgents.find(a => a.type === type);
