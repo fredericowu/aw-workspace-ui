@@ -57,4 +57,23 @@ describe('MobileApp — Apps section (installed apps, not workspace_apps)', () =
     render(<MobileApp />);
     expect(screen.getByText(/Loading apps/i)).toBeInTheDocument();
   });
+
+  it('merges singular/plural category spellings into one section (QA 2026-09-01: "Service" vs "Services")', async () => {
+    // Live example: kb ships category "Services", proxy ships "Service" —
+    // manifests disagree the same way isCategory()'s own doc comment in
+    // appWindowChrome.js describes. Before the fix these rendered as two
+    // separate "Service"/"Services" headers instead of one merged section.
+    listInstalledApps.mockResolvedValue([
+      { slug: 'kb', name: 'Knowledge Base', category: 'Services', has_windows: true, settings_panels: [] },
+      { slug: 'proxy', name: 'AW Proxy', category: 'Service', has_windows: true, settings_panels: [] },
+    ]);
+
+    render(<MobileApp />);
+
+    expect(await screen.findByText('Knowledge Base')).toBeInTheDocument();
+    expect(screen.getByText('AW Proxy')).toBeInTheDocument();
+    // One merged header, using the plural (longer) spelling seen in the group.
+    expect(screen.getByText('Services')).toBeInTheDocument();
+    expect(screen.queryByText('Service')).toBeNull();
+  });
 });

@@ -2123,17 +2123,26 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
       {installedApps === null ? (
         <div className="text-[12px] text-[var(--color-text-muted)] px-1">Loading apps…</div>
       ) : (
-        Object.entries(
+        Object.values(
           installedApps
             .filter((a) => !!a.has_windows)
             .reduce((acc, app) => {
-              const cat = app.category || 'Apps';
-              (acc[cat] || (acc[cat] = [])).push(app);
+              const raw = (app.category || 'Apps').trim() || 'Apps';
+              // Same stem isCategory() (appWindowChrome.js) uses to compare
+              // categories — manifests disagree on singular vs plural
+              // ("Service" vs "Services"), and without this every such pair
+              // rendered as two separate section headers. Prefer the longer
+              // (plural) spelling seen for the group as the display label,
+              // matching AppLauncher's own canonical "Services"/"Tools" tabs.
+              const key = raw.toLowerCase().replace(/s$/, '');
+              if (!acc[key]) acc[key] = { label: raw, apps: [] };
+              else if (raw.length > acc[key].label.length) acc[key].label = raw;
+              acc[key].apps.push(app);
               return acc;
             }, {})
-        ).map(([category, apps]) => (
-          <div key={category}>
-            <div className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)] mb-2 px-1">{category}</div>
+        ).map(({ label, apps }) => (
+          <div key={label}>
+            <div className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)] mb-2 px-1">{label}</div>
             <div className="grid grid-cols-1 gap-1.5 mb-3">
               {apps.map(app => {
                 const legacyApp = workspaceApps.find(a => a.id === app.slug);
