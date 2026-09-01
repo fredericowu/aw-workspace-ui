@@ -8,6 +8,11 @@ import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
 import { windowBodySlot } from '../apps/slotRegistry';
 import { usePluginContributions } from '../apps/usePluginContributions';
+import { listInstalledApps } from '../apps/appsApi';
+import { appChrome, defaultLaunchWindow } from '../apps/appWindowChrome';
+import { appWindowKey } from '../apps/appWindowKeys';
+import AppWindowBody from './AppWindowBody';
+import DockerControls from './DockerControls';
 import SettingsPanel from './SettingsPanel';
 import SettingsPanelNew from './SettingsPanelNew';
 import StatusDot from './StatusDot';
@@ -68,7 +73,12 @@ export default function MobileApp() {
   // render the `core.nav` slot, so no declarative nav entry can call it here.
   // No `onFirstLoad`: window rehydration is desktop-only (localStorage
   // openWindows / WindowManager), which mobile has no equivalent of.
-  usePluginContributions();
+  //
+  // The ref is captured (not discarded) — the Apps section below needs the
+  // live contributions payload to resolve each installed app's launchable
+  // windows. Do NOT call usePluginContributions() a second time anywhere
+  // else: its `activeWirings` guard turns a second call into a warned no-op.
+  const contributionsRef = usePluginContributions();
 
   const { components, refetch } = useComponentStatus();
   // menuOpen removed — hamburger menu removed, dashboard shows everything
@@ -178,7 +188,11 @@ export default function MobileApp() {
   // Picker state for the "+" button: which agent the user wants to start
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
 
-  // Workspace apps loaded from aw.json — drives the dynamic Apps section
+  // Workspace apps loaded from aw.json — legacy listing source. Demoted
+  // (2026-09-01): no longer drives the Apps section (installedApps below
+  // does), but stays alive as (i) the appChrome() legacyApp input for apps
+  // that still only carry a component key in aw.json, and (ii) the backing
+  // list for the top-bar quick launchers' legacy string kinds.
   const [workspaceApps, setWorkspaceApps] = useState([]);
 
   useEffect(() => {
@@ -192,6 +206,28 @@ export default function MobileApp() {
     window.addEventListener('aw-config-changed', handler);
     return () => window.removeEventListener('aw-config-changed', handler);
   }, []);
+
+  // Installed apps (GET /api/apps) — drives the Apps section. Filtered to
+  // has_windows (visualApps semantics, not uiApps — see appWindowChrome.js
+  // design notes: mobile has one list, so excluding Tool/Service like the
+  // desktop launcher's `uiApps` does would make kb/proxy unreachable here).
+  // null (not []) until the first fetch resolves, so the Apps section can
+  // render a loading state instead of a false "no apps installed".
+  const [installedApps, setInstalledApps] = useState(null);
+  useEffect(() => {
+    const load = () => listInstalledApps().then(setInstalledApps).catch(() => setInstalledApps([]));
+    load();
+    window.addEventListener('aw-apps-changed', load);
+    return () => window.removeEventListener('aw-apps-changed', load);
+  }, []);
+
+  // Live component-status map appChrome() needs to resolve a component key
+  // and its running/off/boot status.
+  const componentMap = useMemo(() => {
+    const map = {};
+    (components || []).forEach((c) => { map[c.key] = c; });
+    return map;
+  }, [components]);
 
   // ─── iOS Safari safe-area race fix ─────────────────────────────
   //
@@ -715,6 +751,7 @@ export default function MobileApp() {
     if (activeWindow.type === 'desktop') return 'Desktop';
     if (activeWindow.type === 'presentation') return activeWindow.name || 'Presentation';
     if (activeWindow.type === 'terminal') return activeWindow.name || activeWindow.id;
+    if (activeWindow.type === 'app-window') return activeWindow.chrome?.title || activeWindow.windowSpec?.title || activeWindow.key;
     return activeWindow.key;
   };
 
@@ -785,12 +822,74 @@ export default function MobileApp() {
     return `${window.location.protocol}//${app.id}.app.${apex}${pathQuery}`;
   }, []);
 
+  // Background docker start so the app the user just tapped finds a running
+  // service once it loads (or its window mounts) — shared by every branch
+  // below so a stopped component always gets kicked off the same way.
+  const startIfOff = useCallback((componentKey) => {
+    if (!componentKey) return;
+    const comp = components.find(c => c.key === componentKey);
+    if (comp && comp.status === 'off') {
+      startComponent(componentKey).catch(() => {});
+      setTimeout(refetch, 1000);
+    }
+  }, [components, refetch]);
+
   const openApp = useCallback((kindOrApp) => {
-    // Accept either a workspace-app object (from the dynamic Apps list)
-    // or a legacy string kind ('browser' | 'vscode' | 'desktop').  String
-    // kinds are resolved via the loaded workspaceApps list; if the list
-    // isn't available yet, we fall back to the hardcoded URL map so the
-    // top-bar quick launchers always work.
+    // Installed-app row (from the has_windows-filtered Apps section below) —
+    // resolve its default launchable window through the same ladder the
+    // desktop shell uses. Checked first: a legacy workspace_apps object has
+    // `.id`, never `.slug`, so this never misfires on the other branches.
+    if (kindOrApp && typeof kindOrApp === 'object' && kindOrApp.slug) {
+      const installedApp = kindOrApp;
+      const windowSpec = defaultLaunchWindow(installedApp, contributionsRef.current);
+      if (!windowSpec) return;
+
+      const legacyApp = workspaceApps.find(a => a.id === installedApp.slug);
+      const chrome = appChrome({
+        appId: installedApp.slug,
+        windowSpec,
+        installedApp,
+        legacyApp,
+        componentMap,
+      });
+
+      if (windowSpec.body?.type === 'managed_app') {
+        // Same fullscreen iframe overlay every other app opens through.
+        setActiveWindow({
+          type: 'iframe-app',
+          kind: installedApp.slug,
+          url: chrome.url,
+          title: chrome.title,
+          component: chrome.component,
+        });
+        const w = window.screen.width;
+        const h = window.screen.height;
+        document.title = `AW · ${chrome.title} · ${w}×${h} · mobile`;
+        window.history.replaceState(null, '', `/#app=${encodeURIComponent(installedApp.slug)}&view=mobile`);
+      } else {
+        // Everything else (component / declarative) — generic app-window
+        // overlay rendering AppWindowBody, the same body BasicWindow renders
+        // on desktop. This is what lets mobile open apps beyond the handful
+        // of managed_app ones.
+        setActiveWindow({
+          type: 'app-window',
+          key: appWindowKey(windowSpec.id),
+          windowSpec,
+          spec: windowSpec.body?.spec_data || null,
+          chrome,
+        });
+      }
+
+      startIfOff(chrome.component);
+      return;
+    }
+
+    // Accept either a legacy workspace-app object (from aw.json, the
+    // top-bar quick launchers' backing list) or a legacy string kind
+    // ('browser' | 'vscode' | 'desktop').  String kinds are resolved via
+    // the loaded workspaceApps list; if the list isn't available yet, we
+    // fall back to the hardcoded URL map so the top-bar quick launchers
+    // always work.
     let app = typeof kindOrApp === 'object' ? kindOrApp
             : workspaceApps.find(a => a.id === kindOrApp);
 
@@ -807,6 +906,7 @@ export default function MobileApp() {
         kind: app.id,
         url: proxyUrl,
         title: app.label,
+        component: app.component || null,
       });
 
       // Update document.title and URL so "Add to Home Screen" captures
@@ -815,15 +915,7 @@ export default function MobileApp() {
       document.title = `AW · ${app.label} · ${w}×${h} · mobile`;
       window.history.replaceState(null, '', `/#app=${encodeURIComponent(app.id)}&view=mobile`);
 
-      // Background docker start so the iframe finds a running service
-      // when it loads.
-      if (app.component) {
-        const comp = components.find(c => c.key === app.component);
-        if (comp && comp.status === 'off') {
-          startComponent(app.component).catch(() => {});
-          setTimeout(refetch, 1000);
-        }
-      }
+      startIfOff(app.component);
     } else {
       // Fallback hardcoded map for legacy string kinds ('browser' /
       // 'vscode' / 'desktop') used by the top-bar quick launchers
@@ -838,15 +930,11 @@ export default function MobileApp() {
       const target = legacyMap[kindOrApp];
       if (!target) return;
 
-      setActiveWindow({ type: 'iframe-app', kind: kindOrApp, url: target.url, title: target.title });
+      setActiveWindow({ type: 'iframe-app', kind: kindOrApp, url: target.url, title: target.title, component: target.compKey || null });
 
-      const comp = components.find(c => c.key === target.compKey);
-      if (comp && comp.status === 'off') {
-        startComponent(target.compKey).catch(() => {});
-        setTimeout(refetch, 1000);
-      }
+      startIfOff(target.compKey);
     }
-  }, [workspaceApps, buildProxyUrl, components, refetch]);
+  }, [workspaceApps, buildProxyUrl, components, componentMap, startIfOff]);
 
   // Remote Desktop used to live here as its own fullscreen overlay (it
   // wasn't a URL-backed workspace app, so it couldn't go through openApp's
@@ -943,6 +1031,19 @@ export default function MobileApp() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Container controls — only for apps whose window carries a
+                standalone component (canControlContainer, computed the same
+                way desktop's AppProxyWindow gates its own trio). Absent from
+                `activeWindow` (legacy iframe-app opens never set it) means
+                this simply doesn't render — no regression for those. */}
+            {activeWindow.component && componentMap[activeWindow.component]?.standalone_app !== false && (
+              <DockerControls
+                variant="touch"
+                componentKey={activeWindow.component}
+                status={componentMap[activeWindow.component]?.status || 'off'}
+                onReloadWindow={refreshIframe}
+              />
+            )}
             <button
               onClick={refreshIframe}
               aria-label="Refresh"
@@ -1202,6 +1303,16 @@ export default function MobileApp() {
                   <button onClick={() => handleAction(activeWindow.key, 'stop')}
                     className="px-3 py-2 text-[12px] rounded-md bg-[var(--color-danger)]/15 text-[var(--color-danger)] active:bg-[var(--color-danger)]/25">Stop</button>
                 </>
+              ) : activeWindow.type === 'app-window' && activeWindow.chrome?.canControlContainer ? (
+                // Container controls for a non-managed_app window (component /
+                // declarative) whose app row resolves to a real, independently
+                // start/stop/restart-able container — desktop's BasicWindow has
+                // no equivalent today (Decision D, mobile-apps-menu design).
+                <DockerControls
+                  variant="touch"
+                  componentKey={activeWindow.chrome.component}
+                  status={componentMap[activeWindow.chrome.component]?.status || 'off'}
+                />
               ) : null}
               {/* Back pill — always rightmost, matches the apps-header
                   back button style.  Replaces the previous duplicate
@@ -1355,6 +1466,25 @@ export default function MobileApp() {
                 }}
               />
             </div>
+          ) : activeWindow.type === 'app-window' ? (
+            // Generic app window — the same body BasicWindow renders on
+            // desktop (AppSlot for component-mode, AppWindow for declarative
+            // widgets), reached here for any launchable window whose body
+            // isn't managed_app (which stays on the iframe-app overlay above).
+            <div className="h-full mobile-presentation-view">
+              <AppWindowBody
+                windowSpec={activeWindow.windowSpec}
+                spec={activeWindow.spec}
+                slotProps={{
+                  windowKey: activeWindow.key,
+                  instanceId: activeWindow.windowSpec?.instanceId,
+                  onClose: closeActiveWindow,
+                  onMaximize: () => {},
+                  isMaximized: false,
+                  onTitleChange: () => {},
+                }}
+              />
+            </div>
           ) : (
             <div className="h-full mobile-log-view">
               <LogWindow
@@ -1375,8 +1505,11 @@ export default function MobileApp() {
             setAgentPickerOpen={setAgentPickerOpen}
             terminals={terminals}
             components={components}
+            componentMap={componentMap}
             grouped={grouped}
             workspaceApps={workspaceApps}
+            installedApps={installedApps}
+            contributions={contributionsRef.current}
             onOpenWindow={openWindow}
             onOpenModal={openModal}
             onAction={handleAction}
@@ -1640,7 +1773,7 @@ function AppIcon({ name, size = 18 }) {
   }
 }
 
-function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, components, grouped, workspaceApps, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
+function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, components, componentMap, grouped, workspaceApps, installedApps, contributions, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
   // Lookup helpers for the Agents list — get the agent definition
   // (label, color) by type so each row can render with its CLI's brand.
   const agentByType = (type) => aiAgents.find(a => a.type === type);
@@ -1963,36 +2096,54 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
           — an empty header reads as a broken list. Re-add it if core ever
           grows another non-URL-backed feature. */}
 
-      {/* Apps — dynamic from workspace_apps in aw.json.  All non-hidden
-          apps are shown here; the smaller icon-only launchers in the top
-          bar are quick shortcuts to the three most common ones. */}
-      {workspaceApps.length > 0 && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)] mb-2 px-1">Apps</div>
-          <div className="grid grid-cols-1 gap-1.5">
-            {workspaceApps.map(app => {
-              const compStatus = app.component
-                ? (components.find(c => c.key === app.component)?.status ?? 'off')
-                : null;
-              // Short description: show the port number from the internal URL
-              let description = '';
-              try { description = `port ${new URL(app.url).port || 80}`; } catch {}
-              return (
-                <MobileAppCard
-                  key={app.id}
-                  label={app.label}
-                  description={description}
-                  status={compStatus}
-                  componentKey={app.component || null}
-                  onOpen={() => onOpenApp(app)}
-                  onAction={onAction}
-                  iconClass="text-[var(--color-accent)]"
-                  icon={<AppIcon name={app.icon} />}
-                />
-              );
-            })}
+      {/* Apps — dynamic from installed apps (GET /api/apps), filtered to
+          has_windows (visualApps semantics — see appWindowChrome.js: NOT
+          AppLauncher's stricter uiApps, whose extra Tool/Service exclusion
+          would make kb/proxy unreachable in this single-list mobile UI).
+          category groups the rows into sections; it does not filter.
+          Rows are launch-only (icon + title + status dot) — Start/Restart/
+          Stop live on the open-app chrome instead, not here, since a
+          control button inside a scrolling tap-to-open row is a mis-tap
+          magnet on touch (mobile-apps-menu design, Decision E). */}
+      {installedApps === null ? (
+        <div className="text-[12px] text-[var(--color-text-muted)] px-1">Loading apps…</div>
+      ) : (
+        Object.entries(
+          installedApps
+            .filter((a) => !!a.has_windows)
+            .reduce((acc, app) => {
+              const cat = app.category || 'Apps';
+              (acc[cat] || (acc[cat] = [])).push(app);
+              return acc;
+            }, {})
+        ).map(([category, apps]) => (
+          <div key={category}>
+            <div className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)] mb-2 px-1">{category}</div>
+            <div className="grid grid-cols-1 gap-1.5 mb-3">
+              {apps.map(app => {
+                const legacyApp = workspaceApps.find(a => a.id === app.slug);
+                const windowSpec = defaultLaunchWindow(app, contributions);
+                const chrome = windowSpec
+                  ? appChrome({ appId: app.slug, windowSpec, installedApp: app, legacyApp, componentMap })
+                  : null;
+                const status = chrome?.component
+                  ? (componentMap[chrome.component]?.status ?? 'off')
+                  : null;
+                return (
+                  <MobileAppCard
+                    key={app.slug}
+                    label={chrome?.title || app.name}
+                    description={app.description || ''}
+                    status={status}
+                    onOpen={() => onOpenApp(app)}
+                    iconClass="text-[var(--color-accent)]"
+                    icon={<AppIcon name={app.icon} />}
+                  />
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ))
       )}
 
       {/* Components — each category is independently collapsible and
@@ -2280,13 +2431,16 @@ function MobileAppLauncher({ title, status, onClick, children }) {
   );
 }
 
-// Larger dashboard card used in the Apps section.  Shows the icon,
-// label, description, and inline docker-control buttons (Start when
-// off; Restart+Stop when running).  Tapping the body opens the iframe.
-// `status` may be null for apps that have no associated docker component —
-// in that case the action buttons are omitted.
-function MobileAppCard({ label, description, status, componentKey, onOpen, onAction, icon, iconClass = '' }) {
-  const isOff = status === 'off';
+// Larger dashboard card used in the Apps section. Shows the icon, label,
+// description and a status dot; tapping the body opens the app. Launch-only
+// (2026-09-01, mobile-apps-menu design Decision E) — Start/Restart/Stop moved
+// onto the open-app chrome (see the DockerControls wired into the activeWindow
+// header above), since a Restart button inside a scrolling tap-to-open row is
+// a mis-tap waiting to happen on touch, and "refresh the frame" only means
+// anything once the frame exists. A stopped app still starts on tap via the
+// existing background auto-start (see startIfOff). `status` may be null for
+// apps with no associated component — in that case the dot is omitted.
+function MobileAppCard({ label, description, status, onOpen, icon, iconClass = '' }) {
   const hasComponent = status !== null && status !== undefined;
   return (
     <div
@@ -2300,30 +2454,9 @@ function MobileAppCard({ label, description, status, componentKey, onOpen, onAct
             {label}
             {hasComponent && <StatusDot status={status} />}
           </div>
-          <div className="text-[10px] text-[var(--color-text-muted)] truncate">{description}</div>
+          {description && <div className="text-[10px] text-[var(--color-text-muted)] truncate">{description}</div>}
         </div>
       </div>
-      {hasComponent && (
-        <div className="flex items-center gap-2 shrink-0">
-          {isOff ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); onAction(componentKey, 'start'); }}
-              className="px-3 py-1 text-[11px] rounded bg-[var(--color-status-running)]/15 text-[var(--color-status-running)] active:bg-[var(--color-status-running)]/25"
-            >Start</button>
-          ) : (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); onAction(componentKey, 'restart'); }}
-                className="px-2.5 py-1 text-[11px] rounded bg-[var(--color-status-boot)]/15 text-[var(--color-status-boot)] active:bg-[var(--color-status-boot)]/25"
-              >Restart</button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onAction(componentKey, 'stop'); }}
-                className="px-2.5 py-1 text-[11px] rounded bg-[var(--color-danger)]/15 text-[var(--color-danger)] active:bg-[var(--color-danger)]/25"
-              >Stop</button>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }
