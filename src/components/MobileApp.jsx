@@ -6,7 +6,7 @@ import { apiFetch, wsUrl } from '../auth';
 import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
-import { windowBodySlot } from '../apps/slotRegistry';
+import { windowBodySlot, windowTitlebarSlot } from '../apps/slotRegistry';
 import { usePluginContributions } from '../apps/usePluginContributions';
 import { listInstalledApps, fetchContributions } from '../apps/appsApi';
 import { appChrome, defaultLaunchWindow } from '../apps/appWindowChrome';
@@ -1330,6 +1330,24 @@ export default function MobileApp() {
                   status={componentMap[activeWindow.chrome.component]?.status || 'off'}
                 />
               ) : null}
+              {/* App-registered titlebar actions — the same
+                  core.window.titlebar:<id> slot BasicWindow.jsx renders on
+                  desktop (see BasicWindow.jsx:53-58). Some apps (Remote
+                  Screen) put their entire toolbar here instead of a second
+                  bar in the body, per registerWindowActions's contract —
+                  without this the app never mounts on mobile at all. */}
+              {activeWindow.type === 'app-window' && activeWindow.windowSpec?.id && (
+                <AppSlot
+                  slot={windowTitlebarSlot(activeWindow.windowSpec.id)}
+                  props={{
+                    windowKey: activeWindow.key,
+                    onClose: closeActiveWindow,
+                    onMaximize: () => {},
+                    isMaximized: false,
+                    instanceId: activeWindow.windowSpec?.instanceId,
+                  }}
+                />
+              )}
               {/* Back pill — always rightmost, matches the apps-header
                   back button style.  Replaces the previous duplicate
                   (left-icon back + right-icon close did the same thing
