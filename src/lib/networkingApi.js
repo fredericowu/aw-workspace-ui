@@ -1152,6 +1152,61 @@ function mapExitGateResult(data) {
   };
 }
 
+/**
+ * Which connected hosts could dial an external VPN if asked — the same
+ * capability the External VPNs section already reads to LIST tunnels
+ * (`externalTunnels.supported`), reused rather than a second check: a host
+ * that cannot even read `wg show` cannot run `wg-quick` either.
+ */
+export function externalTunnelCapableHosts(hosts, mesh) {
+  if (!mesh?.available) return [];
+  return (hosts || []).filter(
+    (h) => h.connected && mesh.nodes?.[h.id]?.externalTunnels?.supported === true,
+  );
+}
+
+/**
+ * The commands "Add external VPN" prints for one host — never posted, never
+ * stored, the same bargain `joinCommand` already keeps for a machine that
+ * cannot be driven remotely.
+ *
+ * `Table = off` and the `PostDown` restore are not decoration —
+ * external-vpns-in-networking.md §3.4 measured both failures: without
+ * `Table = off`, `wg-quick` falls into fwmark mode and writes into a
+ * `/proc` path Docker mounts read-only; without a restore, the container
+ * has NO default route once the tunnel goes down, and does not come back
+ * on its own. The `PostUp`/`PostDown` pair captures whatever default route
+ * was in place before the tunnel came up and puts exactly that back —
+ * never a hardcoded gateway, which would be wrong the moment the host's own
+ * routing changes.
+ *
+ * The private key is generated ON THE HOST, referenced from its own file —
+ * never a value this screen holds or prints.
+ */
+export function externalVpnSetupCommands(iface) {
+  const name = (iface || '').trim() || 'wg-ext0';
+  return {
+    genkey: [`wg genkey | sudo tee /etc/wireguard/${name}.key | wg pubkey`],
+    config: [
+      `sudo tee /etc/wireguard/${name}.conf > /dev/null <<'EOF'`,
+      '[Interface]',
+      `PrivateKey = $(cat /etc/wireguard/${name}.key)`,
+      'Address = <address the VPN provider gave you>/32',
+      'Table = off',
+      `PostUp = ip route show default > /etc/wireguard/${name}.default-route`,
+      `PostDown = sh -c 'ip route replace $(cat /etc/wireguard/${name}.default-route)'`,
+      '',
+      '[Peer]',
+      'PublicKey = <the VPN provider’s server public key>',
+      'Endpoint = <the VPN provider’s endpoint>:<port>',
+      'AllowedIPs = 0.0.0.0/0',
+      'PersistentKeepalive = 25',
+      'EOF',
+    ],
+    up: [`sudo wg-quick up ${name}`],
+  };
+}
+
 /** `{ip, via, runtime, network, error}` as the host measured it from inside a
  *  container, or `null` when it sent nothing. `null` is NOT "no address" — the
  *  renderer has to keep "not measured" apart from "measured and unchanged". */

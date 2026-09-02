@@ -9,7 +9,9 @@ import {
   exitGateCandidates,
   exitGateSelectRefusal,
   exitOfferState,
+  externalTunnelCapableHosts,
   externalVpnEntries,
+  externalVpnSetupCommands,
   currentWorkspaceSlug,
   fetchHostPublicIp,
   fetchMeshStatus,
@@ -532,12 +534,31 @@ function ExitOfferControl({ host, mesh, slug, onChanged }) {
  * like "turn the VPN on" is how a user stops knowing which one is in force
  * (external-vpns-in-networking.md §3.3).
  */
-function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
+function ExitGateControl({
+  host, mesh, hosts, slug, onChanged, hostIps, onExternalRouteApplied, onExternalRouteCleared,
+}) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
   const candidates = useMemo(
     () => exitGateCandidates(hosts, mesh, host.id),
     [hosts, mesh, host.id],
   );
+  /**
+   * `<remote host name> — <external IP>`, for a MESH candidate only — the
+   * exact source `HostPublicIp` already uses (`hostIps`/`fetchHostPublicIp`),
+   * never a second fetch path. Offline and could-not-measure both fall back
+   * to the host's own name alone: never a fake IP, never "unknown" dressed
+   * up as one. External candidates keep their existing peer-count label —
+   * they name a TUNNEL, not a host, and there is no single IP that answers
+   * "the tunnel's own address".
+   */
+  const meshCandidateLabel = useCallback((c) => {
+    const h = (hosts || []).find((x) => x.id === c.hostId);
+    if (h?.connected) {
+      const ip = hostIps?.[c.hostId]?.ip;
+      if (ip) return `${c.name} — ${ip}`;
+    }
+    return c.name;
+  }, [hosts, hostIps]);
   const [choice, setChoice] = useState('');
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState('');
@@ -582,11 +603,17 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
         ? await applyExternalRoute(slug, host.id, { viaHost })
         : await applyExitGate(slug, host.id, { node: choice });
       setResult(res); setPlan(null);
+      // Tracked so the global "Disable VPN" switch can find it — an external
+      // route lives in the acting host's own state.json and no status verb
+      // publishes it yet (see the External VPNs section's own note), so this
+      // session's own memory of what it just applied is the only record the
+      // screen has.
+      if (viaHost && res.confirmed) onExternalRouteApplied?.(host.id, viaHost, chosen?.viaHostName || viaHost);
       onChanged?.();
     } catch (e) {
       setError(String(e.message || e));
     } finally { setBusy(''); }
-  }, [slug, host.id, choice, viaHost, onChanged]);
+  }, [slug, host.id, choice, viaHost, onChanged, onExternalRouteApplied, chosen]);
 
   const clear = useCallback(async () => {
     setError(''); setBusy('clear'); setPlan(null);
@@ -594,6 +621,7 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
       if (viaHost) {
         const res = await clearExternalRoute(slug, host.id, viaHost);
         setResult({ cleared: true, egressAfter: res.containerEgressAfter?.ip || null, egressError: res.reason });
+        onExternalRouteCleared?.(host.id);
       } else {
         const res = await clearExitGate(slug, host.id);
         setResult({ cleared: true, egressAfter: res.egress, egressError: res.egressError });
@@ -602,7 +630,7 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
     } catch (e) {
       setError(String(e.message || e));
     } finally { setBusy(''); }
-  }, [slug, host.id, viaHost, onChanged]);
+  }, [slug, host.id, viaHost, onChanged, onExternalRouteCleared]);
 
   // THE SCOPE REFUSAL. See exitGateSelectRefusal for what still doesn't fit
   // v0.1.58's container-scoped gate and why.
@@ -745,7 +773,7 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
               <optgroup label="Mesh exit nodes">
                 {offered.filter((c) => c.kind === 'mesh').map((c) => (
                   <option key={c.value} value={c.value}>
-                    {c.name}{c.meshIp ? ` (${c.meshIp})` : ''}
+                    {meshCandidateLabel(c)}
                   </option>
                 ))}
               </optgroup>
@@ -759,10 +787,9 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
             </>
           ) : offered.map((c) => (
             <option key={c.value} value={c.value}>
-              {c.name}
               {c.kind === 'mesh'
-                ? (c.meshIp ? ` (${c.meshIp})` : '')
-                : ` (${c.peers} peer${c.peers === 1 ? '' : 's'})`}
+                ? meshCandidateLabel(c)
+                : `${c.name} (${c.peers} peer${c.peers === 1 ? '' : 's'})`}
             </option>
           ))}
         </select>
@@ -1002,7 +1029,32 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   );
 }
 
-function HostRow({ host, mesh, hosts, slug, onChanged, publicIp }) {
+/**
+ * The grid every host row aligns to, and the header that names it — declared
+ * once so the two can never drift apart. `md:` only: a viewport too narrow
+ * for five columns falls back to the same stacked block the row already
+ * used before this refactor, rather than clipping.
+ */
+const HOST_GRID_COLS = 'md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.5fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_auto]';
+
+function HostGridHeader() {
+  return (
+    <div
+      className={`hidden md:grid ${HOST_GRID_COLS} gap-x-3 px-0.5 pb-1.5 mb-1 border-b border-[var(--color-border)] text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]`}
+    >
+      <div>Host</div>
+      <div>State</div>
+      <div>Public IP</div>
+      <div>Gate in force</div>
+      <div>Actions</div>
+    </div>
+  );
+}
+
+function HostRow({
+  host, mesh, hosts, slug, onChanged, publicIp, hostIps,
+  onExternalRouteApplied, onExternalRouteCleared,
+}) {
   // The same mesh-status entry MeshState renders below: the agent reports
   // "am I on the mesh" and "could I be" in one payload, and the second half
   // is what keeps this row from saying "unconfirmed" about a fact the host
@@ -1018,6 +1070,12 @@ function HostRow({ host, mesh, hosts, slug, onChanged, publicIp }) {
   const [joining, setJoining] = useState(false);
   const [joinResult, setJoinResult] = useState(null);
   const [joinError, setJoinError] = useState(null);
+  // Open by default: the eligibility line, the join outcome and the two gate
+  // controls are what the compact columns above summarise, and hiding them
+  // behind a second click the first time a reader lands on this screen would
+  // cost more than the density buys. The toggle exists for a row a reader
+  // already understands and wants to fold away, not as the resting state.
+  const [detailsOpen, setDetailsOpen] = useState(true);
 
   const runJoin = useCallback(async () => {
     setJoining(true);
@@ -1038,8 +1096,10 @@ function HostRow({ host, mesh, hosts, slug, onChanged, publicIp }) {
 
   return (
     <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
-      {/* Identity line — wraps on a narrow viewport instead of overflowing. */}
-      <div className="flex items-start justify-between gap-2 flex-wrap">
+      {/* The scannable summary — one line per host, aligned to HostGridHeader.
+          Stacks on a narrow viewport instead of overflowing (grid-cols-1
+          below md), the same protection the old flex-wrap gave. */}
+      <div className={`grid grid-cols-1 ${HOST_GRID_COLS} gap-x-3 gap-y-1 items-start`}>
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[13px] font-medium text-[var(--color-text-primary)] break-all">
@@ -1055,67 +1115,100 @@ function HostRow({ host, mesh, hosts, slug, onChanged, publicIp }) {
           </div>
         </div>
 
-        {/* Remote bootstrap, for real: the key is minted inside aw-backend
-            and handed straight to the host's agent, so pressing this never
-            puts a mesh credential in front of anybody. A host that cannot
-            take it stays disabled AND carries its sentence as text further
-            down — the title alone would be invisible on touch. */}
-        <button
-          type="button"
-          disabled={!join.can || joining}
-          onClick={runJoin}
-          title={join.can
-            ? 'Install tailscale on this host and enrol it in this tenant’s mesh, over its own link.'
-            : `Unavailable: ${join.reason}`}
-          className={`shrink-0 px-3 py-1 text-[12px] rounded ${join.can
-            ? 'bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 disabled:opacity-40'
-            : 'bg-white/5 text-[var(--color-text-muted)] opacity-50 cursor-not-allowed'}`}
-        >
-          {joining ? 'Joining…' : 'Join mesh'}
-        </button>
-      </div>
-
-      <div className="mt-2 grid gap-1.5">
         <MeshState mesh={mesh} hostId={host.id} />
         <HostPublicIp state={publicIp} />
-        {/* The ineligibility reason as TEXT, always — not only in the button's
-            title, which is invisible on touch. */}
-        <div className="flex items-start gap-2 flex-wrap">
-          <Pill tone={tone}>{eligibility.label}</Pill>
-          <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-            {eligibility.reason}
-          </span>
+
+        {/* "Gate in force" — this host's OWN exit_node, verbatim off the mesh
+            status, or a dash. Nothing else: an external route lives in the
+            acting host's own state.json and no verb publishes it yet (see
+            the External VPNs section's own note and card E4), so this cell
+            would be lying if it tried to show more than the mesh says. */}
+        <div className="text-[12px] text-[var(--color-text-secondary)] break-all">
+          {node?.exitNode
+            ? <code className="font-mono">{node.exitNode}</code>
+            : <span className="text-[var(--color-text-muted)]">—</span>}
         </div>
-        {/* Only when the button is refused for a reason the eligibility line
-            does not already give — offline, or already enrolled. Repeating the
-            same sentence twice on a row would be noise; omitting a different
-            one would be a greyed control with no explanation. */}
-        {!join.can && join.reason && join.reason !== eligibility.reason && (
-          <div className="text-[11px] text-[var(--color-text-muted)]">{join.reason}</div>
-        )}
-        {joinResult && (
+
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          {/* Remote bootstrap, for real: the key is minted inside aw-backend
+              and handed straight to the host's agent, so pressing this never
+              puts a mesh credential in front of anybody. A host that cannot
+              take it stays disabled AND carries its sentence as text below —
+              the title alone would be invisible on touch. */}
+          <button
+            type="button"
+            disabled={!join.can || joining}
+            onClick={runJoin}
+            title={join.can
+              ? 'Install tailscale on this host and enrol it in this tenant’s mesh, over its own link.'
+              : `Unavailable: ${join.reason}`}
+            className={`shrink-0 px-3 py-1 text-[12px] rounded ${join.can
+              ? 'bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 disabled:opacity-40'
+              : 'bg-white/5 text-[var(--color-text-muted)] opacity-50 cursor-not-allowed'}`}
+          >
+            {joining ? 'Joining…' : 'Join mesh'}
+          </button>
+          <button
+            type="button"
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((v) => !v)}
+            className="shrink-0 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          >
+            {detailsOpen ? '▼' : '▶'} details
+          </button>
+        </div>
+      </div>
+
+      {detailsOpen && (
+        <div className="mt-2 grid gap-1.5">
+          {/* The ineligibility reason as TEXT, always — not only in the
+              button's title, which is invisible on touch. */}
           <div className="flex items-start gap-2 flex-wrap">
-            <Pill tone={joinResult.enrolled ? 'ok' : 'warn'}>
-              {joinResult.alreadyEnrolled
-                ? 'already on the mesh'
-                : joinResult.enrolled
-                  ? `enrolled${joinResult.nodeName ? ` — ${joinResult.nodeName}` : ''}`
-                  : 'not enrolled'}
-            </Pill>
+            <Pill tone={tone}>{eligibility.label}</Pill>
             <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-              {joinResult.refusal || joinResult.reason || joinResult.error
-                || (joinResult.enrolled
-                  ? `This host is on the mesh${joinResult.meshIp ? ` at ${joinResult.meshIp}` : ''}.`
-                  : 'The host did not enrol, and did not say why.')}
+              {eligibility.reason}
             </span>
           </div>
-        )}
-        {joinError && (
-          <div className="text-[11px] text-[var(--color-danger)] break-all">{joinError}</div>
-        )}
-        <ExitOfferControl host={host} mesh={mesh} slug={slug} onChanged={onChanged} />
-        <ExitGateControl host={host} mesh={mesh} hosts={hosts} slug={slug} onChanged={onChanged} />
-      </div>
+          {/* Only when the button is refused for a reason the eligibility line
+              does not already give — offline, or already enrolled. Repeating
+              the same sentence twice on a row would be noise; omitting a
+              different one would be a greyed control with no explanation. */}
+          {!join.can && join.reason && join.reason !== eligibility.reason && (
+            <div className="text-[11px] text-[var(--color-text-muted)]">{join.reason}</div>
+          )}
+          {joinResult && (
+            <div className="flex items-start gap-2 flex-wrap">
+              <Pill tone={joinResult.enrolled ? 'ok' : 'warn'}>
+                {joinResult.alreadyEnrolled
+                  ? 'already on the mesh'
+                  : joinResult.enrolled
+                    ? `enrolled${joinResult.nodeName ? ` — ${joinResult.nodeName}` : ''}`
+                    : 'not enrolled'}
+              </Pill>
+              <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+                {joinResult.refusal || joinResult.reason || joinResult.error
+                  || (joinResult.enrolled
+                    ? `This host is on the mesh${joinResult.meshIp ? ` at ${joinResult.meshIp}` : ''}.`
+                    : 'The host did not enrol, and did not say why.')}
+              </span>
+            </div>
+          )}
+          {joinError && (
+            <div className="text-[11px] text-[var(--color-danger)] break-all">{joinError}</div>
+          )}
+          <ExitOfferControl host={host} mesh={mesh} slug={slug} onChanged={onChanged} />
+          <ExitGateControl
+            host={host}
+            mesh={mesh}
+            hosts={hosts}
+            slug={slug}
+            onChanged={onChanged}
+            hostIps={hostIps}
+            onExternalRouteApplied={onExternalRouteApplied}
+            onExternalRouteCleared={onExternalRouteCleared}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1600,18 +1693,9 @@ export default function NetworkingTab() {
         )}
       </Section>
 
-      {!loading && !error && <ExternalVpnsSection hosts={hosts} mesh={mesh} />}
-
-      <Section
-        title="direct vs relay"
-        description="Why this column exists."
-      >
-        <p className="text-[11px] text-[var(--color-text-muted)]">
-          A relay is not a rare fallback: two machines on the same home network can still
-          talk through a DERP when one of them sits behind another layer of NAT. Without
-          this written down, &quot;it works, but it goes through Madrid&quot; is invisible.
-        </p>
-      </Section>
+      {!loading && !error && (
+        <ExternalVpnsSection hosts={hosts} mesh={mesh} />
+      )}
 
       <Section
         title="Install tailscale"
