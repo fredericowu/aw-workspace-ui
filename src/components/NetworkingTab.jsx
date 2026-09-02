@@ -218,10 +218,7 @@ function MeshState({ mesh, hostId }) {
  */
 function PublicIpBanner({ egress, loading, onRefresh }) {
   return (
-    <Section
-      title="Public IP"
-      description="The address this workspace's own host leaves the internet from. Measured live on every load — never cached, because the whole point is to watch it change."
-    >
+    <Section title="Public IP">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           {loading ? (
@@ -1586,18 +1583,11 @@ export default function NetworkingTab() {
     <div className="max-w-4xl">
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Networking</h3>
-        <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-          This tenant&apos;s private mesh: the account&apos;s workspaces and aw-remote-hosts,
-          their tailscale state, and the path to each peer.
-        </p>
       </div>
 
       <PublicIpBanner egress={egress} loading={egressLoading} onRefresh={remeasure} />
 
-      <Section
-        title="Control plane"
-        description="This tenant's headscale. It is per-tenant — two tenants never share a control plane, which is why it is never hardcoded."
-      >
+      <Section title="Control plane">
         {controlPlane ? (
           <code className="text-[12px] font-mono text-[var(--color-text-secondary)] break-all">{controlPlane}</code>
         ) : (
@@ -1612,10 +1602,7 @@ export default function NetworkingTab() {
         )}
       </Section>
 
-      <Section
-        title="Account hosts"
-        description="One row per LINK, not per machine: re-linking leaves the previous one behind, and the same machine can hold more than one link."
-      >
+      <Section title="Links">
         {loading && (
           <div className="text-[12px] text-[var(--color-text-muted)]">Loading hosts…</div>
         )}
