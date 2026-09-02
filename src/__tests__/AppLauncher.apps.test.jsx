@@ -343,6 +343,17 @@ describe('AppLauncher — F5 Apps view', () => {
     expect(results).not.toHaveTextContent('Essentials');
   });
 
+  // Kanban 3cf5bf3b-9510-8110-a523-d076c49c4663: the search field must be
+  // focused as soon as the launcher mounts (AppsNav only mounts it while
+  // `open` is true), so the user can type without clicking it first.
+  it('autofocuses the search input on mount', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    expect(screen.getByLabelText('Search apps')).toHaveFocus();
+  });
+
   it('a query with no match says so, and clearing it restores the tab view', async () => {
     listInstalledApps.mockResolvedValue(INSTALLED);
     renderLauncher();

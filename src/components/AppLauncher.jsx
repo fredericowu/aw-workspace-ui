@@ -112,6 +112,12 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
+  // AppsNav only mounts this component while `open` is true, so a mount
+  // here IS the launcher becoming visible — autofocus the search field so
+  // typing works immediately, no click required.
+  const searchInputRef = useRef(null);
+  useEffect(() => { searchInputRef.current?.focus(); }, []);
+
   const refreshInstalled = useCallback(async () => {
     try {
       const apps = await listInstalledApps();
@@ -373,6 +379,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
               <path d="m20 20-3.5-3.5" />
             </svg>
             <input
+              ref={searchInputRef}
               type="text"
               className="applt-search-input"
               placeholder="Search all apps…"
