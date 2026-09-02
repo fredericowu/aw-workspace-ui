@@ -33,6 +33,13 @@ const HOSTS = [
  *  "nobody has updated their agent yet" fleet. */
 const hostsOnVersion = (version) => HOSTS.map((h) => ({ ...h, cli_version: version }));
 
+/** A refusal renders as a badge, and its paragraph only after a click (see
+ *  `Disclosure`). Tests that assert on the WORDS have to ask for them the
+ *  way a reader does — which is itself the property being protected. */
+const revealEveryRefusal = () => {
+  screen.getAllByRole('button', { name: /^why\?$/ }).forEach((b) => fireEvent.click(b));
+};
+
 // The mesh-status payload as aw-backend's `mesh_status` builds it — snake_case
 // on the wire, keyed by remote-host id. Values are the real mesh measured
 // 2026-08-25: the Mac reaches the bare-metal directly, and the Surface's WSL2
@@ -465,10 +472,13 @@ describe('selecting a gate is refused for a host that would move its own route',
 
     expect(screen.queryByLabelText(/^Exit gate for /)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /review change/i })).not.toBeInTheDocument();
-    expect(screen.getAllByText(/exit gate unavailable/i).length).toBeGreaterThan(0);
-    // The reason AND the version to update to — a refusal that names neither
-    // leaves the reader with nothing to do about it.
-    expect(screen.getAllByText(/v0\.1\.58/).length).toBeGreaterThan(0);
+    // The badge names the refusal AND the version to update to, without
+    // costing a click — a refusal that names neither leaves the reader with
+    // nothing to do about it.
+    expect(screen.getAllByText(/needs agent v0\.1\.58/i).length).toBeGreaterThan(0);
+    // The paragraph is the same one it always was, on request.
+    expect(screen.queryByText(/reports v0\.1\.54/)).toBeNull();
+    revealEveryRefusal();
     expect(screen.getAllByText(/reports v0\.1\.54/).length).toBeGreaterThan(0);
   });
 
@@ -480,7 +490,34 @@ describe('selecting a gate is refused for a host that would move its own route',
     await screen.findByText('188.250.165.236');
 
     expect(screen.queryByLabelText(/^Exit gate for /)).not.toBeInTheDocument();
+    revealEveryRefusal();
     expect(screen.getAllByText(/has not reported a version/).length).toBeGreaterThan(0);
+  });
+
+  // THE COMPLAINT THIS ANSWERS, stated as a count. With every host refused,
+  // the tab rendered as three paragraphs per row and the controls disappeared
+  // into them. A refused row now says one short thing; the paragraph is a
+  // click away and word for word what it always was.
+  it('says a refusal in a badge, and keeps the paragraph behind a click', async () => {
+    mockApi({ hosts: hostsOnVersion(HOST_SCOPED) });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // Not a sentence of it, anywhere, until asked.
+    expect(screen.queryByText(/still carries the host-scoped code/)).toBeNull();
+    expect(screen.queryByText(/Clearing a gate is never refused/)).toBeNull();
+
+    const why = screen.getAllByRole('button', { name: /^why\?$/ });
+    expect(why.length).toBeGreaterThan(0);
+    expect(why[0]).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(why[0]);
+    expect(why[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getAllByText(/still carries the host-scoped code/).length).toBe(1);
+
+    // And it folds back — a reader who opened one row is not stuck with it.
+    fireEvent.click(why[0]);
+    expect(screen.queryByText(/still carries the host-scoped code/)).toBeNull();
   });
 
   it('never sends the request for a refused host', async () => {
@@ -512,7 +549,12 @@ describe('selecting a gate is refused for a host that would move its own route',
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236');
 
-    expect(await screen.findByText(/run aw-remote-host INSIDE the VM/)).toBeInTheDocument();
+    // The badge says which refusal this is — a Mac is not a stale agent, and
+    // the two must not read alike. The alternative that WOULD work is in the
+    // paragraph, which is where a dead end would otherwise be.
+    expect(await screen.findByText(/macOS cannot select/i)).toBeInTheDocument();
+    revealEveryRefusal();
+    expect(screen.getByText(/run aw-remote-host INSIDE the VM/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Exit gate for Mac.Home')).not.toBeInTheDocument();
   });
 
@@ -680,8 +722,12 @@ describe('exit gate picker', () => {
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236');
 
-    // Beside the picker, with no click at all — and no exit-gate request sent.
-    expect(await screen.findByText(/tailscale refuses to advertise one and select one/i))
+    // Beside the picker, with no click at all — the badge, because the picker
+    // stays usable and a paragraph beside a usable control is what buried this
+    // screen. One click gets the sentence, still word for word.
+    expect(await screen.findByText(/advertising a gate/i)).toBeInTheDocument();
+    revealEveryRefusal();
+    expect(screen.getByText(/tailscale refuses to advertise one and select one/i))
       .toBeInTheDocument();
     expect(apiFetch.mock.calls.some(([url]) => EXIT_GATE_PATH.test(url))).toBe(false);
   });
@@ -722,6 +768,7 @@ describe('exit gate picker', () => {
     await screen.findByText('188.250.165.236');
 
     expect(screen.getAllByText(/no exit gate available/i).length).toBeGreaterThan(0);
+    revealEveryRefusal();
     expect(screen.getAllByText(/approved in\s+headscale/i).length).toBeGreaterThan(0);
   });
 });
@@ -945,6 +992,9 @@ describe('a host that cannot be pointed at a gate says so', () => {
     await screen.findByText('188.250.165.236');
 
     expect(await screen.findByText(/cannot use an exit gate/i)).toBeInTheDocument();
+    // The host's OWN words, kept verbatim — the disclosure changed when they
+    // are read, not what they say.
+    revealEveryRefusal();
     expect(screen.getByText(refusal)).toBeInTheDocument();
     expect(screen.queryByLabelText('Exit gate for b614f41828c8')).toBeNull();
   });

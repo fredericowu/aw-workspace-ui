@@ -56,6 +56,46 @@ function Pill({ tone = 'muted', children, title }) {
   );
 }
 
+/**
+ * A refusal or a warning, said as STATE first and prose second.
+ *
+ * Every sentence this screen refuses with is worth reading, and none of
+ * them is worth reading all at once: with every host refused, the tab
+ * rendered as an essay and the controls vanished inside it. So the words do
+ * not change — only WHEN they arrive. The badge is the answer; "why?" is the
+ * paragraph that was already written, one click away.
+ *
+ * One component rather than a toggle per call site: four ad-hoc `useState`s
+ * drift apart in wording and in keyboard behaviour, and the rest of this tab
+ * still has prose that should follow this pattern.
+ *
+ * `action` sits on the badge row, not below the paragraph — a control that
+ * is still available while refused (Clear, above all) must not be something
+ * the reader has to expand the explanation to find.
+ */
+function Disclosure({ tone = 'warn', badge, detail, action }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="grid gap-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Pill tone={tone}>{badge}</Pill>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="text-[11px] underline decoration-dotted underline-offset-2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+        >
+          {open ? 'hide' : 'why?'}
+        </button>
+        {action}
+      </div>
+      {open && (
+        <div className="text-[11px] text-[var(--color-text-muted)]">{detail}</div>
+      )}
+    </div>
+  );
+}
+
 function Section({ title, description, children }) {
   return (
     <div className="mb-4 border border-[var(--color-border)] rounded overflow-hidden">
@@ -502,12 +542,15 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   if (scopeRefusal) {
     return (
       <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
-        <div className="flex items-start gap-2 flex-wrap">
-          <Pill tone="warn">exit gate unavailable</Pill>
-          <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-            {scopeRefusal}
-          </span>
-        </div>
+        {/* The badge names WHICH refusal, so two hosts refused for different
+            reasons no longer read as the same row. `kind` decides the tone:
+            an agent that can be updated is amber, an architecture that never
+            changes is not a call to action. */}
+        <Disclosure
+          tone={scopeRefusal.kind === 'platform' ? 'muted' : 'warn'}
+          badge={scopeRefusal.badge}
+          detail={scopeRefusal.detail}
+        />
         {inForce && (
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] text-amber-300">
@@ -541,25 +584,27 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   // agent is too old to have answered, which is not a no.
   if (node.eligibility?.canSelectExit === false && !inForce) {
     return (
-      <div className="flex items-start gap-2 flex-wrap">
-        <Pill tone="err">cannot use an exit gate</Pill>
-        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-          {node.eligibility.selectExitRefusal
-            || "This host's agent reports it cannot be pointed at an exit gate, without saying why."}
-        </span>
-      </div>
+      <Disclosure
+        tone="err"
+        badge="cannot use an exit gate"
+        detail={node.eligibility.selectExitRefusal
+          || "This host's agent reports it cannot be pointed at an exit gate, without saying why."}
+      />
     );
   }
   if (candidates.length === 0 && !inForce) {
     return (
-      <div className="flex items-start gap-2 flex-wrap">
-        <Pill tone="muted">no exit gate available</Pill>
-        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-          No other host on this mesh both advertises an exit route and has it approved in
-          headscale, so there is nothing this host could route through. Use “Offer as exit gate”
-          on the host you want to route through — that does both halves.
-        </span>
-      </div>
+      <Disclosure
+        tone="muted"
+        badge="no exit gate available"
+        detail={(
+          <>
+            No other host on this mesh both advertises an exit route and has it approved in
+            headscale, so there is nothing this host could route through. Use “Offer as exit gate”
+            on the host you want to route through — that does both halves.
+          </>
+        )}
+      />
     );
   }
 
@@ -602,9 +647,12 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
 
       {/* BEFORE the attempt, not halfway through it — sits beside the picker
           as well as inside the confirmation, because somebody who never
-          presses Review still needs to see why this row will not work. */}
+          presses Review still needs to see why this row will not work. The
+          badge is what carries that beside a picker that stays usable; the
+          sentence is still one click away, and repeated in full inside the
+          confirmation for anyone who gets that far. */}
       {advertiseConflict && (
-        <div className="text-[11px] text-amber-300">{advertiseConflict}</div>
+        <Disclosure tone="warn" badge="advertising a gate" detail={advertiseConflict} />
       )}
 
       {/* The confirmation. Everything in it was measured on the host by the

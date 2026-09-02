@@ -608,8 +608,22 @@ export function parseAgentVersion(raw) {
 }
 
 /**
- * Why selecting an exit gate is refused for THIS host, in the words the
- * screen shows — or `''` when it may be offered one.
+ * Why selecting an exit gate is refused for THIS host — or `null` when it
+ * may be offered one.
+ *
+ * Returns `{ kind, badge, detail }` rather than a bare string, because a
+ * refusal has to be readable as STATE before it is readable as prose. With
+ * every host refused, a screen that only knows how to say the paragraph
+ * renders as an essay and the controls disappear into it. `badge` is the
+ * answer in four words; `detail` is the same paragraph, unchanged, for a
+ * reader who asks. Nothing here rewrites what was already written — only
+ * when it arrives.
+ *
+ * `kind` is the vocabulary aw-backend already emits (`refusal_kind` in
+ * `_exit_gate_scope_refusal`, `src/api/routes/host_link.py`): `platform`
+ * for the permanent one, `agent_too_old` for the one an update fixes.
+ * Same two values on purpose — a third refusal invented on the server has
+ * to be given a badge here deliberately, not silently inherit one.
  *
  * Two refusals, neither a leftover. The PERMANENT one is checked first —
  * telling a Mac to update its agent would promise a fix it is never going
@@ -643,25 +657,33 @@ function versionBelow(a, b) {
 
 export function exitGateSelectRefusal(host) {
   if ((host?.os || '').toLowerCase() === 'darwin') {
-    return 'macOS cannot route its containers without routing the Mac itself, and that is '
-      + 'architecture rather than a feature nobody has written yet. Docker Desktop and '
-      + '`podman machine` run containers inside a Linux VM which NATs their traffic to its own '
-      + 'address before macOS ever sees it, so there is no container CIDR left out here to key a '
-      + 'rule on — and macOS has no `ip rule` to key one with either, only destination routes. To '
-      + 'route a Mac’s containers through a gate, run aw-remote-host INSIDE the VM and select the '
-      + 'gate there, the same way a Windows host selects one from its WSL2 distro.';
+    return {
+      kind: 'platform',
+      badge: 'macOS cannot select',
+      detail: 'macOS cannot route its containers without routing the Mac itself, and that is '
+        + 'architecture rather than a feature nobody has written yet. Docker Desktop and '
+        + '`podman machine` run containers inside a Linux VM which NATs their traffic to its own '
+        + 'address before macOS ever sees it, so there is no container CIDR left out here to key a '
+        + 'rule on — and macOS has no `ip rule` to key one with either, only destination routes. To '
+        + 'route a Mac’s containers through a gate, run aw-remote-host INSIDE the VM and select the '
+        + 'gate there, the same way a Windows host selects one from its WSL2 distro.',
+    };
   }
   const version = parseAgentVersion(host?.cli_version);
   if (!version || versionBelow(version, CONTAINER_SCOPED_GATE_MIN)) {
     const seen = host?.cli_version ? `reports ${host.cli_version}` : 'has not reported a version';
-    return `This host’s agent ${seen}, and the exit gate only routes CONTAINER networks from `
-      + `aw-remote-host ${CONTAINER_SCOPED_GATE_VERSION} onwards. An older binary still carries `
-      + 'the host-scoped code: it would move the MACHINE’s default route, and every container '
-      + 'with it, when the only egress that should move is the containers’. Update aw-remote-host '
-      + `to ${CONTAINER_SCOPED_GATE_VERSION} or later. Clearing a gate is never refused, so a host `
-      + 'already on one can still be taken off it.';
+    return {
+      kind: 'agent_too_old',
+      badge: `needs agent ${CONTAINER_SCOPED_GATE_VERSION}`,
+      detail: `This host’s agent ${seen}, and the exit gate only routes CONTAINER networks from `
+        + `aw-remote-host ${CONTAINER_SCOPED_GATE_VERSION} onwards. An older binary still carries `
+        + 'the host-scoped code: it would move the MACHINE’s default route, and every container '
+        + 'with it, when the only egress that should move is the containers’. Update aw-remote-host '
+        + `to ${CONTAINER_SCOPED_GATE_VERSION} or later. Clearing a gate is never refused, so a host `
+        + 'already on one can still be taken off it.',
+    };
   }
-  return '';
+  return null;
 }
 
 /**
