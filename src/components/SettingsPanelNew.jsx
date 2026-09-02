@@ -29,14 +29,15 @@ import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
 import { listInstalledApps } from '../apps/appsApi';
+import { buildSettingsIndex, matchSettingsEntry } from '../lib/settingsSearch';
 
 const GENERAL_SECTIONS = [
-  { key: 'aw', label: 'AW Config', ready: false },
-  { key: 'users', label: 'Users', ready: true },
-  { key: 'integrations', label: 'Integrations', ready: true },
-  { key: 'marketplace', label: 'Marketplace', ready: true },
-  { key: 'observability', label: 'Observability', ready: true },
-  { key: 'tcp-proxy', label: 'TCP Proxy', ready: false },
+  { key: 'aw', label: 'AW Config', ready: false, description: 'Core workspace configuration and environment settings.' },
+  { key: 'users', label: 'Users', ready: true, description: 'Guest logins scoped to a fixed list of apps.' },
+  { key: 'integrations', label: 'Integrations', ready: true, description: 'Connect external services and webhooks.' },
+  { key: 'marketplace', label: 'Marketplace', ready: true, description: 'Install and manage apps from the catalog.' },
+  { key: 'observability', label: 'Observability', ready: true, description: 'Metrics, traces and logs for this workspace.' },
+  { key: 'tcp-proxy', label: 'TCP Proxy', ready: false, description: 'Expose a local TCP port through the workspace.' },
   // Was `{ key: 'vpn', label: 'VPN' }`. Renamed, not just relabelled: the scope
   // grew from "a VPN with an exit node" to the tenant's whole private mesh, of
   // which the exit gate is one feature. Keeping `vpn` would also collide with
@@ -44,12 +45,12 @@ const GENERAL_SECTIONS = [
   // entirely (the WireGuard/Nord client config in VpnTab.jsx) — nothing outside
   // this file reads these keys today, so the collision is worth removing now
   // rather than after someone wires the two panels' ids together.
-  { key: 'networking', label: 'Networking', ready: true },
-  { key: 'proxy', label: 'Cookies', ready: false },
-  { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false },
-  { key: 'backup', label: 'Backup', ready: false },
-  { key: 'skills', label: 'Skills', ready: false },
-  { key: 'mcp', label: 'MCP Servers', ready: false },
+  { key: 'networking', label: 'Networking', ready: true, description: 'The tenant private mesh, exit nodes and VPN.' },
+  { key: 'proxy', label: 'Cookies', ready: false, description: 'Manage stored browser cookies for automation.' },
+  { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
+  { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
+  { key: 'skills', label: 'Skills', ready: false, description: 'Author and manage native and app-contributed skills.' },
+  { key: 'mcp', label: 'MCP Servers', ready: false, description: 'Configure Model Context Protocol server connections.' },
 ];
 
 function ChevronDown({ open }) {
@@ -124,6 +125,7 @@ export default function SettingsPanelNew() {
   const [selection, setSelection] = useState({ group: 'general', key: 'users' });
   const [apps, setApps] = useState([]);
   const [appsError, setAppsError] = useState(null);
+  const [query, setQuery] = useState('');
   const isNarrow = useIsNarrow();
   // Only consulted on the narrow path. The wide layout renders nav and content
   // side by side and ignores this entirely, so desktop behaviour is unchanged.
@@ -162,84 +164,153 @@ export default function SettingsPanelNew() {
   const rowPad = isNarrow ? 'py-3' : 'py-1.5';
   const rowText = isNarrow ? 'text-[15px]' : 'text-[13px]';
 
+  // base/fullHay depend only on the sections (a module constant) and the
+  // fetched apps, so this only recomputes when the app list changes — not on
+  // every keystroke. Match provenance (the "Matches X" hint) is query-
+  // dependent and computed below, per keystroke, against this index.
+  const settingsIndex = useMemo(() => buildSettingsIndex(GENERAL_SECTIONS, apps), [apps]);
+
+  const searching = query.trim().length > 0;
+
+  // Guards A14: an empty query must never be treated as "filter to nothing".
+  // matchSettingsEntry() itself already returns matches:false for an empty
+  // query, but `searching` is the single flag every filter below checks, so
+  // there's exactly one place that can get this wrong.
+  const matchHints = useMemo(() => {
+    const map = new Map();
+    if (!searching) return map;
+    for (const entry of settingsIndex) {
+      const result = matchSettingsEntry(entry, query);
+      if (result.matches) map.set(`${entry.group}:${entry.key}`, result.hint);
+    }
+    return map;
+  }, [settingsIndex, query, searching]);
+
+  const visibleSections = searching
+    ? GENERAL_SECTIONS.filter((s) => matchHints.has(`general:${s.key}`))
+    : GENERAL_SECTIONS;
+  const visibleApps = searching ? apps.filter((a) => matchHints.has(`apps:${a.slug}`)) : apps;
+
+  // Auto-expand both groups while searching so a match is never hidden behind
+  // a collapsed header — and never write this into `expanded` itself, or
+  // clearing the query would leave whatever collapse state search forced
+  // instead of restoring what the user had before (A12). toggleGroup keeps
+  // writing `expanded` directly, untouched by search.
+  const effectiveExpanded = searching ? { general: true, apps: true } : expanded;
+
+  const noResults = searching && visibleSections.length === 0 && visibleApps.length === 0;
+
   const nav = (
     <div
       className={
         isNarrow
-          ? 'w-full h-full overflow-y-auto py-2 bg-[var(--color-bg-primary)]'
-          : 'w-56 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-bg-header)] overflow-y-auto py-2'
+          ? 'w-full h-full flex flex-col bg-[var(--color-bg-primary)]'
+          : 'w-56 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-bg-header)] flex flex-col'
       }
     >
-        {/* General group */}
-        <div className="mb-1">
-          <button
-            onClick={() => toggleGroup('general')}
-            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-          >
-            <ChevronDown open={expanded.general} />
-            General
-          </button>
-          {expanded.general && (
-            <div>
-              {GENERAL_SECTIONS.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => select('general', s.key)}
-                  className={`w-full flex items-center gap-2 pl-7 pr-3 ${rowPad} ${rowText} text-left transition-colors ${
-                    !isNarrow && selection.group === 'general' && selection.key === s.key
-                      ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
-                  }`}
-                >
-                  <span className="flex-1 truncate">{s.label}</span>
-                  {!s.ready && <span className="text-[9px] text-[var(--color-text-muted)] shrink-0">soon</span>}
-                  {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="shrink-0 p-2 border-b border-[var(--color-border)]">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search settings…"
+          aria-label="Search settings"
+          className="w-full bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-primary)] border border-[var(--color-border)] rounded px-2 py-1.5 outline-none focus:border-[var(--color-accent)]"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto py-2">
+        {/* General group — hidden entirely (not just collapsed) when a search
+            is active and nothing in it matches (A10). */}
+        {(!searching || visibleSections.length > 0) && (
+          <div className="mb-1">
+            <button
+              onClick={() => toggleGroup('general')}
+              className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+            >
+              <ChevronDown open={effectiveExpanded.general} />
+              General
+            </button>
+            {effectiveExpanded.general && (
+              <div>
+                {visibleSections.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => select('general', s.key)}
+                    className={`w-full flex items-center gap-2 pl-7 pr-3 ${rowPad} ${rowText} text-left transition-colors ${
+                      !isNarrow && selection.group === 'general' && selection.key === s.key
+                        ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                        : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
+                    }`}
+                  >
+                    <span className="flex-1 truncate">{s.label}</span>
+                    {!s.ready && <span className="text-[9px] text-[var(--color-text-muted)] shrink-0">soon</span>}
+                    {searching && matchHints.get(`general:${s.key}`) && (
+                      <span data-testid="settings-search-hint" className="text-[9px] italic text-[var(--color-text-muted)] shrink-0">
+                        {matchHints.get(`general:${s.key}`)}
+                      </span>
+                    )}
+                    {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Apps group */}
-        <div>
-          <button
-            onClick={() => toggleGroup('apps')}
-            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-          >
-            <ChevronDown open={expanded.apps} />
-            Apps
-            {apps.length > 0 && <span className="ml-auto text-[10px] normal-case font-normal">{apps.length}</span>}
-          </button>
-          {expanded.apps && (
-            <div>
-              {appsError && (
-                <div className="mx-3 my-1 px-2 py-1 text-[11px] rounded bg-[var(--color-danger)]/10 text-[var(--color-danger)]">
-                  {appsError}
-                </div>
-              )}
-              {apps.length === 0 && !appsError && (
-                <div className="pl-7 pr-3 py-2 text-[12px] text-[var(--color-text-muted)] italic">
-                  No apps with settings.
-                </div>
-              )}
-              {apps.map((a) => (
-                <button
-                  key={a.slug}
-                  onClick={() => select('apps', a.slug)}
-                  className={`w-full flex items-center gap-2 pl-7 pr-3 ${rowPad} ${rowText} text-left transition-colors ${
-                    !isNarrow && selection.group === 'apps' && selection.key === a.slug
-                      ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
-                  }`}
-                >
-                  <AppIcon icon={a.icon} label={a.name} size={isNarrow ? 16 : 13} />
-                  <span className="flex-1 truncate">{a.name}</span>
-                  {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Apps group — same hide-entirely-on-zero-match rule as General. */}
+        {(!searching || visibleApps.length > 0) && (
+          <div>
+            <button
+              onClick={() => toggleGroup('apps')}
+              className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+            >
+              <ChevronDown open={effectiveExpanded.apps} />
+              Apps
+              {visibleApps.length > 0 && <span className="ml-auto text-[10px] normal-case font-normal">{visibleApps.length}</span>}
+            </button>
+            {effectiveExpanded.apps && (
+              <div>
+                {appsError && (
+                  <div className="mx-3 my-1 px-2 py-1 text-[11px] rounded bg-[var(--color-danger)]/10 text-[var(--color-danger)]">
+                    {appsError}
+                  </div>
+                )}
+                {visibleApps.length === 0 && !appsError && (
+                  <div className="pl-7 pr-3 py-2 text-[12px] text-[var(--color-text-muted)] italic">
+                    No apps with settings.
+                  </div>
+                )}
+                {visibleApps.map((a) => (
+                  <button
+                    key={a.slug}
+                    onClick={() => select('apps', a.slug)}
+                    className={`w-full flex items-center gap-2 pl-7 pr-3 ${rowPad} ${rowText} text-left transition-colors ${
+                      !isNarrow && selection.group === 'apps' && selection.key === a.slug
+                        ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                        : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
+                    }`}
+                  >
+                    <AppIcon icon={a.icon} label={a.name} size={isNarrow ? 16 : 13} />
+                    <span className="flex-1 truncate">{a.name}</span>
+                    {searching && matchHints.get(`apps:${a.slug}`) && (
+                      <span data-testid="settings-search-hint" className="text-[9px] italic text-[var(--color-text-muted)] shrink-0">
+                        {matchHints.get(`apps:${a.slug}`)}
+                      </span>
+                    )}
+                    {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {noResults && (
+          <div className="px-3 py-6 text-center text-[12px] text-[var(--color-text-muted)]">
+            No settings match "{query.trim()}".
+          </div>
+        )}
+      </div>
     </div>
   );
 
