@@ -698,7 +698,7 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
               <optgroup label="External VPN tunnels">
                 {offered.filter((c) => c.kind === 'external').map((c) => (
                   <option key={c.value} value={c.value}>
-                    {c.name}{c.endpoints?.length ? ` (${c.endpoints[0]})` : ''}
+                    {c.name} ({c.peers} peer{c.peers === 1 ? '' : 's'})
                   </option>
                 ))}
               </optgroup>
@@ -708,7 +708,7 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
               {c.name}
               {c.kind === 'mesh'
                 ? (c.meshIp ? ` (${c.meshIp})` : '')
-                : (c.endpoints?.length ? ` (${c.endpoints[0]})` : '')}
+                : ` (${c.peers} peer${c.peers === 1 ? '' : 's'})`}
             </option>
           ))}
         </select>

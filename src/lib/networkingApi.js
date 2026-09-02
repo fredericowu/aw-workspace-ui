@@ -692,6 +692,12 @@ export function exitGateCandidates(hosts, mesh, hostId) {
         viaHostName: host.hostname || node?.nodeName || host.id,
         interface: entry.interface,
         name: `${entry.interface} on ${host.hostname || host.id}`,
+        // The PEER COUNT, not an endpoint. A hub carries one interface and
+        // many peers, so "the endpoint" is not a thing it has — labelling the
+        // option with the first peer's would name whichever one `wg show`
+        // happened to print first, which on the production hub is a container
+        // address belonging to something else entirely.
+        peers: entry.tunnels.length,
         endpoints: entry.endpoints,
         warnings: externalGateWarnings(entry.tunnels),
       });
