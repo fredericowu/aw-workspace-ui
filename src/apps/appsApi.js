@@ -2,6 +2,7 @@
 // aw-workspace endpoints (F1–F5); relative `/api/*` is rewritten to the BYOD
 // workspace API by the apiBase.js global shim.
 import { apiFetch } from '../auth';
+import { asArray } from '../lib/asArray';
 
 async function json(res) {
   const body = await res.json().catch(() => ({}));
@@ -13,8 +14,14 @@ async function json(res) {
 }
 
 // GET /api/apps — installed apps (with has_config / config_schema / frontend).
+// A 200 whose body isn't valid JSON (tunnel hiccup, an edge/proxy serving
+// HTML with status 200, a truncated body) resolves `json()`'s body to `{}` —
+// truthy, so a naive `(installed || []).filter(...)` consumer doesn't catch
+// it. asArray() makes the bare-array shape this endpoint actually returns
+// the only shape callers ever see, and also protects whatever gets cached
+// via writeCachedInstalled() from poisoning localStorage for next time.
 export function listInstalledApps() {
-  return apiFetch('/api/apps').then(json);
+  return apiFetch('/api/apps').then(json).then(asArray);
 }
 
 // GET /api/apps/-/catalog — marketplace catalog (available apps).
@@ -23,6 +30,13 @@ export function fetchCatalog(refresh = false) {
 }
 
 // GET /api/apps/-/contributions — frontend contributions (declarative + code).
+// NOT wrapped in asArray(): the payload is an object keyed by `nav`/
+// `frontend`/`windows`/`settings` etc, not a bare array — asArray() would
+// coerce the whole thing to `[]` and break every consumer. Every consumer
+// (wireContributions.jsx, appWindowChrome.js, AppConfigBody.jsx) already
+// guards its own key with `contributions?.key || []`, which also covers the
+// same-shaped `{}` fallback this endpoint's json() helper can produce, so no
+// change needed here.
 export function fetchContributions() {
   return apiFetch('/api/apps/-/contributions').then(json);
 }

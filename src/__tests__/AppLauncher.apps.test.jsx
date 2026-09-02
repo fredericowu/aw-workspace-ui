@@ -24,6 +24,7 @@ import {
   installApp, getAppVersions,
 } from '../apps/appsApi';
 import AppLauncher from '../components/AppLauncher';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const INSTALLED = [
   { slug: 'git', name: 'Git + GitHub CLI', version: '0.1.0', icon: 'git-branch', signed: true, has_config: true, has_windows: true, config_schema: { properties: { github_token: { type: 'string', 'x-secret': true } } }, frontend: {} },
@@ -45,6 +46,31 @@ describe('AppLauncher — F5 Apps view', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear(); // AppLauncher now seeds installed/catalogVersions from the apps cache
+  });
+
+  // Regression (Kanban 3cf5bf3b-9510-81c7-ac10-f1a1550ffabe): a poisoned
+  // `aw:apps:installed:v1` cache entry (a non-array, e.g. `{}` — see
+  // appsApi.js's json() helper, whose fallback on a bad/non-JSON 200 body is
+  // `{}`) used to crash straight to the ErrorBoundary fallback the instant
+  // AppLauncher mounted, before any network fetch had a chance to run: the
+  // cache seeds `installed` synchronously on first render, and
+  // `(installed || []).filter(...)` only guards null/undefined, not "truthy
+  // non-array". listInstalledApps() never resolving here isolates that
+  // synchronous seed render from the live-fetch path.
+  it('a poisoned (non-array) installed cache does not crash the launcher to the ErrorBoundary fallback', async () => {
+    localStorage.setItem('aw:apps:installed:v1', JSON.stringify({}));
+    listInstalledApps.mockReturnValue(new Promise(() => {})); // never resolves
+    render(
+      <ErrorBoundary label="Apps">
+        <AppLauncher workspaceApps={[]} components={[]} onOpenApp={vi.fn()} onClose={vi.fn()} />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.queryByText('Apps unavailable')).not.toBeInTheDocument();
+    // A poisoned cache sanitizes to null (same as a true first visit with no
+    // cache yet) rather than crashing — the skeleton, not the installed list,
+    // since the live fetch here deliberately never resolves.
+    expect(await screen.findByTestId('installed-skeleton')).toBeInTheDocument();
   });
 
   it('renders the installed framework apps from GET /api/apps with a config gear (UI tab default)', async () => {

@@ -26,7 +26,15 @@ function write(key, value) {
 }
 
 export function readCachedInstalled() {
-  return read(INSTALLED_KEY);
+  const value = read(INSTALLED_KEY);
+  // A poisoned cache entry (e.g. written from a past `{}` fallback body — see
+  // appsApi.js's json() helper) must not be handed to AppLauncher's synchronous
+  // seed render as if it were a real list: `(installed || []).filter(...)` only
+  // guards null/undefined, not "truthy non-array", and crashes to the
+  // ErrorBoundary before the corrected live fetch ever gets a chance to
+  // overwrite it. Falling back to null here reproduces the ordinary
+  // no-cache-yet first-visit state, which AppLauncher already handles fine.
+  return Array.isArray(value) ? value : null;
 }
 
 export function writeCachedInstalled(apps) {
