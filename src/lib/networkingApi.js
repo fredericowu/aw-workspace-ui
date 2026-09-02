@@ -9,7 +9,7 @@
  * keeps getting bitten by.
  */
 import { apiFetch } from '../auth';
-import { centralApiUrl } from '../apiBase';
+import { centralApiUrl, workspaceSlug } from '../apiBase';
 
 /** Path of the mesh-status endpoint. Account-scoped like the host list, so
  *  it is built from a slug rather than being a constant. */
@@ -45,6 +45,26 @@ export async function resolveAccountSlug() {
   const slug = (owner || memberships[0])?.workspace;
   if (!slug) throw new Error('this login owns no workspace');
   return slug;
+}
+
+/**
+ * The workspace this SCREEN is actually looking at — not "some workspace
+ * this login owns", which is all `resolveAccountSlug()` above can answer.
+ * On a `<slug>.workspace.<apex>` SPA host the URL itself names the
+ * workspace; that is the one true source, read via `apiBase.js`'s
+ * `workspaceSlug()` the same way the rest of this app already derives its
+ * per-workspace URLs, and it is what every fetch this tab makes must be
+ * scoped by (see `networking:public-ip-banner-wrong-workspace-and-per-host-ip`
+ * — the top-of-screen Public IP banner used to default to the first
+ * workspace this login happens to own, which silently measured a different
+ * machine's egress than the one being viewed).
+ *
+ * Falls back to `resolveAccountSlug()` only where there is no URL to read
+ * a slug from (dev, the single-tenant dashboard, previews) — there, "some
+ * owned workspace" is the closest thing to an answer that exists.
+ */
+export async function currentWorkspaceSlug() {
+  return workspaceSlug() || resolveAccountSlug();
 }
 
 /**
@@ -432,6 +452,34 @@ export async function fetchPublicIp(slug) {
     };
   } catch (e) {
     return { ip: null, via: null, hostId: null, hostName: null, error: String(e.message || e) };
+  }
+}
+
+/**
+ * The public IP one named REMOTE HOST goes out through, right now — not
+ * necessarily this workspace's own machine. Same `{ip, via, error}`
+ * contract and the same no-cache bargain as `fetchPublicIp` above: `ip` is
+ * null unless this call measured it live, and an offline or too-old-agent
+ * host answers with its own written reason rather than a guess.
+ *
+ * `hostId` is resolved against the caller's whole ACCOUNT on the backend
+ * (`_resolve_account_host` in aw-backend's `host_link.py`), the same way
+ * `fetchRemoteHosts` already lists hosts across every workspace this
+ * account owns — so any owned `slug` works here, this is not "that host's
+ * own workspace".
+ *
+ * NEVER resolves for an offline host by calling this — the caller already
+ * knows `host.connected` from the row it has, and asking anyway would cost
+ * a network round trip only to be told what is already known. See the
+ * per-host effect in NetworkingTab.
+ */
+export async function fetchHostPublicIp(slug, hostId) {
+  try {
+    const s = slug || (await currentWorkspaceSlug());
+    const data = await apiFetch(centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/public-ip`)).then(readJson);
+    return { ip: data?.ip || null, via: data?.via || null, error: data?.error || null };
+  } catch (e) {
+    return { ip: null, via: null, error: String(e.message || e) };
   }
 }
 

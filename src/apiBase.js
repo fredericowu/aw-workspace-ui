@@ -103,6 +103,16 @@ export function isWorkspaceSpa() {
   return !!BASES.api;
 }
 
+/** The workspace THIS SPA is currently showing, read straight off the URL
+ *  (`<slug>.workspace.<apex>`) — the one thing account identity cannot
+ *  answer: `/api/identity/me` lists every workspace a login owns, in
+ *  membership order, with no idea which one is on screen. `null` on a
+ *  non-workspace host (dev, the single-tenant dashboard, previews), where
+ *  there is no "current workspace" to name. */
+export function workspaceSlug() {
+  return BASES.slug || null;
+}
+
 /** Absolute external URL for a workspace app's own subdomain
  *  (`<appId>.app.<slug>.workspace.<apex>`), the Caddy-routed host every
  *  container/Tier-2 app answers on directly (`*.app.<slug>.workspace.{domain}`

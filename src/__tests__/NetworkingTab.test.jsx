@@ -80,6 +80,11 @@ const MESH = {
 };
 
 const MESH_PATH = /\/mesh-status$/;
+// Host-scoped has to be matched BEFORE the workspace-level one below: both
+// URLs end in `/public-ip`, and the host-scoped one additionally contains
+// `/remote-hosts/<id>/`, which the workspace-level regex knows nothing
+// about and would happily match too.
+const HOST_PUBLIC_IP_PATH = /\/remote-hosts\/([^/]+)\/public-ip$/;
 const PUBLIC_IP_PATH = /\/public-ip$/;
 const EXIT_GATE_PATH = /\/exit-gate$/;
 const EXTERNAL_ROUTE_PATH = /\/external-route$/;
@@ -90,6 +95,13 @@ const MESH_JOIN_PATH = /\/mesh-join$/;
 function mockApi({
   hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = false,
   publicIp = { ip: '188.250.165.236', via: 'https://api.ipify.org', host_id: '11e8bd4157845a24', host_name: 'b614f41828c8' },
+  // Per-host public IP, keyed by host id. Defaults to "not measured in this
+  // fixture" for every connected host so a test that does not care about
+  // this feature never accidentally collides with `publicIp` above (both
+  // endpoints are named `/public-ip` on the wire and would otherwise render
+  // the same address twice — once in the banner, once per row — which
+  // `findByText` correctly refuses to resolve).
+  hostPublicIps = {},
   exitGate = null, exitOffer = null, joinKey = null, meshJoin = null,
   externalRoute = null,
 } = {}) {
@@ -119,6 +131,12 @@ function mockApi({
         return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: 'Bad Gateway' }) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(mesh) });
+    }
+    const hostIpMatch = url.match(HOST_PUBLIC_IP_PATH);
+    if (hostIpMatch) {
+      const reply = hostPublicIps[hostIpMatch[1]]
+        || { ip: null, via: null, error: 'not measured in this fixture' };
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply) });
     }
     if (PUBLIC_IP_PATH.test(url)) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(publicIp) });
@@ -453,6 +471,69 @@ describe('public IP', () => {
     });
     resolveSecond();
     expect(await screen.findByText('65.109.66.88')).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-host public IP — networking:public-ip-banner-wrong-workspace-and-per-host-ip
+// Part 2. The banner above answers "what is this WORKSPACE's own egress";
+// these rows answer a different question per host, and the two must not be
+// confused — a host that never went near the workspace's own machine still
+// gets its own honest answer.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('per-host public IP', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  it('measures every CONNECTED host independently of the banner', async () => {
+    mockApi({
+      hostPublicIps: {
+        '11e8bd4157845a24': { ip: '24.90.8.255', via: 'GL.iNet' },
+        '824decc7e0610089': { ip: '73.15.200.4' },
+      },
+    });
+    render(<NetworkingTab />);
+
+    // The banner keeps measuring the workspace's own machine...
+    expect(await screen.findByText('188.250.165.236')).toBeInTheDocument();
+    // ...while the two hosts with a fixture answer show THEIR OWN address,
+    // not the workspace's.
+    expect(await screen.findByText('24.90.8.255')).toBeInTheDocument();
+    expect(await screen.findByText('73.15.200.4')).toBeInTheDocument();
+  });
+
+  it('says why a connected host could not be measured, without guessing an address', async () => {
+    mockApi({
+      // Give every OTHER connected host a real address, so the "not known"
+      // pill on screen can only be this one host's — the default fixture
+      // answer ('not measured in this fixture') would otherwise render the
+      // same pill for the other three connected hosts too.
+      hostPublicIps: {
+        '11e8bd4157845a24': { ip: '24.90.8.255' },
+        caf475b7032ee441: { ip: '65.109.66.88' },
+        '824decc7e0610089': { ip: '73.15.200.4' },
+        c76c606b0a2a5a8b: { ip: null, error: "this host's agent is too old to report its public IP" },
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236'); // wait for the screen to settle
+
+    expect(await screen.findByText('public IP not known')).toBeInTheDocument();
+    expect(screen.getByText(/agent is too old to report its public IP/)).toBeInTheDocument();
+  });
+
+  it('never asks an offline host — no network call, and the row says so without waiting', async () => {
+    mockApi();
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.click(screen.getByRole('button', { name: /offline links \(2\)/i }));
+    await screen.findAllByText('DESKTOP-DRMKFBT');
+
+    expect(screen.getAllByText('This link is offline, so this host could not be asked.').length).toBeGreaterThan(0);
+    const askedOfflineHost = apiFetch.mock.calls.some(
+      ([url]) => /\/remote-hosts\/(6bb0d0fbf5b22492|8435edb900436230)\/public-ip$/.test(url),
+    );
+    expect(askedOfflineHost).toBe(false);
   });
 });
 

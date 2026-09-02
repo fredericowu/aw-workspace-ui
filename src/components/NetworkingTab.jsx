@@ -10,6 +10,8 @@ import {
   exitGateSelectRefusal,
   exitOfferState,
   externalVpnEntries,
+  currentWorkspaceSlug,
+  fetchHostPublicIp,
   fetchMeshStatus,
   fetchPublicIp,
   fetchRemoteHosts,
@@ -19,7 +21,6 @@ import {
   joinMeshAvailability,
   mintJoinKey,
   offerExitGate,
-  resolveAccountSlug,
   withdrawExitGate,
   CONTROL_PLANE_PLACEHOLDER,
 } from '../lib/networkingApi';
@@ -256,6 +257,59 @@ function PublicIpBanner({ egress, loading, onRefresh }) {
         </button>
       </div>
     </Section>
+  );
+}
+
+/**
+ * One host row's own public IP — the per-host counterpart to
+ * `PublicIpBanner` above, same honesty contract, same THREE states this
+ * screen already keeps apart everywhere else:
+ *
+ *   'loading' — a measurement is in flight for this row.
+ *   'offline' — this host's link is down, so it was never even asked.
+ *   'measured' — it answered, whether or not that answer carries an `ip`
+ *                (a written `error` and no address is still a real result,
+ *                never rendered as if nothing had been tried).
+ *
+ * `state` is `undefined` for one render before the effect above has seeded
+ * it — treated the same as 'loading' rather than rendering nothing.
+ */
+function HostPublicIp({ state }) {
+  if (!state || state.status === 'loading') {
+    return (
+      <div className="text-[11px] text-[var(--color-text-muted)]">public IP: measuring…</div>
+    );
+  }
+  if (state.status === 'offline') {
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <Pill tone="muted">public IP unknown</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          This link is offline, so this host could not be asked.
+        </span>
+      </div>
+    );
+  }
+  if (!state.ip) {
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <Pill tone="warn">public IP not known</Pill>
+        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
+          {state.error || 'This host’s public IP could not be measured.'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[11px] text-[var(--color-text-muted)]">public IP</span>
+      <code className="text-[12px] font-mono text-[var(--color-text-primary)] break-all">{state.ip}</code>
+      {state.via && (
+        <span className="text-[11px] text-[var(--color-text-muted)]">
+          via <code className="font-mono">{state.via}</code>
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -948,7 +1002,7 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   );
 }
 
-function HostRow({ host, mesh, hosts, slug, onChanged }) {
+function HostRow({ host, mesh, hosts, slug, onChanged, publicIp }) {
   // The same mesh-status entry MeshState renders below: the agent reports
   // "am I on the mesh" and "could I be" in one payload, and the second half
   // is what keeps this row from saying "unconfirmed" about a fact the host
@@ -1023,6 +1077,7 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
 
       <div className="mt-2 grid gap-1.5">
         <MeshState mesh={mesh} hostId={host.id} />
+        <HostPublicIp state={publicIp} />
         {/* The ineligibility reason as TEXT, always — not only in the button's
             title, which is invisible on touch. */}
         <div className="flex items-start gap-2 flex-wrap">
@@ -1321,6 +1376,8 @@ export default function NetworkingTab() {
   const [mesh, setMesh] = useState(null);
   const [slug, setSlug] = useState(null);
   const [egress, setEgress] = useState(null);
+  // Per-host public IP, keyed by host id — see the effect below.
+  const [hostIps, setHostIps] = useState({});
   const [egressLoading, setEgressLoading] = useState(true);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1334,8 +1391,11 @@ export default function NetworkingTab() {
     let alive = true;
     // The slug is resolved once and handed to all three calls: each would
     // otherwise look it up itself, tripling the identity round-trip for one
-    // screen.
-    resolveAccountSlug()
+    // screen. `currentWorkspaceSlug()` — not `resolveAccountSlug()` — because
+    // this screen has to be scoped to the workspace being VIEWED, and
+    // identity/me has no idea which one that is when the login owns more
+    // than one (see networking:public-ip-banner-wrong-workspace-and-per-host-ip).
+    currentWorkspaceSlug()
       .then((s) => {
         if (alive) setSlug(s);
         return Promise.all([fetchRemoteHosts(s), fetchMeshStatus(s), fetchPublicIp(s)]);
@@ -1377,6 +1437,47 @@ export default function NetworkingTab() {
     await remeasure();
     if (slug) setMesh(await fetchMeshStatus(slug));
   }, [remeasure, slug]);
+
+  /**
+   * One public-IP measurement per CONNECTED host, keyed by host id — only
+   * ever holds a LIVE result that has actually come back. 'offline' and
+   * 'loading' are not seeded here: they are derived straight from `hosts`
+   * in `hostPublicIpState` below, so there is nothing to set synchronously
+   * in this effect's body (react-hooks/set-state-in-effect) — every
+   * `setHostIps` call here happens inside a promise callback, once a real
+   * answer exists.
+   *
+   * DECISION (per the card): fire on load, in parallel, one promise per
+   * host, each resolved independently rather than behind a `Promise.all` —
+   * a host that hangs or times out (bounded server-side by
+   * PUBLIC_IP_TIMEOUT_S) must not hold up the row next to it. This only
+   * re-fires when the host list or the workspace slug actually changes
+   * (initial load, Retry) — not on every render, so a click inside some
+   * other row's exit-gate picker never re-measures anything.
+   *
+   * Offline hosts are never asked at all: `host.connected` already answers
+   * "could this be measured", asking anyway would just spend a round trip
+   * to be told what is already known.
+   */
+  useEffect(() => {
+    if (!slug || !hosts) return;
+    let alive = true;
+    for (const h of hosts) {
+      if (!h.connected) continue;
+      fetchHostPublicIp(slug, h.id).then((res) => {
+        if (!alive) return;
+        setHostIps((prev) => ({ ...prev, [h.id]: { status: 'measured', ...res } }));
+      });
+    }
+    return () => { alive = false; };
+  }, [hosts, slug]);
+
+  /** 'offline' and 'loading' are facts already on hand — no reason to wait
+   *  on a render cycle to say them. Only 'measured' comes from `hostIps`. */
+  const hostPublicIpState = useCallback(
+    (host) => (host.connected ? (hostIps[host.id] || { status: 'loading' }) : { status: 'offline' }),
+    [hostIps],
+  );
 
   const { online, offline } = useMemo(() => {
     const rows = hosts || [];
@@ -1458,7 +1559,15 @@ export default function NetworkingTab() {
             )}
 
             {online.map((h) => (
-              <HostRow key={h.id} host={h} mesh={mesh} hosts={hosts} slug={slug} onChanged={afterGateChange} />
+              <HostRow
+                key={h.id}
+                host={h}
+                mesh={mesh}
+                hosts={hosts}
+                slug={slug}
+                onChanged={afterGateChange}
+                publicIp={hostPublicIpState(h)}
+              />
             ))}
 
             {offline.length > 0 && (
@@ -1473,7 +1582,15 @@ export default function NetworkingTab() {
                 {showOffline && (
                   <div className="mt-1 opacity-70">
                     {offline.map((h) => (
-                      <HostRow key={h.id} host={h} mesh={mesh} hosts={hosts} slug={slug} onChanged={afterGateChange} />
+                      <HostRow
+                        key={h.id}
+                        host={h}
+                        mesh={mesh}
+                        hosts={hosts}
+                        slug={slug}
+                        onChanged={afterGateChange}
+                        publicIp={hostPublicIpState(h)}
+                      />
                     ))}
                   </div>
                 )}
