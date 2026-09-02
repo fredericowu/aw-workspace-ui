@@ -106,6 +106,50 @@ function mapEligibility(raw) {
   };
 }
 
+/**
+ * The non-mesh WireGuard tunnels a host terminates, as its own `wg show all
+ * dump` reported them (`external_tunnels` on `vpn_status`, forwarded verbatim
+ * by `mesh_status` — see external-vpns-in-networking.md §3.1/§3.2).
+ *
+ * THREE states, and the third is the whole reason this mapper exists rather
+ * than a `|| []`:
+ *
+ *   null                        — nothing arrived. The host never answered, or
+ *                                 its agent predates the field. NOT "none".
+ *   {supported:false, reason}   — the host could not look: no `wg` binary, or
+ *                                 the privileged shellout was refused. Its own
+ *                                 sentence, and never rendered as "down".
+ *   {supported:true, tunnels}   — it looked. An empty list here is a FACT.
+ *
+ * `handshakeNever` and `handshakeAgeSeconds` are kept apart for the same
+ * reason: an age of `0` is a handshake one second ago, and a tunnel that never
+ * handshaked has no age at all — computing one gives an age since the epoch.
+ */
+function mapExternalTunnels(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.supported !== true) {
+    return { supported: false, reason: raw.reason || '', tunnels: [] };
+  }
+  const list = Array.isArray(raw.tunnels) ? raw.tunnels : [];
+  return {
+    supported: true,
+    reason: raw.reason || '',
+    tunnels: list.map((t) => ({
+      interface: t?.interface || '',
+      peerPublicKey: t?.peer_public_key || '',
+      // wg's own "(none)" is already normalised to "" on the host.
+      endpoint: t?.endpoint || '',
+      allowedIps: Array.isArray(t?.allowed_ips) ? t.allowed_ips : [],
+      rxBytes: typeof t?.transfer_rx_bytes === 'number' ? t.transfer_rx_bytes : null,
+      txBytes: typeof t?.transfer_tx_bytes === 'number' ? t.transfer_tx_bytes : null,
+      handshakeNever: t?.last_handshake_never === true,
+      handshakeAgeSeconds: typeof t?.last_handshake_age_seconds === 'number'
+        ? t.last_handshake_age_seconds
+        : null,
+    })),
+  };
+}
+
 export async function fetchMeshStatus(slug) {
   try {
     const s = slug || (await resolveAccountSlug());
@@ -131,6 +175,10 @@ export async function fetchMeshStatus(slug) {
         // advertised".
         advertisesExit: !!node?.advertises_exit,
         eligibility: mapEligibility(node?.eligibility),
+        // Non-mesh WireGuard, independent of tailscale: a host with no mesh
+        // membership at all can still terminate one, so this is read off
+        // every node rather than only the ones that are up.
+        externalTunnels: mapExternalTunnels(node?.external_tunnels),
       };
     }
     return {
@@ -544,9 +592,47 @@ export function exitOfferState(node) {
 }
 
 /**
- * The hosts that may be OFFERED as an exit gate for `hostId`.
+ * What routing through a host's EXTERNAL tunnel costs, as complete sentences.
+ * Same bargain as `gateWarnings`: usable and wise are not the same question,
+ * and the parts that decide the second one are only knowable from the
+ * tunnel's own counters.
  *
- * Three filters, and none of them is cosmetic:
+ * `tunnels` is one entry per (interface, peer) — a client tunnel has one, a
+ * hub has one per client — so the health read here is the health of the
+ * interface as a whole.
+ */
+export const STALE_HANDSHAKE_SECONDS = 300;
+
+export function externalGateWarnings(tunnels) {
+  const out = [];
+  const list = tunnels || [];
+  if (list.length && list.every((t) => t.handshakeNever)) {
+    out.push(
+      'No peer on this tunnel has EVER completed a handshake. WireGuard is configured and the '
+      + 'interface is up, but nothing has come through it — routing a container into it would '
+      + 'black-hole that container until the handshake closes.',
+    );
+    return out;
+  }
+  const ages = list.map((t) => t.handshakeAgeSeconds).filter((a) => typeof a === 'number');
+  if (ages.length && Math.min(...ages) > STALE_HANDSHAKE_SECONDS) {
+    out.push(
+      `The most recent handshake on this tunnel was ${Math.round(Math.min(...ages) / 60)} minutes `
+      + 'ago. WireGuard rekeys a carrying tunnel every couple of minutes, so this one is idle at '
+      + 'best — check it before pointing traffic at it.',
+    );
+  }
+  return out;
+}
+
+/**
+ * The gates `hostId` may be pointed at. TWO KINDS, in one list because the
+ * user is answering one question — "where does this host's traffic leave
+ * from" — and two pickers is how somebody stops knowing which one is in
+ * force (external-vpns-in-networking.md §3.3).
+ *
+ * `kind: 'mesh'` — a tailscale node on this tenant's own mesh. Three filters,
+ * none of them cosmetic:
  *
  *   - `offersExit` — advertised AND approved by headscale. Offering a node
  *     that only advertises would put a default route onto a gate that cannot
@@ -557,29 +643,243 @@ export function exitOfferState(node) {
  * The host refuses all three again on its side (`vpn.ResolveExitPeer`), so
  * this is defence in depth. It is here as well because a control the user
  * cannot press is a better answer than an error after they press it.
+ *
+ * `kind: 'external'` — a non-mesh WireGuard tunnel another host already
+ * TERMINATES, one candidate per interface. Its filters are different because
+ * the mechanism is: nothing is advertised or approved anywhere, the apply
+ * runs on the machine that owns the tunnel rather than on the host that
+ * moves, and so what it needs is a LIVE LINK to that machine — `connected`,
+ * not `up` on the mesh. A host with no tailscale at all can still be routed
+ * this way, which is exactly the case that made the verb exist.
+ *
+ * `value` is what the picker puts in the `<option>` and what the caller
+ * dispatches on. A mesh candidate's value is the node name the API takes
+ * verbatim; an external one is synthetic, because the API takes the ACTING
+ * host's id and there is no name that means the same thing.
  */
 export function exitGateCandidates(hosts, mesh, hostId) {
   if (!mesh?.available) return [];
   const out = [];
+  const external = [];
   for (const host of hosts || []) {
     if (host.id === hostId) continue;
     const node = mesh.nodes?.[host.id];
-    if (!node?.reported || !node.up || !node.offersExit) continue;
-    const name = node.nodeName || host.hostname;
-    if (!name) continue;
-    out.push({
-      hostId: host.id,
-      name,
-      meshIp: node.meshIp || null,
-      // Eligible AND costly are not opposites. `gateWarnings` is what turns a
-      // silent "sure, pick it" into a sentence the user agrees to first.
-      warnings: gateWarnings(node),
-    });
+    if (node?.reported && node.up && node.offersExit) {
+      const name = node.nodeName || host.hostname;
+      if (name) {
+        out.push({
+          kind: 'mesh',
+          value: name,
+          hostId: host.id,
+          name,
+          meshIp: node.meshIp || null,
+          // Eligible AND costly are not opposites. `gateWarnings` is what
+          // turns a silent "sure, pick it" into a sentence the user agrees
+          // to first.
+          warnings: gateWarnings(node),
+        });
+      }
+    }
+    // The external half. Deliberately NOT gated on the mesh state above: the
+    // two have nothing to do with each other, and the machine that terminates
+    // the GL.iNet tunnel today reports `can_enroll: false`.
+    if (!host.connected) continue;
+    for (const entry of externalInterfaces(node?.externalTunnels)) {
+      external.push({
+        kind: 'external',
+        value: `external:${host.id}:${entry.interface}`,
+        viaHostId: host.id,
+        viaHostName: host.hostname || node?.nodeName || host.id,
+        interface: entry.interface,
+        name: `${entry.interface} on ${host.hostname || host.id}`,
+        endpoints: entry.endpoints,
+        warnings: externalGateWarnings(entry.tunnels),
+      });
+    }
   }
   // Stable order, and by the name the user picks by — the host list's own
-  // order is by link age, which is meaningless in a gate picker.
+  // order is by link age, which is meaningless in a gate picker. The mesh
+  // gates stay ahead of the external ones: they are the ones this screen has
+  // always offered, and reordering them under a new feature would move a
+  // control users already know where to find.
   out.sort((a, b) => a.name.localeCompare(b.name));
+  external.sort((a, b) => a.name.localeCompare(b.name));
+  return out.concat(external);
+}
+
+/**
+ * A host's external tunnels grouped by INTERFACE — `wg show all dump` emits
+ * one line per (interface, peer), so the production hub arrives as nine rows
+ * of `wg0` and rendering nine "VPNs" would invent eight.
+ *
+ * Returns `[]` for every state that is not "the host looked and found some":
+ * the caller that needs to tell unknown from empty reads
+ * `node.externalTunnels` directly.
+ */
+export function externalInterfaces(externalTunnels) {
+  if (!externalTunnels?.supported) return [];
+  const byName = new Map();
+  for (const t of externalTunnels.tunnels || []) {
+    const name = t.interface;
+    if (!name) continue;
+    if (!byName.has(name)) byName.set(name, { interface: name, tunnels: [], endpoints: [] });
+    const entry = byName.get(name);
+    entry.tunnels.push(t);
+    if (t.endpoint && !entry.endpoints.includes(t.endpoint)) entry.endpoints.push(t.endpoint);
+  }
+  return [...byName.values()].sort((a, b) => a.interface.localeCompare(b.interface));
+}
+
+/**
+ * One entry per host for the External VPNs section — DISCOVERED, never
+ * authored. Nothing in this file creates a tunnel or holds a key: the config
+ * and its private key stay on the machine that dials, and this list is that
+ * machine's own answer to `wg show`, read back
+ * (external-vpns-in-networking.md §3.2).
+ *
+ * Four states, and the last two are why this is not a filter:
+ *
+ *   'tunnels' — it looked and found interfaces.
+ *   'none'    — it looked and found none. A FACT, and said as one.
+ *   'unknown' — it could not look, with its own sentence. Never "no VPN".
+ *   'silent'  — nothing arrived: the host never answered, or its agent
+ *               predates the field.
+ *
+ * Only hosts with a live link appear at all: `mesh_status` asks the connected
+ * ones, so an offline machine has not declined to answer — nobody asked it,
+ * and a row saying "silent" about it would report a refusal nobody made.
+ */
+export function externalVpnEntries(hosts, mesh) {
+  const out = [];
+  for (const host of hosts || []) {
+    if (!host.connected) continue;
+    const reported = mesh?.available ? mesh.nodes?.[host.id]?.externalTunnels : null;
+    if (!reported) {
+      out.push({
+        host,
+        state: 'silent',
+        reason: mesh?.available
+          ? 'This host sent no external-VPN block at all — it did not answer the status verb, or '
+            + 'its agent predates the field. Update aw-remote-host on it.'
+          : (mesh?.reason || MESH_UNAVAILABLE_REASON),
+        interfaces: [],
+      });
+      continue;
+    }
+    if (!reported.supported) {
+      out.push({
+        host,
+        state: 'unknown',
+        // The host's own sentence — it is the only part that says what to
+        // change on that machine.
+        reason: reported.reason
+          || 'This host reported that it could not read its WireGuard interfaces, without saying '
+            + 'why.',
+        interfaces: [],
+      });
+      continue;
+    }
+    const interfaces = externalInterfaces(reported);
+    out.push({
+      host,
+      state: interfaces.length ? 'tunnels' : 'none',
+      reason: interfaces.length
+        ? ''
+        : 'This host read its WireGuard interfaces and found no non-mesh tunnel. That is a '
+          + 'measurement, not a missing answer.',
+      interfaces,
+    });
+  }
   return out;
+}
+
+/**
+ * Point `hostId`'s egress at an external tunnel `viaHost` terminates — or
+ * preview it.
+ *
+ * TWO HOSTS IN ONE CALL, which is the surprising part and is not an
+ * accident: `hostId` names who MOVES, `viaHost` names who ACTS. The host that
+ * needs this is a container with no `ip`, no `wg` and no runtime of its own,
+ * so it cannot write a rule for itself; the machine hosting it can, and
+ * already terminates the tunnel. See `set_external_route` in aw-backend's
+ * `host_link.py`, which resolves both against the caller's account
+ * separately.
+ *
+ * Rejects like `applyExitGate` and for the same reason — a button pressed it,
+ * so a failure belongs next to that button. A 409 refusal rejects too, and
+ * nothing on either machine was touched.
+ */
+export async function applyExternalRoute(slug, hostId, { viaHost, plan = false } = {}) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/external-route`);
+  const data = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ via_host: viaHost, plan }),
+  }).then(readJson);
+  return mapExternalRouteResult(data);
+}
+
+/** Take `hostId`'s egress back off the external tunnel. `viaHost` is still
+ *  required — the rule lives on that machine and only it can remove one — but
+ *  nothing else is: an undo that can refuse is one that fails exactly when it
+ *  is most needed. */
+export async function clearExternalRoute(slug, hostId, viaHost) {
+  const s = slug || (await resolveAccountSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/external-route`);
+  const data = await apiFetch(url, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ via_host: viaHost }),
+  }).then(readJson);
+  return mapExternalRouteResult(data);
+}
+
+/**
+ * The verb's reply, in the same vocabulary the mesh gate's already uses so
+ * one renderer can show either — `EgressPairs` reads `egressBefore`/
+ * `hostHeld`/`hostMoved` and must not learn a second set of names.
+ *
+ * The container pair is at the TOP LEVEL here rather than inside a
+ * `container_egress` object, because the external verb measures the moved
+ * container's address directly (it shares the container's netns) instead of
+ * probing the network. Same meaning, different measurement, so it is mapped
+ * onto the same fields with `via`/`runtime` left null rather than invented.
+ */
+function mapExternalRouteResult(data) {
+  const plan = data?.plan || {};
+  return {
+    kind: 'external',
+    plan: !!data?.planned,
+    // No `applied` on the wire: an external route is applied exactly when it
+    // was confirmed, because the host reverts anything it could not confirm.
+    applied: !!data?.confirmed,
+    confirmed: !!data?.confirmed,
+    reverted: !!data?.reverted,
+    refused: !!data?.refused,
+    refusal: data?.refusal || '',
+    reason: data?.reason || '',
+    error: data?.error || '',
+    gate: plan.tunnel_dev || data?.tunnel_dev || '',
+    gateIp: plan.tunnel_via || null,
+    container: plan.container || data?.container || '',
+    sourceIp: plan.source_ip || data?.source_ip || null,
+    table: plan.table ?? data?.table ?? null,
+    priority: plan.priority ?? data?.priority ?? null,
+    egressBefore: data?.host_before || null,
+    egressAfter: data?.host_after || null,
+    hostHeld: !!data?.host_held,
+    hostMoved: !!data?.host_moved,
+    containerEgressBefore: data?.container_before ? { ip: data.container_before } : null,
+    containerEgressAfter: data?.container_after ? { ip: data.container_after } : null,
+    runtime: plan.runtime || null,
+    containerRoutes: [],
+    exclusions: (plan.exclusions || data?.exclusions || []).map((prefix) => ({
+      prefix,
+      reason: 'held outside the tunnel so this machine stays manageable',
+    })),
+    deadmanStillArmed: !!data?.deadman_still_armed,
+  };
 }
 
 /** The aw-remote-host release whose exit gate routes the CONTAINER networks
@@ -755,6 +1055,9 @@ export async function clearExitGate(slug, hostId) {
 
 function mapExitGateResult(data) {
   return {
+    // Which of the two gate kinds produced this, so one renderer can show
+    // either without inferring it from which fields happen to be populated.
+    kind: 'mesh',
     plan: !!data?.plan,
     applied: !!data?.applied,
     confirmed: !!data?.confirmed,

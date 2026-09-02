@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   advertiseConflictWarning,
   applyExitGate,
+  applyExternalRoute,
   bootstrapEligibility,
   clearExitGate,
+  clearExternalRoute,
   exitGateCandidates,
   exitGateSelectRefusal,
   exitOfferState,
+  externalVpnEntries,
   fetchMeshStatus,
   fetchPublicIp,
   fetchRemoteHosts,
@@ -469,7 +472,11 @@ function ExitOfferControl({ host, mesh, slug, onChanged }) {
  * (a real `plan` call against the machine), then confirm.
  *
  * Only gates that ADVERTISE AND ARE APPROVED are ever listed; see
- * `exitGateCandidates`.
+ * `exitGateCandidates` — which also lists the OTHER kind of gate, an external
+ * WireGuard tunnel another host terminates. Both kinds share this one picker
+ * on purpose: they answer the same question, and two controls that both look
+ * like "turn the VPN on" is how a user stops knowing which one is in force
+ * (external-vpns-in-networking.md §3.3).
  */
 function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
@@ -486,51 +493,62 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   const inForce = node?.exitNode || null;
   // The warnings belong to the gate being CHOSEN, not to this host, so they
   // are read off the selected candidate rather than off `node`.
-  const chosenWarnings = useMemo(
-    () => candidates.find((c) => c.name === choice)?.warnings || [],
+  const chosen = useMemo(
+    () => candidates.find((c) => c.value === choice) || null,
     [candidates, choice],
   );
+  const chosenWarnings = chosen?.warnings || [];
+  const viaHost = chosen?.kind === 'external' ? chosen.viaHostId : null;
   // THIS host's own state, not the gate's: tailscale will not advertise a gate
   // and select one at the same time, so a host that is offering itself cannot
   // take a selection. Read here, before anything is attempted — the measured
   // failure was a user finding out halfway through a mutation.
   const advertiseConflict = advertiseConflictWarning(node);
 
+  // Which of the two APIs a press reaches is decided by the CHOSEN
+  // candidate's kind, in one place, rather than by a second set of controls:
+  // the two verbs take different arguments (a node name vs. the acting host's
+  // id) and move different things, and the only thing that knows which is
+  // meant is the option the user picked.
   const preview = useCallback(async () => {
     setError(''); setResult(null); setBusy('plan');
     try {
-      setPlan(await applyExitGate(slug, host.id, { node: choice, plan: true }));
+      setPlan(viaHost
+        ? await applyExternalRoute(slug, host.id, { viaHost, plan: true })
+        : await applyExitGate(slug, host.id, { node: choice, plan: true }));
     } catch (e) {
       setError(String(e.message || e));
     } finally { setBusy(''); }
-  }, [slug, host.id, choice]);
+  }, [slug, host.id, choice, viaHost]);
 
   const confirm = useCallback(async () => {
     setError(''); setBusy('apply');
     try {
-      const res = await applyExitGate(slug, host.id, { node: choice });
+      const res = viaHost
+        ? await applyExternalRoute(slug, host.id, { viaHost })
+        : await applyExitGate(slug, host.id, { node: choice });
       setResult(res); setPlan(null);
       onChanged?.();
     } catch (e) {
       setError(String(e.message || e));
     } finally { setBusy(''); }
-  }, [slug, host.id, choice, onChanged]);
+  }, [slug, host.id, choice, viaHost, onChanged]);
 
   const clear = useCallback(async () => {
     setError(''); setBusy('clear'); setPlan(null);
     try {
-      const res = await clearExitGate(slug, host.id);
-      setResult({ cleared: true, egressAfter: res.egress, egressError: res.egressError });
+      if (viaHost) {
+        const res = await clearExternalRoute(slug, host.id, viaHost);
+        setResult({ cleared: true, egressAfter: res.containerEgressAfter?.ip || null, egressError: res.reason });
+      } else {
+        const res = await clearExitGate(slug, host.id);
+        setResult({ cleared: true, egressAfter: res.egress, egressError: res.egressError });
+      }
       onChanged?.();
     } catch (e) {
       setError(String(e.message || e));
     } finally { setBusy(''); }
-  }, [slug, host.id, onChanged]);
-
-  // Nothing to offer, and the reason is worth saying: a silent absence here
-  // reads as a screen that forgot to render, and the fix ("approve the route
-  // in headscale") lives somewhere the user would never think to look.
-  if (!node?.reported || !node.up) return null;
+  }, [slug, host.id, viaHost, onChanged]);
 
   // THE SCOPE REFUSAL. See exitGateSelectRefusal for what still doesn't fit
   // v0.1.58's container-scoped gate and why.
@@ -539,73 +557,117 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
   // landed is stuck on it, and this screen is the only place most people
   // would go to get it off.
   const scopeRefusal = exitGateSelectRefusal(host);
-  if (scopeRefusal) {
-    return (
-      <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
-        {/* The badge names WHICH refusal, so two hosts refused for different
-            reasons no longer read as the same row. `kind` decides the tone:
-            an agent that can be updated is amber, an architecture that never
-            changes is not a call to action. */}
+
+  // EVERY refusal below is about the MESH path, and none of them is about the
+  // external one. An external route is written by the machine that terminates
+  // the tunnel, not by this host: whether this host is on the mesh, whether
+  // its agent is old enough to scope a rule, and whether it can write one for
+  // itself are all beside the point — the host that most needs this can do
+  // none of the three, which is why the verb exists at all. So the mesh
+  // refusal is downgraded from "render nothing" to a badge beside a picker
+  // that still has something in it.
+  const external = candidates.filter((c) => c.kind === 'external');
+  const meshRefusal = (!node?.reported || !node.up)
+    ? {
+      tone: 'muted',
+      badge: 'not on the mesh',
+      detail: 'This host is not up on this tenant’s tailscale mesh, so no mesh node can carry its '
+        + 'traffic. An external tunnel is a different mechanism and does not need one — the '
+        + 'machine that terminates the tunnel writes the rule.',
+    }
+    : scopeRefusal
+      ? {
+        tone: scopeRefusal.kind === 'platform' ? 'muted' : 'warn',
+        badge: scopeRefusal.badge,
+        detail: scopeRefusal.detail,
+      }
+      : node.eligibility?.canSelectExit === false
+        ? {
+          tone: 'err',
+          badge: 'cannot use an exit gate',
+          detail: node.eligibility.selectExitRefusal
+            || "This host's agent reports it cannot be pointed at an exit gate, without saying why.",
+        }
+        : null;
+  // What this row may actually offer. With the mesh path refused that is the
+  // external candidates alone; with nothing left, the untouched refusals
+  // below render exactly as they did before this feature existed.
+  const offered = meshRefusal ? external : candidates;
+
+  if (offered.length === 0) {
+    // Nothing to offer, and the reason is worth saying: a silent absence here
+    // reads as a screen that forgot to render, and the fix ("approve the route
+    // in headscale") lives somewhere the user would never think to look.
+    if (!node?.reported || !node.up) return null;
+    if (scopeRefusal) {
+      return (
+        <div className="mt-1 p-2 rounded bg-white/[0.03] grid gap-2">
+          {/* The badge names WHICH refusal, so two hosts refused for different
+              reasons no longer read as the same row. `kind` decides the tone:
+              an agent that can be updated is amber, an architecture that never
+              changes is not a call to action. */}
+          <Disclosure
+            tone={scopeRefusal.kind === 'platform' ? 'muted' : 'warn'}
+            badge={scopeRefusal.badge}
+            detail={scopeRefusal.detail}
+          />
+          {inForce && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-amber-300">
+                This host is currently routed through <code className="font-mono">{inForce}</code>.
+              </span>
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={clear}
+                className="px-2 py-1 text-[11px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {busy === 'clear' ? 'Clearing…' : `Clear (${inForce})`}
+              </button>
+            </div>
+          )}
+          {result?.cleared && (
+            <div className="grid gap-1">
+              <Pill tone="ok">exit gate cleared</Pill>
+              <EgressDelta before={null} after={result.egressAfter} />
+              {result.egressError && (
+                <span className="text-[11px] text-[var(--color-danger)]">{result.egressError}</span>
+              )}
+            </div>
+          )}
+          {error && <div className="text-[11px] text-[var(--color-danger)] break-all">{error}</div>}
+        </div>
+      );
+    }
+    // A host that says it cannot be pointed at a gate gets the sentence, not a
+    // picker that would 409 after the click. `false` only; `null` means the
+    // agent is too old to have answered, which is not a no.
+    if (node.eligibility?.canSelectExit === false && !inForce) {
+      return (
         <Disclosure
-          tone={scopeRefusal.kind === 'platform' ? 'muted' : 'warn'}
-          badge={scopeRefusal.badge}
-          detail={scopeRefusal.detail}
+          tone="err"
+          badge="cannot use an exit gate"
+          detail={node.eligibility.selectExitRefusal
+            || "This host's agent reports it cannot be pointed at an exit gate, without saying why."}
         />
-        {inForce && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] text-amber-300">
-              This host is currently routed through <code className="font-mono">{inForce}</code>.
-            </span>
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={clear}
-              className="px-2 py-1 text-[11px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {busy === 'clear' ? 'Clearing…' : `Clear (${inForce})`}
-            </button>
-          </div>
-        )}
-        {result?.cleared && (
-          <div className="grid gap-1">
-            <Pill tone="ok">exit gate cleared</Pill>
-            <EgressDelta before={null} after={result.egressAfter} />
-            {result.egressError && (
-              <span className="text-[11px] text-[var(--color-danger)]">{result.egressError}</span>
-            )}
-          </div>
-        )}
-        {error && <div className="text-[11px] text-[var(--color-danger)] break-all">{error}</div>}
-      </div>
-    );
-  }
-  // A host that says it cannot be pointed at a gate gets the sentence, not a
-  // picker that would 409 after the click. `false` only; `null` means the
-  // agent is too old to have answered, which is not a no.
-  if (node.eligibility?.canSelectExit === false && !inForce) {
-    return (
-      <Disclosure
-        tone="err"
-        badge="cannot use an exit gate"
-        detail={node.eligibility.selectExitRefusal
-          || "This host's agent reports it cannot be pointed at an exit gate, without saying why."}
-      />
-    );
-  }
-  if (candidates.length === 0 && !inForce) {
-    return (
-      <Disclosure
-        tone="muted"
-        badge="no exit gate available"
-        detail={(
-          <>
-            No other host on this mesh both advertises an exit route and has it approved in
-            headscale, so there is nothing this host could route through. Use “Offer as exit gate”
-            on the host you want to route through — that does both halves.
-          </>
-        )}
-      />
-    );
+      );
+    }
+    if (!inForce) {
+      return (
+        <Disclosure
+          tone="muted"
+          badge="no exit gate available"
+          detail={(
+            <>
+              No other host on this mesh both advertises an exit route and has it approved in
+              headscale, and no host reports an external tunnel this one could be routed into, so
+              there is nothing to route through. Use “Offer as exit gate” on the host you want to
+              route through — that does both halves.
+            </>
+          )}
+        />
+      );
+    }
   }
 
   return (
@@ -619,9 +681,34 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
           className="text-[12px] px-2 py-1 rounded bg-[var(--color-bg-header)] border border-[var(--color-border)] text-[var(--color-text-primary)]"
         >
           <option value="">— none —</option>
-          {candidates.map((c) => (
-            <option key={c.hostId} value={c.name}>
-              {c.name}{c.meshIp ? ` (${c.meshIp})` : ''}
+          {/* Grouped, because the two kinds are not interchangeable and the
+              difference is not visible in a name: one is a peer this tenant's
+              own control plane approved, the other is a tunnel somebody else
+              terminates. Rendered only when both kinds are present, so a mesh
+              -only account sees the list it has always seen. */}
+          {offered.some((c) => c.kind === 'external') && offered.some((c) => c.kind === 'mesh') ? (
+            <>
+              <optgroup label="Mesh exit nodes">
+                {offered.filter((c) => c.kind === 'mesh').map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.name}{c.meshIp ? ` (${c.meshIp})` : ''}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="External VPN tunnels">
+                {offered.filter((c) => c.kind === 'external').map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.name}{c.endpoints?.length ? ` (${c.endpoints[0]})` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            </>
+          ) : offered.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.name}
+              {c.kind === 'mesh'
+                ? (c.meshIp ? ` (${c.meshIp})` : '')
+                : (c.endpoints?.length ? ` (${c.endpoints[0]})` : '')}
             </option>
           ))}
         </select>
@@ -643,7 +730,54 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
             {busy === 'clear' ? 'Clearing…' : `Clear (${inForce})`}
           </button>
         )}
+        {/* The external undo, and it is NOT behind an "in force" check the way
+            the mesh one is — there is nothing to check it against. `exit_node`
+            comes back on every mesh-status read; an external route lives in
+            the acting machine's own state.json and no verb publishes it yet,
+            so this screen genuinely does not know whether one is installed.
+            An undo that only appears once the screen is sure would be missing
+            exactly when it is needed, and the verb removes what was RECORDED,
+            so pressing it with nothing recorded is a no-op. */}
+        {viaHost && (
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={clear}
+            className="px-2 py-1 text-[11px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy === 'clear' ? 'Clearing…' : `Clear route via ${chosen.viaHostName}`}
+          </button>
+        )}
       </div>
+
+      {/* Why the mesh nodes are not in the list above. The refusal was always
+          written; before external candidates existed it was the whole render,
+          and it stays readable rather than disappearing behind a picker that
+          now has something in it. */}
+      {meshRefusal && (
+        <Disclosure tone={meshRefusal.tone} badge={meshRefusal.badge} detail={meshRefusal.detail} />
+      )}
+
+      {/* What an external candidate actually requires, said BEFORE the press.
+          This screen cannot know it: the only thing that can resolve a
+          container is the runtime on the machine that would route it, so
+          Review change is the answer and it changes nothing. */}
+      {viaHost && (
+        <Disclosure
+          tone="info"
+          badge="routed by another machine"
+          detail={(
+            <>
+              This route is written on <code className="font-mono">{chosen.viaHostName}</code>, not
+              here: it is that machine that terminates the tunnel and owns the routing table. It
+              works only if <code className="font-mono">{host.hostname || host.id}</code> runs as a
+              container on it — the rule’s source comes out of that runtime, so a host it cannot
+              resolve is refused rather than guessed at. “Review change” asks it and changes
+              nothing.
+            </>
+          )}
+        />
+      )}
 
       {/* BEFORE the attempt, not halfway through it — sits beside the picker
           as well as inside the confirmation, because somebody who never
@@ -661,15 +795,40 @@ function ExitGateControl({ host, mesh, hosts, slug, onChanged }) {
       {plan && (
         <div className="p-2 rounded bg-amber-500/10 grid gap-1.5">
           <div className="text-[11px] text-amber-300 font-medium">
-            This moves the CONTAINERS on {host.hostname || 'this host'} out through {plan.gate}
-            {plan.gateIp ? ` (${plan.gateIp})` : ''}. The machine&apos;s own public IP must NOT
-            change, and the host checks that it did not.
+            {plan.kind === 'external' ? (
+              <>
+                This moves ONE container — <code className="font-mono">{plan.container}</code>
+                {plan.sourceIp ? <> at <code className="font-mono">{plan.sourceIp}</code></> : null} —
+                out through <code className="font-mono">{plan.gate}</code>
+                {plan.gateIp ? ` (via ${plan.gateIp})` : ''} on {chosen?.viaHostName}. That
+                machine&apos;s own public IP must NOT change, and it checks that it did not.
+              </>
+            ) : (
+              <>
+                This moves the CONTAINERS on {host.hostname || 'this host'} out through {plan.gate}
+                {plan.gateIp ? ` (${plan.gateIp})` : ''}. The machine&apos;s own public IP must NOT
+                change, and the host checks that it did not.
+              </>
+            )}
           </div>
           <div className="text-[11px] text-[var(--color-text-muted)]">
             If the gate does not forward — or if the host&apos;s own address moves — the host
             reverts itself: a dead-man&apos;s switch is armed before anything changes, and it is
             only stood down once both addresses have been re-measured.
           </div>
+          {/* The exact rule, for an external route. `from <ip>/32` is the
+              safety property this whole verb is built on — a single address
+              that came out of the runtime, never a network — so it belongs in
+              front of the person confirming it, not only in a log. */}
+          {plan.kind === 'external' && plan.sourceIp && (
+            <div className="text-[11px] text-[var(--color-text-muted)]">
+              The rule it installs:{' '}
+              <code className="font-mono text-[var(--color-text-secondary)]">
+                ip rule add from {plan.sourceIp}/32 lookup {plan.table} priority {plan.priority}
+              </code>{' '}
+              — one address, so nothing else on that machine moves.
+            </div>
+          )}
           {/* Which networks, named, rather than a promise about "your
               containers". Straight off the plan the host just computed. */}
           {plan.containerRoutes.length > 0 && (
@@ -903,6 +1062,154 @@ function HostRow({ host, mesh, hosts, slug, onChanged }) {
         <ExitGateControl host={host} mesh={mesh} hosts={hosts} slug={slug} onChanged={onChanged} />
       </div>
     </div>
+  );
+}
+
+/** Bytes as a human reads them. `null` is NOT zero — a counter that never
+ *  arrived and a counter that says nothing has moved are different facts, and
+ *  0/0 next to "never" is the whole diagnostic for a tunnel that is up and
+ *  carrying nothing. */
+function bytes(n) {
+  if (typeof n !== 'number') return '—';
+  if (n < 1024) return `${n} B`;
+  const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+  let value = n / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) { value /= 1024; i += 1; }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+}
+
+/** A handshake age, in THREE states. `never` is not a large age and an absent
+ *  age is not `never` — an agent that reported neither has told us nothing,
+ *  and rendering that as "never" would accuse a working tunnel. */
+function handshake(tunnel) {
+  if (typeof tunnel.handshakeAgeSeconds === 'number') {
+    const s = tunnel.handshakeAgeSeconds;
+    if (s < 90) return `${s}s ago`;
+    const mins = Math.round(s / 60);
+    if (mins < 90) return `${mins}min ago`;
+    const hours = Math.round(mins / 60);
+    return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+  }
+  return tunnel.handshakeNever ? 'never' : 'unknown';
+}
+
+/**
+ * One host's external VPN interfaces, and the upstream health of each peer on
+ * them.
+ *
+ * `wg show all dump` emits one line per (interface, peer), so a hub arrives as
+ * nine rows of the same interface — grouped here, because nine rows would
+ * render as nine VPNs and there is one.
+ *
+ * TRANSFER COUNTERS AND HANDSHAKE AGE ARE THE DIAGNOSTIC, and 0/0 next to
+ * "never" is the most useful thing this section can say: it is exactly what a
+ * configured-but-not-connecting tunnel looks like, and smoothing it into
+ * "connected" is how that state stayed invisible for a day.
+ */
+function ExternalVpnEntry({ entry }) {
+  const { host, state, reason, interfaces } = entry;
+  const tone = { tunnels: 'ok', none: 'muted', unknown: 'warn', silent: 'muted' }[state];
+  const label = {
+    tunnels: `${interfaces.length} tunnel${interfaces.length === 1 ? '' : 's'}`,
+    none: 'none found',
+    unknown: 'could not look',
+    silent: 'no answer',
+  }[state];
+
+  return (
+    <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
+      {/* Hostname and link id in ONE element, deliberately: the host rows
+          above already render the hostname on its own, and a second element
+          whose whole content is that same string makes every by-text lookup
+          on this screen ambiguous — the same trap PublicIpBanner names. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[13px] font-medium text-[var(--color-text-primary)] break-all">
+          {host.hostname || '(no hostname)'} · link {host.id}
+        </span>
+        <Pill tone={tone}>{label}</Pill>
+      </div>
+
+      {/* The host's own sentence for both not-a-tunnel states. "Could not
+          look" is never rendered as "no external VPN" — that is a claim
+          nobody made. */}
+      {reason && (
+        <div className="text-[11px] text-[var(--color-text-muted)] mt-1">{reason}</div>
+      )}
+
+      {interfaces.map((iface) => (
+        <div key={iface.interface} className="mt-2 p-2 rounded bg-white/[0.03] grid gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="text-[12px] font-mono text-[var(--color-text-primary)]">
+              {iface.interface}
+            </code>
+            <Pill tone="info">wireguard</Pill>
+            <span className="text-[11px] text-[var(--color-text-muted)]">
+              {iface.tunnels.length} peer{iface.tunnels.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          {iface.tunnels.map((t) => (
+            <div key={t.peerPublicKey} className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-2 flex-wrap">
+              {/* The PEER's public key. The interface's own private key never
+                  leaves the host that holds it — the agent skips that line of
+                  the dump outright. */}
+              <code className="font-mono text-[var(--color-text-secondary)]">
+                {t.peerPublicKey.slice(0, 12)}…
+              </code>
+              <span>{t.endpoint || 'no endpoint'}</span>
+              <Pill tone={t.handshakeNever ? 'warn' : 'muted'}>
+                handshake {handshake(t)}
+              </Pill>
+              <span>
+                rx {bytes(t.rxBytes)} · tx {bytes(t.txBytes)}
+              </span>
+              {t.allowedIps.length > 0 && (
+                <span>
+                  allows <code className="font-mono">{t.allowedIps.join(', ')}</code>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * External VPNs — the tunnels this account's hosts terminate that are NOT
+ * this tenant's mesh.
+ *
+ * DISCOVERED, NOT AUTHORED. There is no form here and no "connect" button, and
+ * both absences are decisions: the config and its private key stay on the
+ * machine that dials (external-vpns-in-networking.md §3.2, and §3.6 of
+ * vpn-concentrator.md, which rules out anything that could read a config
+ * back), and routing is chosen in the gate picker one section up, because two
+ * controls that both look like "turn the VPN on" is how somebody stops knowing
+ * which one is in force.
+ */
+function ExternalVpnsSection({ hosts, mesh }) {
+  const entries = useMemo(() => externalVpnEntries(hosts, mesh), [hosts, mesh]);
+  return (
+    <Section
+      title="External VPNs"
+      description="WireGuard tunnels the account's hosts terminate themselves — read back from each host, never stored here. Registering one is done on the machine that dials; routing a host into one is the exit gate picker above."
+    >
+      {entries.length === 0 ? (
+        <div className="text-[12px] text-[var(--color-text-muted)]">
+          No host has a live link right now, so nothing could be asked. This section reports what
+          hosts measure; it holds no state of its own.
+        </div>
+      ) : (
+        entries.map((entry) => <ExternalVpnEntry key={entry.host.id} entry={entry} />)
+      )}
+      <div className="text-[11px] text-[var(--color-text-muted)] mt-3 pt-3 border-t border-[var(--color-border)]">
+        Whether a host is currently ROUTED through one of these is not shown: an external route
+        lives in the acting machine&apos;s own state and no status verb publishes it yet. The gate
+        picker above still applies and clears one — it just cannot tell you, on a fresh load,
+        that it did.
+      </div>
+    </Section>
   );
 }
 
@@ -1175,6 +1482,8 @@ export default function NetworkingTab() {
           </>
         )}
       </Section>
+
+      {!loading && !error && <ExternalVpnsSection hosts={hosts} mesh={mesh} />}
 
       <Section
         title="direct vs relay"

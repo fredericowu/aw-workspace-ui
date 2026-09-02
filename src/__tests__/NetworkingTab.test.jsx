@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../auth', () => ({ apiFetch: vi.fn() }));
@@ -82,6 +82,7 @@ const MESH = {
 const MESH_PATH = /\/mesh-status$/;
 const PUBLIC_IP_PATH = /\/public-ip$/;
 const EXIT_GATE_PATH = /\/exit-gate$/;
+const EXTERNAL_ROUTE_PATH = /\/external-route$/;
 const EXIT_OFFER_PATH = /\/exit-offer$/;
 const JOIN_KEY_PATH = /\/mesh-join-key$/;
 const MESH_JOIN_PATH = /\/mesh-join$/;
@@ -90,6 +91,7 @@ function mockApi({
   hosts = HOSTS, hostsFail = false, mesh = MESH, meshFail = false,
   publicIp = { ip: '188.250.165.236', via: 'https://api.ipify.org', host_id: '11e8bd4157845a24', host_name: 'b614f41828c8' },
   exitGate = null, exitOffer = null, joinKey = null, meshJoin = null,
+  externalRoute = null,
 } = {}) {
   apiFetch.mockImplementation((url, options) => {
     if (url === '/api/identity/me') {
@@ -123,6 +125,13 @@ function mockApi({
     }
     if (EXIT_OFFER_PATH.test(url)) {
       const reply = typeof exitOffer === 'function' ? exitOffer(options) : exitOffer;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || {}) });
+    }
+    if (EXTERNAL_ROUTE_PATH.test(url)) {
+      const reply = typeof externalRoute === 'function' ? externalRoute(options) : externalRoute;
       if (reply instanceof Error) {
         return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: reply.message }) });
       }
@@ -1160,5 +1169,338 @@ describe('Join mesh enrols a linked host for real', () => {
     // aw-surface-wsl is up on the mesh — a greyed button there needs a reason
     // as much as an ineligible one does.
     expect(screen.getByText(/already on the mesh as aw-surface-wsl/)).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────── External VPNs ───────────────────────────
+//
+// The OTHER kind of gate: a WireGuard tunnel a host terminates itself, which
+// has nothing to do with this tenant's mesh. Two things are being protected
+// here and they pull in opposite directions:
+//
+//   - a host that could not LOOK for tunnels must never render as a host with
+//     none. That is the honest-unknown discipline the rest of this screen
+//     already keeps, and it is the reason `external_tunnels` is forwarded
+//     byte-for-byte from the host all the way to this component.
+//   - a host that is NOT on the mesh must still be offerable an external
+//     tunnel. Every mesh refusal on this screen is about a mechanism the
+//     external route does not use — the machine that owns the tunnel writes
+//     the rule — and the host that most needs this is refused by all of them.
+
+/** The workspace as it really is: a CONTAINER with its own link, whose
+ *  hostname is the id the machine hosting it knows it by (measured on the
+ *  live pair 2026-09-02). No tailscale, no `wg`, no runtime — it can write no
+ *  rule for itself, which is the whole reason the acting host is a different
+ *  row. */
+const WORKSPACE_CONTAINER = {
+  id: 'e91aacf5a3a39a17', workspace_slug: 'aw', hostname: 'e91aacf5a3a3',
+  os: 'linux', arch: 'amd64', cli_version: 'v0.1.66',
+  last_seen_at: 1787646690.5, connected: true,
+};
+
+const HOSTS_WITH_CONTAINER = [...HOSTS, WORKSPACE_CONTAINER];
+
+/** Two peers of the production hub's `wg0`, as `wg show all dump` reports
+ *  them: the GL.iNet that dials in, and one that is configured and has never
+ *  completed a handshake. 0/0 next to "never" is the entire diagnostic for the
+ *  second one and must survive to the screen unsmoothed. */
+const WG0_TUNNELS = [
+  {
+    interface: 'wg0', peer_public_key: 'lAY93J69DBD8ZHX7IoYhzfyLocKQMNiuRUluM9a7Hwc=',
+    endpoint: '24.90.8.255:51820', allowed_ips: ['10.8.0.2/32'],
+    transfer_rx_bytes: 5242880, transfer_tx_bytes: 1048576,
+    last_handshake_never: false, last_handshake_age_seconds: 42,
+  },
+  {
+    interface: 'wg0', peer_public_key: 'Kx2n0pQ7yV1sT4uW9bC3dE5fG6hJ8kL0mN1oP2qR3sU=',
+    endpoint: '', allowed_ips: ['10.8.0.9/32'],
+    transfer_rx_bytes: 0, transfer_tx_bytes: 0,
+    last_handshake_never: true, last_handshake_age_seconds: null,
+  },
+];
+
+/** The bare metal terminates the tunnel; the workspace container cannot even
+ *  look for one. Both halves matter: one produces the candidate, the other is
+ *  the honest-unknown that must not read as "no external VPN". */
+const MESH_WITH_EXTERNAL = {
+  ...MESH,
+  nodes: {
+    ...MESH.nodes,
+    '11e8bd4157845a24': {
+      ...MESH.nodes['11e8bd4157845a24'],
+      external_tunnels: { supported: true, tunnels: WG0_TUNNELS },
+    },
+    e91aacf5a3a39a17: {
+      reported: true, up: false,
+      reason: 'the tailscale CLI is not installed on this host',
+      external_tunnels: { supported: false, reason: 'the wg CLI is not installed on this host' },
+    },
+  },
+};
+
+describe('External VPNs section', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  it("renders each interface once, with the peers' handshake age and counters", async () => {
+    // `wg show all dump` emits one line per (interface, peer): the production
+    // hub arrives as nine rows of `wg0` and there is ONE tunnel. Nine rows
+    // rendered as nine VPNs would invent eight.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getByText('External VPNs')).toBeInTheDocument();
+    expect(screen.getAllByText('wg0')).toHaveLength(1);
+    expect(screen.getByText('2 peers')).toBeInTheDocument();
+    expect(screen.getByText('24.90.8.255:51820')).toBeInTheDocument();
+    expect(screen.getByText(/handshake 42s ago/)).toBeInTheDocument();
+    expect(screen.getByText(/rx 5\.0 MiB · tx 1\.0 MiB/)).toBeInTheDocument();
+  });
+
+  it('says "never" and 0/0 for a peer that has never handshaked', async () => {
+    // The pair that says "configured, and nothing has ever come through". An
+    // age computed from a zero timestamp would print an age since the epoch,
+    // and a counter defaulted to 0 would hide a counter that never arrived.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getByText(/handshake never/)).toBeInTheDocument();
+    expect(screen.getByText(/rx 0 B · tx 0 B/)).toBeInTheDocument();
+  });
+
+  it('keeps "could not look" apart from "there is none", with the host\'s own sentence', async () => {
+    // The failure this whole block exists to prevent: a host with no `wg`
+    // binary rendered as a host with no external VPN is a claim nobody made.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getByText('could not look')).toBeInTheDocument();
+    expect(screen.getByText('the wg CLI is not installed on this host')).toBeInTheDocument();
+    // Never a verdict about the tunnel itself.
+    expect(screen.queryByText(/no external VPN/i)).not.toBeInTheDocument();
+  });
+
+  it('reports a host that answered nothing at all as unanswered, not as empty', async () => {
+    // The default fixture has no `external_tunnels` anywhere — every agent on
+    // it predates the field. That is a third state, and it is not "none".
+    mockApi({ hosts: HOSTS_WITH_CONTAINER });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getAllByText('no answer').length).toBeGreaterThan(0);
+    expect(screen.queryByText('none found')).not.toBeInTheDocument();
+  });
+
+  it('offers no way to create a tunnel or read a config back', async () => {
+    // §3.2/§3.6: the config and its private key stay on the machine that
+    // dials. A form here would be a second source of truth and a place for a
+    // key to land.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.queryByRole('button', { name: /add (a )?vpn|new vpn|connect/i })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/PrivateKey/);
+  });
+});
+
+describe('external tunnel as an exit gate', () => {
+  beforeEach(() => { apiFetch.mockReset(); });
+
+  /** The one host row's gate control, so a click lands on the machine under
+   *  test rather than on whichever row rendered first. */
+  const gateRow = (hostname) => screen.getByLabelText(`Exit gate for ${hostname}`).closest('div.grid');
+
+  it('offers the tunnel in the SAME picker as the mesh gates', async () => {
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    // The row that can take BOTH kinds — one control, because they answer the
+    // same question and two pickers is how a user stops knowing which one is
+    // in force. The grouping is what makes them distinguishable inside it.
+    const picker = screen.getAllByLabelText(/^Exit gate for /).find((s) => s.querySelector('optgroup'));
+    expect(picker).toBeDefined();
+    expect(Array.from(picker.querySelectorAll('optgroup')).map((g) => g.label))
+      .toEqual(['Mesh exit nodes', 'External VPN tunnels']);
+    const options = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options.join(' ')).toMatch(/aw-baremetal/);
+    expect(options.join(' ')).toMatch(/wg0 on b614f41828c8/);
+  });
+
+  it('gives a host that is NOT on the mesh a picker it would otherwise never get', async () => {
+    // The regression this feature is. Every mesh refusal on this screen is
+    // about tailscale; an external route needs none of it, because the
+    // machine that terminates the tunnel writes the rule.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.getByLabelText('Exit gate for e91aacf5a3a3')).toBeInTheDocument();
+    // And the mesh refusal is not swallowed by the picker appearing.
+    revealEveryRefusal();
+    expect(screen.getAllByText('not on the mesh').length).toBeGreaterThan(0);
+  });
+
+  it('renders nothing for that host when no host reports a tunnel', async () => {
+    // The control appears BECAUSE of the tunnel, not despite it — without one
+    // this row is exactly as silent as it was before this feature.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    expect(screen.queryByLabelText('Exit gate for e91aacf5a3a3')).toBeNull();
+  });
+
+  it('reviews against the machine that owns the tunnel, and names the exact rule', async () => {
+    const posted = [];
+    mockApi({
+      hosts: HOSTS_WITH_CONTAINER,
+      mesh: MESH_WITH_EXTERNAL,
+      externalRoute: (options) => {
+        posted.push(JSON.parse(options.body));
+        return {
+          planned: true,
+          plan: {
+            container: 'e91aacf5a3a3', container_id: 'e91aacf5a3a39a17...', source_ip: '172.18.0.4',
+            table: 200, priority: 5399, runtime: 'docker', tunnel_via: '10.8.0.2', tunnel_dev: 'wg0',
+            exclusions: ['185.12.64.1/32', '185.12.64.2/32'],
+            main_gateway: '65.109.66.65', main_dev: 'enp41s0',
+          },
+        };
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for e91aacf5a3a3'), {
+      target: { value: 'external:11e8bd4157845a24:wg0' },
+    });
+    // Scoped to THIS row: every host with an external candidate now has a
+    // Review button, and pressing the first one on the page would review a
+    // different machine.
+    fireEvent.click(within(gateRow('e91aacf5a3a3')).getByRole('button', { name: /review change/i }));
+
+    expect(await screen.findByText(/moves ONE container/)).toBeInTheDocument();
+    // TWO HOSTS IN ONE CALL: the container that moves is in the path, the
+    // machine that acts is in the body. Getting that backwards routes the
+    // wrong workload.
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ via_host: '11e8bd4157845a24', plan: true });
+    const [url] = apiFetch.mock.calls.find(([u]) => EXTERNAL_ROUTE_PATH.test(u));
+    expect(url).toMatch(/remote-hosts\/e91aacf5a3a39a17\/external-route$/);
+    // The `/32` is the safety property of the whole verb — one address out of
+    // the runtime, never a network — so it is in front of the person
+    // confirming, not only in a log.
+    expect(screen.getByText(/ip rule add from 172\.18\.0\.4\/32 lookup 200 priority 5399/)).toBeInTheDocument();
+    expect(screen.getByText('185.12.64.1/32')).toBeInTheDocument();
+    // And nothing has happened yet.
+    expect(screen.getByRole('button', { name: /apply wg0/i })).toBeInTheDocument();
+  });
+
+  it('shows both pairs once applied — the container moved and the machine did not', async () => {
+    mockApi({
+      hosts: HOSTS_WITH_CONTAINER,
+      mesh: MESH_WITH_EXTERNAL,
+      externalRoute: (options) => (JSON.parse(options.body).plan
+        ? { planned: true, plan: { container: 'e91aacf5a3a3', source_ip: '172.18.0.4', table: 200, priority: 5399, tunnel_dev: 'wg0', exclusions: [] } }
+        : {
+          container: 'e91aacf5a3a3', source_ip: '172.18.0.4', table: 200, priority: 5399,
+          tunnel_dev: 'wg0', exclusions: [],
+          host_before: '65.109.66.88', host_after: '65.109.66.88', host_held: true, host_moved: false,
+          container_before: '65.109.66.88', container_after: '24.90.8.255',
+          confirmed: true, reverted: false,
+        }),
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for e91aacf5a3a3'), {
+      target: { value: 'external:11e8bd4157845a24:wg0' },
+    });
+    // Scoped to THIS row: every host with an external candidate now has a
+    // Review button, and pressing the first one on the page would review a
+    // different machine.
+    fireEvent.click(within(gateRow('e91aacf5a3a3')).getByRole('button', { name: /review change/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /apply wg0/i }));
+
+    expect(await screen.findByText(/exit gate in force — wg0/i)).toBeInTheDocument();
+    // The measured acceptance criterion of the whole card, on the screen.
+    expect(screen.getByText('24.90.8.255')).toBeInTheDocument();
+    expect(screen.getByText(/host held its own address/i)).toBeInTheDocument();
+  });
+
+  it('sends the acting host on the undo too — only that machine can remove the rule', async () => {
+    const seen = [];
+    mockApi({
+      hosts: HOSTS_WITH_CONTAINER,
+      mesh: MESH_WITH_EXTERNAL,
+      externalRoute: (options) => {
+        seen.push({ method: options.method, body: JSON.parse(options.body) });
+        return { container: 'e91aacf5a3a3', container_after: '65.109.66.88' };
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for e91aacf5a3a3'), {
+      target: { value: 'external:11e8bd4157845a24:wg0' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /clear route via b614f41828c8/i }));
+
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0].method).toBe('DELETE');
+    expect(seen[0].body).toEqual({ via_host: '11e8bd4157845a24' });
+  });
+
+  it('says what an external route needs before the press, not after it', async () => {
+    // This screen cannot resolve a container — only the runtime on the acting
+    // machine can — so the requirement is written down and Review is the
+    // answer. A control that 409s after the click reads as broken.
+    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for e91aacf5a3a3'), {
+      target: { value: 'external:11e8bd4157845a24:wg0' },
+    });
+    revealEveryRefusal();
+    expect(screen.getByText('routed by another machine')).toBeInTheDocument();
+    expect(screen.getByText(/runs as a container on it/)).toBeInTheDocument();
+  });
+
+  it("carries the tunnel's own cost into the confirmation", async () => {
+    // A tunnel nothing has ever come through is usable-looking and would
+    // black-hole the container. Same bargain as a relayed mesh gate: eligible
+    // and wise are different questions.
+    const deadHub = {
+      ...MESH_WITH_EXTERNAL,
+      nodes: {
+        ...MESH_WITH_EXTERNAL.nodes,
+        '11e8bd4157845a24': {
+          ...MESH.nodes['11e8bd4157845a24'],
+          external_tunnels: { supported: true, tunnels: [WG0_TUNNELS[1]] },
+        },
+      },
+    };
+    mockApi({
+      hosts: HOSTS_WITH_CONTAINER,
+      mesh: deadHub,
+      externalRoute: () => ({ planned: true, plan: { container: 'e91aacf5a3a3', tunnel_dev: 'wg0', exclusions: [] } }),
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    fireEvent.change(screen.getByLabelText('Exit gate for e91aacf5a3a3'), {
+      target: { value: 'external:11e8bd4157845a24:wg0' },
+    });
+    // Scoped to THIS row: every host with an external candidate now has a
+    // Review button, and pressing the first one on the page would review a
+    // different machine.
+    fireEvent.click(within(gateRow('e91aacf5a3a3')).getByRole('button', { name: /review change/i }));
+
+    expect(await screen.findByText(/has EVER completed a handshake/)).toBeInTheDocument();
   });
 });
