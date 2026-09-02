@@ -209,6 +209,14 @@ export default function SkillsTab() {
                   </svg>
                   <span className="text-[13px] text-[var(--color-text-primary)] font-medium truncate">{s.name}</span>
                   <code className="text-[10px] text-[var(--color-text-muted)] truncate">{s.rel_path}</code>
+                  {s.owner && (
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-[var(--color-text-muted)] shrink-0"
+                      title={`Provided by the "${s.owner}" app — not editable here`}
+                    >
+                      {s.owner}
+                    </span>
+                  )}
                 </div>
                 {s.description && (
                   <div className="text-[11px] text-[var(--color-text-muted)] mt-1 line-clamp-2">
@@ -216,14 +224,16 @@ export default function SkillsTab() {
                   </div>
                 )}
               </button>
-              <button
-                onClick={() => handleDelete(s.name)}
-                data-testid={`skill-delete-${s.name}`}
-                className="opacity-0 group-hover:opacity-100 px-2 py-1 text-[11px] rounded text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 cursor-pointer transition-all"
-                title={`Delete ${s.name}`}
-              >
-                Delete
-              </button>
+              {s.editable !== false && (
+                <button
+                  onClick={() => handleDelete(s.name)}
+                  data-testid={`skill-delete-${s.name}`}
+                  className="opacity-0 group-hover:opacity-100 px-2 py-1 text-[11px] rounded text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 cursor-pointer transition-all"
+                  title={`Delete ${s.name}`}
+                >
+                  Delete
+                </button>
+              )}
             </div>
           ))}
         </div>

@@ -25,6 +25,7 @@ import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
 import NetworkingTab from './NetworkingTab';
 import ObservabilityTab from './ObservabilityTab';
+import SkillsTab from './SkillsTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
@@ -46,7 +47,7 @@ const GENERAL_SECTIONS = [
   { key: 'networking', label: 'Networking', ready: true, description: 'The tenant private mesh, exit nodes and VPN.' },
   { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
   { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
-  { key: 'skills', label: 'Skills', ready: false, description: 'Author and manage native and app-contributed skills.' },
+  { key: 'skills', label: 'Skills', ready: true, description: 'Author and manage native and app-contributed skills.' },
   { key: 'mcp', label: 'MCP Servers', ready: false, description: 'Configure Model Context Protocol server connections.' },
 ];
 
@@ -336,7 +337,8 @@ export default function SettingsPanelNew() {
                 (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
                 (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
                 (selectedSection.key === 'networking' && <NetworkingTab />) ||
-                (selectedSection.key === 'observability' && <ObservabilityTab />)
+                (selectedSection.key === 'observability' && <ObservabilityTab />) ||
+                (selectedSection.key === 'skills' && <SkillsTab />)
               )
               : <ComingSoon label={selectedSection.label} />
           )}
