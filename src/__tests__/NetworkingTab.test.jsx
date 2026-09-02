@@ -695,6 +695,22 @@ describe('exit gate picker', () => {
     expect(options.join(' ')).not.toMatch(/aw-surface-wsl/);
   });
 
+  it('labels a mesh candidate with the same public IP its own row shows — not a bare node name', async () => {
+    // Regression: HostRow accepted a `hostIps` prop and threaded it into
+    // ExitGateControl, but NetworkingTab never passed it down, so every
+    // combo entry silently fell back to the bare node name. A user picking
+    // "aw-baremetal" had no way to confirm it was the same host whose row
+    // read 65.109.66.88 — this is the exact drift the card warned about.
+    mockApi({ hostPublicIps: { '11e8bd4157845a24': { ip: '65.109.66.88' } } });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+    await screen.findByText('65.109.66.88'); // aw-baremetal's own row, measured
+
+    const sel = screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT');
+    const options = Array.from(sel.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options.join(' ')).toMatch(/aw-baremetal — 65\.109\.66\.88/);
+  });
+
   it('never offers a host itself as its own exit', async () => {
     mockApi();
     render(<NetworkingTab />);

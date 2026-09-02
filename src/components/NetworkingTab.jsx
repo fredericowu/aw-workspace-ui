@@ -1660,6 +1660,7 @@ export default function NetworkingTab() {
                 slug={slug}
                 onChanged={afterGateChange}
                 publicIp={hostPublicIpState(h)}
+                hostIps={hostIps}
               />
             ))}
 
@@ -1683,6 +1684,7 @@ export default function NetworkingTab() {
                         slug={slug}
                         onChanged={afterGateChange}
                         publicIp={hostPublicIpState(h)}
+                        hostIps={hostIps}
                       />
                     ))}
                   </div>
