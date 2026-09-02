@@ -32,12 +32,10 @@ import { listInstalledApps } from '../apps/appsApi';
 import { buildSettingsIndex, matchSettingsEntry } from '../lib/settingsSearch';
 
 const GENERAL_SECTIONS = [
-  { key: 'aw', label: 'AW Config', ready: false, description: 'Core workspace configuration and environment settings.' },
   { key: 'users', label: 'Users', ready: true, description: 'Guest logins scoped to a fixed list of apps.' },
   { key: 'integrations', label: 'Integrations', ready: true, description: 'Connect external services and webhooks.' },
   { key: 'marketplace', label: 'Marketplace', ready: true, description: 'Install and manage apps from the catalog.' },
   { key: 'observability', label: 'Observability', ready: true, description: 'Metrics, traces and logs for this workspace.' },
-  { key: 'tcp-proxy', label: 'TCP Proxy', ready: false, description: 'Expose a local TCP port through the workspace.' },
   // Was `{ key: 'vpn', label: 'VPN' }`. Renamed, not just relabelled: the scope
   // grew from "a VPN with an exit node" to the tenant's whole private mesh, of
   // which the exit gate is one feature. Keeping `vpn` would also collide with
@@ -46,7 +44,6 @@ const GENERAL_SECTIONS = [
   // this file reads these keys today, so the collision is worth removing now
   // rather than after someone wires the two panels' ids together.
   { key: 'networking', label: 'Networking', ready: true, description: 'The tenant private mesh, exit nodes and VPN.' },
-  { key: 'proxy', label: 'Cookies', ready: false, description: 'Manage stored browser cookies for automation.' },
   { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
   { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
   { key: 'skills', label: 'Skills', ready: false, description: 'Author and manage native and app-contributed skills.' },
