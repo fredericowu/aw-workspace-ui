@@ -305,7 +305,14 @@ function HostRow({
 
       <div className="min-w-0">
         <FieldLabel>OS</FieldLabel>
-        <div className="text-[12px] text-[var(--color-text-secondary)]">{host.os || '?'}{host.arch ? `/${host.arch}` : ''}</div>
+        <div className="text-[12px] text-[var(--color-text-secondary)] flex items-center gap-1.5">
+          <span>{host.os || '?'}{host.arch ? `/${host.arch}` : ''}</span>
+          {host.elevated === true && (
+            <Pill tone="warn" title="aw-remote-host is running as root on this host">
+              [{host.os === 'windows' ? 'admin' : 'root'}]
+            </Pill>
+          )}
+        </div>
       </div>
 
       <div className="min-w-0">

@@ -151,6 +151,38 @@ describe('RemoteHostsTab', () => {
     expect(screen.getByText('running')).toBeInTheDocument();
   });
 
+  describe('OS-column elevation badge', () => {
+    it('renders [root] when elevated is true on a non-Windows host', async () => {
+      mockApi({ hosts: [{ ...HOSTS[0], elevated: true }] });
+      render(<RemoteHostsTab />);
+      await screen.findByText('b614f41828c8');
+
+      expect(screen.getByText('[root]')).toBeInTheDocument();
+    });
+
+    it('renders [admin] when elevated is true on a Windows host', async () => {
+      mockApi({ hosts: [{ ...HOSTS[2], elevated: true }] });
+      render(<RemoteHostsTab />);
+      await screen.findByText('DESKTOP-DRMKFBT');
+
+      expect(screen.getByText('[admin]')).toBeInTheDocument();
+    });
+
+    it('renders no badge when elevated is false or absent (an older binary)', async () => {
+      mockApi({
+        hosts: [
+          { ...HOSTS[0], elevated: false },
+          { ...HOSTS[1], elevated: undefined },
+        ],
+      });
+      render(<RemoteHostsTab />);
+      await screen.findByText('b614f41828c8');
+
+      expect(screen.queryByText('[root]')).not.toBeInTheDocument();
+      expect(screen.queryByText('[admin]')).not.toBeInTheDocument();
+    });
+  });
+
   it('uses the OFFER verdict for the exit-gate column, not the select refusal', async () => {
     mockApi();
     render(<RemoteHostsTab />);
