@@ -83,6 +83,17 @@ describe('AppsMarketplace', () => {
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ id: 'git' })));
   });
 
+  it('shows a checking state, not Install, while installedApps is still unknown (null)', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(<AppsMarketplace installedApps={null} onInstalled={vi.fn()} onClose={() => {}} />);
+
+    expect(await screen.findByText('Git + GitHub CLI')).toBeInTheDocument();
+    // no Install button anywhere while the installed set is unknown — it
+    // would otherwise offer to install an app that may already be there.
+    expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('Checking…')).toHaveLength(2);
+  });
+
   it('does not block on the long install request — shows the real backend error, not "Failed to fetch"', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     installApp.mockResolvedValue({ app_id: 'git', status: 'installing' });

@@ -139,6 +139,12 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
     return () => { mounted = false; };
   }, []);
 
+  // installedApps is null while the parent's own installed-list fetch is
+  // still in flight (no cache yet, e.g. right after a workspace restart) —
+  // distinct from [] which means "fetch resolved, nothing installed". Don't
+  // collapse the two: an Install button drawn for "unknown" would offer to
+  // install an app that's already there.
+  const installedUnknown = installedApps == null;
   const installedVersions = new Map(
     (installedApps || [])
       .map((a) => [installedAppId(a), a.version])
@@ -321,6 +327,9 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
           {busy[app.id] ? 'Updating…' : `Update to v${app.version}`}
         </button>
       );
+    }
+    if (installedUnknown) {
+      return <span className="appmkt-installed" aria-label={`Checking install status of ${app.name}`}>Checking…</span>;
     }
     return (
       <button

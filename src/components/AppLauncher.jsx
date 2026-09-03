@@ -533,7 +533,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
 
       {showMarketplace && (
         <AppsMarketplace
-          installedApps={installed || []}
+          installedApps={installed}
           onInstalled={onInstalled}
           onUninstall={onMarketplaceUninstall}
           onClose={() => { setShowMarketplace(false); setMarketplaceAppId(null); }}
