@@ -532,7 +532,7 @@ function ExitOfferControl({ host, mesh, slug, onChanged }) {
  * (external-vpns-in-networking.md §3.3).
  */
 function ExitGateControl({
-  host, mesh, hosts, slug, onChanged, hostIps, onExternalRouteApplied, onExternalRouteCleared,
+  host, mesh, hosts, slug, onChanged, hostIps, egress, onExternalRouteApplied, onExternalRouteCleared,
 }) {
   const node = mesh?.available ? mesh.nodes?.[host.id] : null;
   const candidates = useMemo(
@@ -544,9 +544,9 @@ function ExitGateControl({
    * exact source `HostPublicIp` already uses (`hostIps`/`fetchHostPublicIp`),
    * never a second fetch path. Offline and could-not-measure both fall back
    * to the host's own name alone: never a fake IP, never "unknown" dressed
-   * up as one. External candidates keep their existing peer-count label —
-   * they name a TUNNEL, not a host, and there is no single IP that answers
-   * "the tunnel's own address".
+   * up as one. External candidates get their own label below
+   * (`externalCandidateLabel`) — they name a TUNNEL, not a host, so they are
+   * labelled off the measured egress rather than off this per-host source.
    */
   const meshCandidateLabel = useCallback((c) => {
     const h = (hosts || []).find((x) => x.id === c.hostId);
@@ -556,6 +556,22 @@ function ExitGateControl({
     }
     return c.name;
   }, [hosts, hostIps]);
+  /**
+   * `<tunnel> — <measured egress> (<n> peers)`, for an EXTERNAL candidate.
+   * `egress` is the exact state `PublicIpBanner` already measured — no
+   * second fetch, and never `endpoints[0]` off the wg dump (facce81): a hub
+   * carries one interface and many peers, and there is no single peer
+   * endpoint that means "the tunnel's own address". What Frederico asked
+   * for is the address the workspace leaves the internet from when routed
+   * through the gate, and the measured egress IS that — workspace-wide
+   * rather than recomputed per candidate, same as the banner above it.
+   * Falls back to the peer count alone, exactly as `facce81` left it, when
+   * nothing was measured — never a placeholder that reads like an address.
+   */
+  const externalCandidateLabel = useCallback((c) => {
+    const peers = `${c.peers} peer${c.peers === 1 ? '' : 's'}`;
+    return egress?.ip ? `${c.name} — ${egress.ip} (${peers})` : `${c.name} (${peers})`;
+  }, [egress]);
   const [choice, setChoice] = useState('');
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState('');
@@ -777,7 +793,7 @@ function ExitGateControl({
               <optgroup label="External VPN tunnels">
                 {offered.filter((c) => c.kind === 'external').map((c) => (
                   <option key={c.value} value={c.value}>
-                    {c.name} ({c.peers} peer{c.peers === 1 ? '' : 's'})
+                    {externalCandidateLabel(c)}
                   </option>
                 ))}
               </optgroup>
@@ -786,7 +802,7 @@ function ExitGateControl({
             <option key={c.value} value={c.value}>
               {c.kind === 'mesh'
                 ? meshCandidateLabel(c)
-                : `${c.name} (${c.peers} peer${c.peers === 1 ? '' : 's'})`}
+                : externalCandidateLabel(c)}
             </option>
           ))}
         </select>
@@ -1049,7 +1065,7 @@ function HostGridHeader() {
 }
 
 function HostRow({
-  host, mesh, hosts, slug, onChanged, publicIp, hostIps,
+  host, mesh, hosts, slug, onChanged, publicIp, hostIps, egress,
   onExternalRouteApplied, onExternalRouteCleared,
 }) {
   // The same mesh-status entry MeshState renders below: the agent reports
@@ -1201,6 +1217,7 @@ function HostRow({
             slug={slug}
             onChanged={onChanged}
             hostIps={hostIps}
+            egress={egress}
             onExternalRouteApplied={onExternalRouteApplied}
             onExternalRouteCleared={onExternalRouteCleared}
           />
@@ -1648,6 +1665,7 @@ export default function NetworkingTab() {
                 onChanged={afterGateChange}
                 publicIp={hostPublicIpState(h)}
                 hostIps={hostIps}
+                egress={egress}
               />
             ))}
 
@@ -1672,6 +1690,7 @@ export default function NetworkingTab() {
                         onChanged={afterGateChange}
                         publicIp={hostPublicIpState(h)}
                         hostIps={hostIps}
+                        egress={egress}
                       />
                     ))}
                   </div>

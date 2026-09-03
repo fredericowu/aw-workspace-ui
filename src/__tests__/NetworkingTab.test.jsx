@@ -1427,6 +1427,45 @@ describe('external tunnel as an exit gate', () => {
     expect(options.join(' ')).toMatch(/wg0 on b614f41828c8/);
   });
 
+  it("labels the external tunnel with the SAME measured egress as the Public IP banner — Frederico's ask, not endpoints[0] off the wg dump", async () => {
+    // facce81 replaced `endpoints[0]` with a peer count because a hub's first
+    // printed peer is not the tunnel's own address (on the production hub it
+    // is a container belonging to a different peer). Frederico still wants an
+    // IP on screen — the fix is the measured egress the banner already shows,
+    // read here rather than re-derived, so the two can never disagree.
+    mockApi({
+      hosts: HOSTS_WITH_CONTAINER,
+      mesh: MESH_WITH_EXTERNAL,
+      publicIp: { ip: '24.90.8.255', via: 'https://1.1.1.1/cdn-cgi/trace', host_id: 'e91aacf5a3a39a17', host_name: 'e91aacf5a3a3' },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('24.90.8.255');
+
+    const picker = screen.getAllByLabelText(/^Exit gate for /).find((s) => s.querySelector('optgroup'));
+    const options = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent);
+    const externalOption = options.find((o) => o.startsWith('wg0 on b614f41828c8'));
+    expect(externalOption).toBe('wg0 on b614f41828c8 — 24.90.8.255 (2 peers)');
+    // The peer count survives alongside the IP — it says something true the
+    // address does not, and this card asks for both, not either.
+  });
+
+  it('falls back to the peer count alone, exactly as before, when the egress could not be measured', async () => {
+    mockApi({
+      hosts: HOSTS_WITH_CONTAINER,
+      mesh: MESH_WITH_EXTERNAL,
+      publicIp: { ip: null, error: 'measurement timed out' },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('not known');
+
+    const picker = screen.getAllByLabelText(/^Exit gate for /).find((s) => s.querySelector('optgroup'));
+    const options = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent);
+    const externalOption = options.find((o) => o.startsWith('wg0 on b614f41828c8'));
+    // Never a placeholder that reads like an address, never "unknown" — the
+    // same discipline `HostPublicIp` already keeps.
+    expect(externalOption).toBe('wg0 on b614f41828c8 (2 peers)');
+  });
+
   it('gives a host that is NOT on the mesh a picker it would otherwise never get', async () => {
     // The regression this feature is. Every mesh refusal on this screen is
     // about tailscale; an external route needs none of it, because the
