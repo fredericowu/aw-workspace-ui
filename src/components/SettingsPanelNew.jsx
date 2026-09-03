@@ -24,6 +24,7 @@ import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
 import NetworkingTab from './NetworkingTab';
+import VpnsTab from './VpnsTab';
 import RemoteHostsTab from './RemoteHostsTab';
 import ObservabilityTab from './ObservabilityTab';
 import SkillsTab from './SkillsTab';
@@ -38,14 +39,16 @@ const GENERAL_SECTIONS = [
   { key: 'integrations', label: 'Integrations', ready: true, description: 'Connect external services and webhooks.' },
   { key: 'marketplace', label: 'Marketplace', ready: true, description: 'Install and manage apps from the catalog.' },
   { key: 'observability', label: 'Observability', ready: true, description: 'Metrics, traces and logs for this workspace.' },
-  // Was `{ key: 'vpn', label: 'VPN' }`. Renamed, not just relabelled: the scope
-  // grew from "a VPN with an exit node" to the tenant's whole private mesh, of
-  // which the exit gate is one feature. Keeping `vpn` would also collide with
-  // the legacy SettingsPanel's own `vpn` tab, which is a different thing
-  // entirely (the WireGuard/Nord client config in VpnTab.jsx) — nothing outside
-  // this file reads these keys today, so the collision is worth removing now
-  // rather than after someone wires the two panels' ids together.
+  // Was `{ key: 'vpn', label: 'VPN' }` before it was renamed to `networking`:
+  // the scope grew from "a VPN with an exit node" to the tenant's whole
+  // private mesh, of which the exit gate is one feature. That vacated `vpn`
+  // deliberately, anticipating this entry — a separate, sibling section: a
+  // real VPN PROFILE manager (upload/edit/delete/NordVPN import), stored on
+  // this workspace, vs. Networking's per-host exit-gate/mesh routing. See
+  // docs/architecture/vpn-profiles-in-general.md §0 for why these are two
+  // screens, not one.
   { key: 'networking', label: 'Networking', ready: true, description: 'The tenant private mesh, exit nodes and VPN.' },
+  { key: 'vpn', label: 'VPNs', ready: true, description: 'VPN profiles — upload, edit, delete, NordVPN import. Phase 1 stores; it does not dial.' },
   { key: 'remote-hosts', label: 'Remote Hosts', ready: true, description: 'Linked hosts, and how to install aw-remote-host on a new one.' },
   { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
   { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
@@ -339,6 +342,7 @@ export default function SettingsPanelNew() {
                 (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
                 (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
                 (selectedSection.key === 'networking' && <NetworkingTab />) ||
+                (selectedSection.key === 'vpn' && <VpnsTab />) ||
                 (selectedSection.key === 'remote-hosts' && (
                   <RemoteHostsTab onNavigateToNetworking={() => select('general', 'networking')} />
                 )) ||
