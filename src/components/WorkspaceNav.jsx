@@ -3,6 +3,7 @@ import StatusDot from './StatusDot';
 import SidebarPreview from './SidebarPreview';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
 import { apiFetch, wsUrl } from '../auth';
+import { apiUrl } from '../apiBase';
 import AppSlot from '../apps/AppSlot';
 import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH, GITHUB_STREAM_PATH } from '../lib/githubApi';
 
@@ -257,17 +258,40 @@ export default function WorkspaceNav({
     } catch {}
   }, []);
 
+  // /api/git/pull was a phantom endpoint — never existed in the backend
+  // (core or app). Real pull/push now live on aw-app-git's own mount
+  // (apps/git/git_app/plugin.py), which hot-reloads independently of
+  // aw-workspace core.
   const pullRepo = async (r) => {
     setBusyRepo(r.path);
     setReposError(null);
     try {
-      const res = await apiFetch('/api/git/pull', {
+      const res = await apiFetch('/api/apps/git/pull', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo: r.path }),
       });
       const data = await res.json();
       if (data.success) { flashFor(r.path, 'success'); refreshRepos(); }
       else { flashFor(r.path, 'error'); setReposError(`${r.name}: ${data.error || 'pull failed'}`); }
+    } catch (e) {
+      flashFor(r.path, 'error');
+      setReposError(`${r.name}: ${e.message}`);
+    } finally {
+      setBusyRepo(null);
+    }
+  };
+
+  const pushRepo = async (r) => {
+    setBusyRepo(r.path);
+    setReposError(null);
+    try {
+      const res = await apiFetch('/api/apps/git/push', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: r.path }),
+      });
+      const data = await res.json();
+      if (data.success) { flashFor(r.path, 'success'); refreshRepos(); }
+      else { flashFor(r.path, 'error'); setReposError(`${r.name}: ${data.error || 'push failed'}`); }
     } catch (e) {
       flashFor(r.path, 'error');
       setReposError(`${r.name}: ${e.message}`);
@@ -344,20 +368,18 @@ export default function WorkspaceNav({
     }
   };
 
-  const openRepoInVscode = (r) => {
-    window.open(`vscode://file/${r.path}`, '_self');
-    setOpen(false);
-  };
-
-  // Open the repo folder in the vscode.apps.* workspace app. Builds the
-  // code-server URL directly using the app subdomain convention so there
-  // is no API round-trip and no dependency on code-server being pre-started.
+  // Open the repo in code-server (this workspace's browser-based VS Code),
+  // via the aw-app-code-server app route — not a `vscode://` desktop URI or
+  // the monolith's `vscode.app.<host>` subdomain, neither of which exist
+  // here. Repo paths are already absolute under /opt/aw-workspace, which is
+  // exactly where aw-app-code-server mounts the workspace tree, so no path
+  // rewrite is needed. Routed through apiUrl() (not a raw relative
+  // window.open) because on a BYOD three-plane deployment the SPA can be
+  // served from a bare host with no same-origin /api/apps/* route.
   const openRepoInCodeServer = (r) => {
-    const host = window.location.host;
-    // code-server sees the workspace mounted at /home/coder/project, not /opt/agentic-workspace
-    const coderPath = r.path.replace(/^\/opt\/agentic-workspace/, '/home/coder/project');
-    const url = `${window.location.protocol}//vscode.app.${host}/?folder=${encodeURIComponent(coderPath)}`;
-    window.open(url, 'aw-vscode-file', 'popup=1,width=1400,height=900');
+    const payload = JSON.stringify([['openFile', `vscode-remote:${r.path}`]]);
+    const url = `/api/apps/code-server/?folder=${encodeURIComponent(r.path)}&payload=${encodeURIComponent(payload)}`;
+    window.open(apiUrl(url), 'aw-vscode-file', 'popup=1,width=1400,height=900');
     setOpen(false);
   };
 
@@ -454,8 +476,8 @@ export default function WorkspaceNav({
                             fl === 'error' ? 'bg-red-500/10' :
                             'hover:bg-white/[0.05]'
                           }`}
-                          onClick={() => openRepoInVscode(r)}
-                          title={`Open ${r.path} in VSCode`}
+                          onClick={() => openRepoInCodeServer(r)}
+                          title={`Open ${r.path} in VSCode (code-server)`}
                         >
                           <svg className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />
@@ -481,6 +503,21 @@ export default function WorkspaceNav({
                             >
                               <svg className={`w-3.5 h-3.5 ${busy ? 'animate-spin [animation-direction:reverse]' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M12 5v14M5 12l7 7 7-7" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => pushRepo(r)}
+                              disabled={busy}
+                              className="p-1 rounded hover:bg-white/10 text-[var(--color-text-muted)] hover:text-fuchsia-400 transition-colors disabled:opacity-50"
+                              title="Push to remote"
+                            >
+                              {/* Upload-tray glyph (arrow + baseline) — distinct
+                                  from the Diff button's plain up-arrow below,
+                                  which stays a diff action, not push. */}
+                              <svg className={`w-3.5 h-3.5 ${busy ? 'animate-spin [animation-direction:reverse]' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 3v12" />
+                                <path d="M7 8l5-5 5 5" />
+                                <path d="M5 21h14" />
                               </svg>
                             </button>
                             <button

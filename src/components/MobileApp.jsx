@@ -1860,11 +1860,13 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
     setTimeout(() => setRepoFlash(p => { const n = { ...p }; delete n[path]; return n; }), 2000);
   };
 
+  // /api/git/pull was a phantom endpoint — never existed in the backend.
+  // Real pull now lives on aw-app-git's own mount (apps/git/git_app/plugin.py).
   const pullRepo = async (r) => {
     setBusyRepo(r.path);
     setReposError(null);
     try {
-      const res = await apiFetch('/api/git/pull', {
+      const res = await apiFetch('/api/apps/git/pull', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo: r.path }),
       });
