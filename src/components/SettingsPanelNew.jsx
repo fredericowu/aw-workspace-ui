@@ -24,6 +24,7 @@ import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
 import NetworkingTab from './NetworkingTab';
+import RemoteHostsTab from './RemoteHostsTab';
 import ObservabilityTab from './ObservabilityTab';
 import SkillsTab from './SkillsTab';
 import AppConfigBody from './AppConfigBody';
@@ -45,6 +46,7 @@ const GENERAL_SECTIONS = [
   // this file reads these keys today, so the collision is worth removing now
   // rather than after someone wires the two panels' ids together.
   { key: 'networking', label: 'Networking', ready: true, description: 'The tenant private mesh, exit nodes and VPN.' },
+  { key: 'remote-hosts', label: 'Remote Hosts', ready: true, description: 'Linked hosts, and how to install aw-remote-host on a new one.' },
   { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
   { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
   { key: 'skills', label: 'Skills', ready: true, description: 'Author and manage native and app-contributed skills.' },
@@ -337,6 +339,9 @@ export default function SettingsPanelNew() {
                 (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
                 (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
                 (selectedSection.key === 'networking' && <NetworkingTab />) ||
+                (selectedSection.key === 'remote-hosts' && (
+                  <RemoteHostsTab onNavigateToNetworking={() => select('general', 'networking')} />
+                )) ||
                 (selectedSection.key === 'observability' && <ObservabilityTab />) ||
                 (selectedSection.key === 'skills' && <SkillsTab />)
               )

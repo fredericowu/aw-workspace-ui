@@ -1220,3 +1220,105 @@ function mapContainerEgress(raw) {
     error: raw.error || '',
   };
 }
+
+/**
+ * The `tekflox/aw-remote-host` repo, in ONE place — it may go private
+ * (`security:home-ip-and-wg-port-in-public-repo-test-fixtures`), and every
+ * install/link URL below derives from this constant so that stays a
+ * one-line change instead of a grep-and-replace across the UI.
+ */
+export const REMOTE_HOST_REPO = 'tekflox/aw-remote-host';
+
+/**
+ * How to install aw-remote-host on a machine that isn't linked yet —
+ * verified against `repos/aw-remote-host/install.sh` (all 88 lines) and
+ * `README.md` on 2026-09-03, not copied from memory.
+ *
+ * The installer only downloads and installs a binary — on EVERY platform it
+ * restarts nothing, and installing is not linking (see `linkCommand`
+ * below). `install.sh` itself refuses anything but linux/darwin; Windows is
+ * a genuinely different script (`install.ps1`), unverified against a real
+ * machine unlike the other two, and labelled as such.
+ */
+export function remoteHostInstallInstructions() {
+  const shUrl = `https://raw.githubusercontent.com/${REMOTE_HOST_REPO}/main/install.sh`;
+  return [
+    {
+      id: 'linux',
+      title: 'Linux',
+      commands: [`curl -fsSL ${shUrl} | sh`],
+      persistence: 'Persists as a systemd user unit. Also run `loginctl enable-linger $USER` — '
+        + 'without it the agent dies the moment you log out.',
+    },
+    {
+      id: 'macos',
+      title: 'macOS',
+      commands: [`curl -fsSL ${shUrl} | sh`],
+      persistence: 'Persists as a LaunchAgent — starts at login on its own, no linger step needed.',
+    },
+    {
+      id: 'windows',
+      title: 'Windows',
+      unverified: true,
+      commands: [`irm https://raw.githubusercontent.com/${REMOTE_HOST_REPO}/main/install.ps1 | iex`],
+      persistence: 'Persists as a Scheduled Task triggered at logon, not boot — lean link only. '
+        + 'Unverified against a real machine.',
+    },
+  ];
+}
+
+/**
+ * The one command that links an already-installed host to THIS workspace —
+ * a separate, second step from installing the binary, and the part people
+ * get wrong (see `mintBootstrapToken` below for where the token comes from).
+ *
+ * `null` without a token — same no-placeholder rule `joinCommand` already
+ * keeps: a command that cannot work is the bug this whole path replaces.
+ */
+export function linkCommand(token) {
+  if (!token) return null;
+  return `aw-remote-host link --token ${token} --background`;
+}
+
+/**
+ * Mint a one-time bootstrap token for THIS workspace — the credential
+ * `linkCommand` needs. `POST /api/workspaces/{slug}/bootstrap-token`
+ * already exists (owner-only, single-use, plaintext returned exactly once —
+ * aw-backend masks it on every later read), so this needed no new endpoint.
+ *
+ * MINT ON A PRESS, NEVER ON A RENDER — same discipline `mintJoinKey` already
+ * keeps and for the same reason: a token sitting in a component after the
+ * tab was merely opened is a credential nobody is watching. The workspace
+ * API key is a different, long-lived credential and must never reach this
+ * path.
+ *
+ * Rejects on failure, like `mintJoinKey` — a button press owns its own
+ * error.
+ */
+export async function mintBootstrapToken(slug) {
+  const s = slug || (await currentWorkspaceSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/bootstrap-token`);
+  const data = await apiFetch(url, { method: 'POST' }).then(readJson);
+  return { token: data?.token || '', expiresAt: data?.expires_at || null };
+}
+
+/**
+ * Rename a linked host — sets its per-LINK `friendly_name`. A LINK, not a
+ * machine: the same hostname legitimately appears on more than one row
+ * (host_link.py:428-429), which is exactly why the name being renamed here
+ * is per-link too. `''`/`null` clears it back to showing the raw hostname.
+ *
+ * REJECTS on failure, following `applyExitGate`'s convention — a button
+ * press (here, Save) owns its own error, and the caller treats a reject as
+ * "this row failed, the others may still have succeeded."
+ */
+export async function renameRemoteHost(slug, hostId, friendlyName) {
+  const s = slug || (await currentWorkspaceSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}`);
+  const data = await apiFetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ friendly_name: friendlyName || null }),
+  }).then(readJson);
+  return { id: data?.id || hostId, friendlyName: data?.friendly_name || null };
+}
