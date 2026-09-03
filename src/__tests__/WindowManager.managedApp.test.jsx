@@ -287,4 +287,50 @@ describe('WindowManager managed_app chrome', () => {
     expect(screen.getByTitle('Restart component')).toBeInTheDocument();
     expect(screen.getByTitle('Stop container')).toBeInTheDocument();
   });
+
+  it('shows a loading overlay immediately, then clears it once the iframe fires onLoad', async () => {
+    const { container } = render(
+      <WindowManager
+        openWindows={new Set(['appwin:browser.main'])}
+        components={[{ key: 'docker:aw-browser', status: 'running' }]}
+        terminals={[]}
+        maxLines={200}
+        onCloseWindow={vi.fn()}
+        onReopenWindow={vi.fn()}
+        onMinimizeWindow={vi.fn()}
+        onMaximize={vi.fn()}
+        maximizedKey={null}
+        onAction={vi.fn()}
+        onRenameTerminal={vi.fn()}
+        onSessionSwitch={vi.fn()}
+        claudeSessionIds={[]}
+        copilotSessionIds={[]}
+        insecureMap={{}}
+        onToggleInsecure={vi.fn()}
+        onWindowFocus={vi.fn()}
+        presentations={[]}
+        aiAgents={[]}
+        workspaceApps={[]}
+        appWindowSpecs={{
+          'appwin:browser.main': {
+            id: 'browser.main',
+            app: 'browser',
+            title: 'Browser',
+            icon: 'globe',
+            body: { type: 'managed_app', kind: 'browser', path: '/vnc.html' },
+          },
+        }}
+      />
+    );
+
+    // No onLoad has fired yet — the loading overlay must already be visible,
+    // not a blank iframe.
+    expect(screen.getByText(/Loading Browser…/)).toBeInTheDocument();
+
+    fireEvent.load(container.querySelector('iframe'));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Loading Browser…/)).not.toBeInTheDocument();
+    });
+  });
 });
