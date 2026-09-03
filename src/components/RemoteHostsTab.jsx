@@ -33,7 +33,7 @@ function Pill({ tone = 'muted', children, title }) {
     info: 'bg-sky-500/15 text-sky-300',
   };
   return (
-    <span title={title} className={`inline-block text-[10px] uppercase tracking-wide px-2 py-0.5 rounded whitespace-nowrap ${tones[tone]}`}>
+    <span title={title} className={`inline-block text-[10px] uppercase tracking-wide px-2 py-0.5 rounded ${tones[tone]}`}>
       {children}
     </span>
   );
@@ -128,6 +128,15 @@ function HostPublicIp({ state }) {
   return <code className="text-[11px] font-mono text-[var(--color-text-primary)] break-all">{state.ip}</code>;
 }
 
+// Column is compact by design (one of nine), so the badge is a short word —
+// `exitOfferState`'s own full sentence (`verdict.label` + `verdict.reason`)
+// goes in the `title` tooltip instead of on the badge itself, same "short
+// label, full sentence one hover away" split MeshState/HostPublicIp already
+// use elsewhere in Networking.
+const EXIT_GATE_BADGE = {
+  offering: 'Offering', pending: 'Pending approval', yes: 'Eligible', no: 'Not eligible', unknown: 'Unknown',
+};
+
 /**
  * "Can be an exit gate" — read-only, via `exitOfferState` (the OFFER
  * verdict — can this host BE a gate — never `exitGateSelectRefusal`, which
@@ -140,11 +149,11 @@ function ExitGateCell({ mesh, hostId }) {
     ? exitOfferState(mesh.nodes?.[hostId])
     : {
       state: 'unknown',
-      label: 'unknown',
       reason: mesh?.reason || 'Mesh status is unavailable, so this could not be measured.',
     };
   const tone = { offering: 'ok', pending: 'warn', yes: 'info', no: 'err', unknown: 'muted' }[verdict.state] || 'muted';
-  return <Pill tone={tone} title={verdict.reason}>{verdict.label}</Pill>;
+  const title = [verdict.label, verdict.reason].filter(Boolean).join(' — ');
+  return <Pill tone={tone} title={title}>{EXIT_GATE_BADGE[verdict.state] || 'Unknown'}</Pill>;
 }
 
 /** One row per `{slug, status, placement_driver}` — same-account only, one

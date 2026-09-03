@@ -129,12 +129,15 @@ describe('RemoteHostsTab', () => {
     render(<RemoteHostsTab />);
     await screen.findByText('b614f41828c8');
 
-    // The Linux host advertises AND is approved -> "Offering as exit gate".
-    // The Mac is refused by its own agent for advertising, which is a
+    // The Linux host advertises AND is approved -> "Offering". The Mac is
+    // refused by its own agent for advertising ("Not eligible"), which is a
     // DIFFERENT refusal than exitGateSelectRefusal would report (that one
-    // refuses the Mac for a totally different, architectural reason).
-    expect(screen.getByText('Offering as exit gate')).toBeInTheDocument();
-    expect(screen.getByText('Cannot be an exit gate')).toBeInTheDocument();
+    // refuses the Mac for a totally different, architectural reason). The
+    // full sentence lives in the badge's tooltip, not on the badge itself.
+    const offeringBadge = screen.getByText('Offering');
+    expect(offeringBadge).toBeInTheDocument();
+    expect(offeringBadge).toHaveAttribute('title', expect.stringContaining('Offering as exit gate'));
+    expect(screen.getByText('Not eligible')).toBeInTheDocument();
   });
 
   it('degrades the exit-gate column to unknown on a mesh outage, without blanking the table', async () => {
@@ -142,7 +145,7 @@ describe('RemoteHostsTab', () => {
     render(<RemoteHostsTab />);
     await screen.findByText('b614f41828c8');
 
-    expect(screen.getAllByText('unknown').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0);
     // Every other column still renders.
     expect(screen.getByText('Mac.Home')).toBeInTheDocument();
     expect(screen.getByText(/Mesh status unavailable/)).toBeInTheDocument();
