@@ -785,69 +785,6 @@ export function externalInterfaces(externalTunnels) {
 }
 
 /**
- * One entry per host for the External VPNs section — DISCOVERED, never
- * authored. Nothing in this file creates a tunnel or holds a key: the config
- * and its private key stay on the machine that dials, and this list is that
- * machine's own answer to `wg show`, read back
- * (external-vpns-in-networking.md §3.2).
- *
- * Four states, and the last two are why this is not a filter:
- *
- *   'tunnels' — it looked and found interfaces.
- *   'none'    — it looked and found none. A FACT, and said as one.
- *   'unknown' — it could not look, with its own sentence. Never "no VPN".
- *   'silent'  — nothing arrived: the host never answered, or its agent
- *               predates the field.
- *
- * Only hosts with a live link appear at all: `mesh_status` asks the connected
- * ones, so an offline machine has not declined to answer — nobody asked it,
- * and a row saying "silent" about it would report a refusal nobody made.
- */
-export function externalVpnEntries(hosts, mesh) {
-  const out = [];
-  for (const host of hosts || []) {
-    if (!host.connected) continue;
-    const reported = mesh?.available ? mesh.nodes?.[host.id]?.externalTunnels : null;
-    if (!reported) {
-      out.push({
-        host,
-        state: 'silent',
-        reason: mesh?.available
-          ? 'This host sent no external-VPN block at all — it did not answer the status verb, or '
-            + 'its agent predates the field. Update aw-remote-host on it.'
-          : (mesh?.reason || MESH_UNAVAILABLE_REASON),
-        interfaces: [],
-      });
-      continue;
-    }
-    if (!reported.supported) {
-      out.push({
-        host,
-        state: 'unknown',
-        // The host's own sentence — it is the only part that says what to
-        // change on that machine.
-        reason: reported.reason
-          || 'This host reported that it could not read its WireGuard interfaces, without saying '
-            + 'why.',
-        interfaces: [],
-      });
-      continue;
-    }
-    const interfaces = externalInterfaces(reported);
-    out.push({
-      host,
-      state: interfaces.length ? 'tunnels' : 'none',
-      reason: interfaces.length
-        ? ''
-        : 'This host read its WireGuard interfaces and found no non-mesh tunnel. That is a '
-          + 'measurement, not a missing answer.',
-      interfaces,
-    });
-  }
-  return out;
-}
-
-/**
  * Point `hostId`'s egress at an external tunnel `viaHost` terminates — or
  * preview it.
  *
@@ -1149,61 +1086,6 @@ function mapExitGateResult(data) {
       ? data.exclusions.map((e) => ({ prefix: e?.prefix || '', reason: e?.reason || '' }))
       : [],
     deadmanStillArmed: !!data?.deadman_still_armed,
-  };
-}
-
-/**
- * Which connected hosts could dial an external VPN if asked — the same
- * capability the External VPNs section already reads to LIST tunnels
- * (`externalTunnels.supported`), reused rather than a second check: a host
- * that cannot even read `wg show` cannot run `wg-quick` either.
- */
-export function externalTunnelCapableHosts(hosts, mesh) {
-  if (!mesh?.available) return [];
-  return (hosts || []).filter(
-    (h) => h.connected && mesh.nodes?.[h.id]?.externalTunnels?.supported === true,
-  );
-}
-
-/**
- * The commands "Add external VPN" prints for one host — never posted, never
- * stored, the same bargain `joinCommand` already keeps for a machine that
- * cannot be driven remotely.
- *
- * `Table = off` and the `PostDown` restore are not decoration —
- * external-vpns-in-networking.md §3.4 measured both failures: without
- * `Table = off`, `wg-quick` falls into fwmark mode and writes into a
- * `/proc` path Docker mounts read-only; without a restore, the container
- * has NO default route once the tunnel goes down, and does not come back
- * on its own. The `PostUp`/`PostDown` pair captures whatever default route
- * was in place before the tunnel came up and puts exactly that back —
- * never a hardcoded gateway, which would be wrong the moment the host's own
- * routing changes.
- *
- * The private key is generated ON THE HOST, referenced from its own file —
- * never a value this screen holds or prints.
- */
-export function externalVpnSetupCommands(iface) {
-  const name = (iface || '').trim() || 'wg-ext0';
-  return {
-    genkey: [`wg genkey | sudo tee /etc/wireguard/${name}.key | wg pubkey`],
-    config: [
-      `sudo tee /etc/wireguard/${name}.conf > /dev/null <<'EOF'`,
-      '[Interface]',
-      `PrivateKey = $(cat /etc/wireguard/${name}.key)`,
-      'Address = <address the VPN provider gave you>/32',
-      'Table = off',
-      `PostUp = ip route show default > /etc/wireguard/${name}.default-route`,
-      `PostDown = sh -c 'ip route replace $(cat /etc/wireguard/${name}.default-route)'`,
-      '',
-      '[Peer]',
-      'PublicKey = <the VPN provider’s server public key>',
-      'Endpoint = <the VPN provider’s endpoint>:<port>',
-      'AllowedIPs = 0.0.0.0/0',
-      'PersistentKeepalive = 25',
-      'EOF',
-    ],
-    up: [`sudo wg-quick up ${name}`],
   };
 }
 

@@ -9,9 +9,6 @@ import {
   exitGateCandidates,
   exitGateSelectRefusal,
   exitOfferState,
-  externalTunnelCapableHosts,
-  externalVpnEntries,
-  externalVpnSetupCommands,
   currentWorkspaceSlug,
   fetchHostPublicIp,
   fetchMeshStatus,
@@ -618,9 +615,8 @@ function ExitGateControl({
       setResult(res); setPlan(null);
       // Tracked so the global "Disable VPN" switch can find it — an external
       // route lives in the acting host's own state.json and no status verb
-      // publishes it yet (see the External VPNs section's own note), so this
-      // session's own memory of what it just applied is the only record the
-      // screen has.
+      // publishes it yet, so this session's own memory of what it just
+      // applied is the only record the screen has.
       if (viaHost && res.confirmed) onExternalRouteApplied?.(host.id, viaHost, chosen?.viaHostName || viaHost);
       onChanged?.();
     } catch (e) {
@@ -1134,8 +1130,8 @@ function HostRow({
         {/* "Gate in force" — this host's OWN exit_node, verbatim off the mesh
             status, or a dash. Nothing else: an external route lives in the
             acting host's own state.json and no verb publishes it yet (see
-            the External VPNs section's own note and card E4), so this cell
-            would be lying if it tried to show more than the mesh says. */}
+            card E4), so this cell would be lying if it tried to show more
+            than the mesh says. */}
         <div className="text-[12px] text-[var(--color-text-secondary)] break-all">
           {node?.exitNode
             ? <code className="font-mono">{node.exitNode}</code>
@@ -1221,285 +1217,6 @@ function HostRow({
             onExternalRouteApplied={onExternalRouteApplied}
             onExternalRouteCleared={onExternalRouteCleared}
           />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Bytes as a human reads them. `null` is NOT zero — a counter that never
- *  arrived and a counter that says nothing has moved are different facts, and
- *  0/0 next to "never" is the whole diagnostic for a tunnel that is up and
- *  carrying nothing. */
-function bytes(n) {
-  if (typeof n !== 'number') return '—';
-  if (n < 1024) return `${n} B`;
-  const units = ['KiB', 'MiB', 'GiB', 'TiB'];
-  let value = n / 1024;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) { value /= 1024; i += 1; }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
-}
-
-/** A handshake age, in THREE states. `never` is not a large age and an absent
- *  age is not `never` — an agent that reported neither has told us nothing,
- *  and rendering that as "never" would accuse a working tunnel. */
-function handshake(tunnel) {
-  if (typeof tunnel.handshakeAgeSeconds === 'number') {
-    const s = tunnel.handshakeAgeSeconds;
-    if (s < 90) return `${s}s ago`;
-    const mins = Math.round(s / 60);
-    if (mins < 90) return `${mins}min ago`;
-    const hours = Math.round(mins / 60);
-    return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-  }
-  return tunnel.handshakeNever ? 'never' : 'unknown';
-}
-
-/**
- * One host's external VPN interfaces, and the upstream health of each peer on
- * them.
- *
- * `wg show all dump` emits one line per (interface, peer), so a hub arrives as
- * nine rows of the same interface — grouped here, because nine rows would
- * render as nine VPNs and there is one.
- *
- * TRANSFER COUNTERS AND HANDSHAKE AGE ARE THE DIAGNOSTIC, and 0/0 next to
- * "never" is the most useful thing this section can say: it is exactly what a
- * configured-but-not-connecting tunnel looks like, and smoothing it into
- * "connected" is how that state stayed invisible for a day.
- */
-function ExternalVpnEntry({ entry }) {
-  const { host, state, reason, interfaces } = entry;
-  const tone = { tunnels: 'ok', none: 'muted', unknown: 'warn', silent: 'muted' }[state];
-  const label = {
-    tunnels: `${interfaces.length} tunnel${interfaces.length === 1 ? '' : 's'}`,
-    none: 'none found',
-    unknown: 'could not look',
-    silent: 'no answer',
-  }[state];
-
-  return (
-    <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
-      {/* Hostname and link id in ONE element, deliberately: the host rows
-          above already render the hostname on its own, and a second element
-          whose whole content is that same string makes every by-text lookup
-          on this screen ambiguous — the same trap PublicIpBanner names. */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[13px] font-medium text-[var(--color-text-primary)] break-all">
-          {host.hostname || '(no hostname)'} · link {host.id}
-        </span>
-        <Pill tone={tone}>{label}</Pill>
-      </div>
-
-      {/* The host's own sentence for both not-a-tunnel states. "Could not
-          look" is never rendered as "no external VPN" — that is a claim
-          nobody made. */}
-      {reason && (
-        <div className="text-[11px] text-[var(--color-text-muted)] mt-1">{reason}</div>
-      )}
-
-      {interfaces.map((iface) => (
-        <div key={iface.interface} className="mt-2 p-2 rounded bg-white/[0.03] grid gap-1.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <code className="text-[12px] font-mono text-[var(--color-text-primary)]">
-              {iface.interface}
-            </code>
-            <Pill tone="info">wireguard</Pill>
-            <span className="text-[11px] text-[var(--color-text-muted)]">
-              {iface.tunnels.length} peer{iface.tunnels.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          {iface.tunnels.map((t) => (
-            <div key={t.peerPublicKey} className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-2 flex-wrap">
-              {/* The PEER's public key. The interface's own private key never
-                  leaves the host that holds it — the agent skips that line of
-                  the dump outright. */}
-              <code className="font-mono text-[var(--color-text-secondary)]">
-                {t.peerPublicKey.slice(0, 12)}…
-              </code>
-              <span>{t.endpoint || 'no endpoint'}</span>
-              <Pill tone={t.handshakeNever ? 'warn' : 'muted'}>
-                handshake {handshake(t)}
-              </Pill>
-              <span>
-                rx {bytes(t.rxBytes)} · tx {bytes(t.txBytes)}
-              </span>
-              {t.allowedIps.length > 0 && (
-                <span>
-                  allows <code className="font-mono">{t.allowedIps.join(', ')}</code>
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * External VPNs — the tunnels this account's hosts terminate that are NOT
- * this tenant's mesh.
- *
- * DISCOVERED, NOT AUTHORED. There is still no "connect" button and no form
- * that PERSISTS a config — both absences are decisions: the config and its
- * private key stay on the machine that dials (external-vpns-in-networking.md
- * §3.2, and §3.6 of vpn-concentrator.md, which rules out anything that could
- * read a config back), and routing is chosen in the gate picker one section
- * up, because two controls that both look like "turn the VPN on" is how
- * somebody stops knowing which one is in force. "Add external VPN" below is
- * the one write this section does: it PRINTS commands, posts nothing, and
- * stores nothing — see AddExternalVpnPanel.
- */
-function ExternalVpnsSection({ hosts, mesh }) {
-  const entries = useMemo(() => externalVpnEntries(hosts, mesh), [hosts, mesh]);
-  return (
-    <Section
-      title="External VPNs"
-      description="WireGuard tunnels the account's hosts terminate themselves — read back from each host, never stored here. Registering one is done on the machine that dials; routing a host into one is the exit gate picker above."
-    >
-      {entries.length === 0 ? (
-        <div className="text-[12px] text-[var(--color-text-muted)]">
-          No host has a live link right now, so nothing could be asked. This section reports what
-          hosts measure; it holds no state of its own.
-        </div>
-      ) : (
-        entries.map((entry) => <ExternalVpnEntry key={entry.host.id} entry={entry} />)
-      )}
-      <div className="text-[11px] text-[var(--color-text-muted)] mt-3 pt-3 border-t border-[var(--color-border)]">
-        Whether a host is currently ROUTED through one of these is not shown: an external route
-        lives in the acting machine&apos;s own state and no status verb publishes it yet. The gate
-        picker above still applies and clears one — it just cannot tell you, on a fresh load,
-        that it did.
-      </div>
-      <AddExternalVpnPanel hosts={hosts} mesh={mesh} />
-    </Section>
-  );
-}
-
-/**
- * "Add external VPN" — the assisted, command-printing half of registering a
- * self-hosted tunnel (e.g. `aw-vpn-hub`). Same two-tier pattern this screen
- * already uses for a machine that cannot be driven remotely: "Join this
- * mesh" prints a command (`JoinCommandSection`, below); "Join mesh" per row
- * is the driven version for a host already linked. This is the commands
- * tier — the driven one (a button that calls `vpn_external_up` directly)
- * waits on E3 and is not this card's scope.
- *
- * NOTHING IS POSTED, NOTHING IS STORED, NO ROUTE EVER RETURNS RAW CONFIG.
- * `externalVpnSetupCommands` is a pure function — no network call — so the
- * key pair genuinely never touches this screen or the control plane; it is
- * generated ON the host the commands are copied to, from a local `wg genkey`.
- * Pasting a commercial provider's OWN config (which carries THEIR private
- * key) is deliberately out of scope — see the architect's card comment,
- * 2026-09-02T19:23: accepting that paste would route a real secret through
- * aw-backend and dissolve the structural guarantee §3.2 relies on.
- */
-function AddExternalVpnPanel({ hosts, mesh }) {
-  const capable = useMemo(() => externalTunnelCapableHosts(hosts, mesh), [hosts, mesh]);
-  const [open, setOpen] = useState(false);
-  // Explicit pick, or the first capable host — derived on every render
-  // rather than synced with an effect, so a host that drops off the capable
-  // list (disconnects, loses its `wg` capability) falls back cleanly instead
-  // of pointing the panel at a host that is no longer offered.
-  const [hostId, setHostId] = useState('');
-  const [iface, setIface] = useState('wg-ext0');
-  const [showCommands, setShowCommands] = useState(false);
-
-  const effectiveHostId = capable.some((h) => h.id === hostId) ? hostId : (capable[0]?.id || '');
-  const commands = useMemo(() => externalVpnSetupCommands(iface), [iface]);
-  const chosenHost = capable.find((h) => h.id === effectiveHostId) || null;
-
-  return (
-    <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="text-[12px] text-sky-300 hover:text-sky-200"
-      >
-        {open ? '▼' : '▶'} Add external VPN
-      </button>
-
-      {open && (
-        <div className="mt-2 p-3 rounded bg-white/[0.03] grid gap-2">
-          {capable.length === 0 ? (
-            <div className="text-[11px] text-[var(--color-text-muted)]">
-              No connected host reports it can read its own WireGuard interfaces (the{' '}
-              <code className="font-mono">wg</code> CLI), so none can be asked to dial one yet.
-              Install <code className="font-mono">wg</code> on a host and reload this screen.
-            </div>
-          ) : (
-            <>
-              <label className="grid gap-1 text-[11px] text-[var(--color-text-muted)]">
-                Host that will dial it
-                <select
-                  value={effectiveHostId}
-                  onChange={(e) => { setHostId(e.target.value); setShowCommands(false); }}
-                  className="px-2 py-1 rounded bg-black/30 text-[12px] text-[var(--color-text-primary)]"
-                >
-                  {capable.map((h) => (
-                    <option key={h.id} value={h.id}>{h.hostname || h.id}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-[11px] text-[var(--color-text-muted)]">
-                Interface name
-                <input
-                  value={iface}
-                  onChange={(e) => { setIface(e.target.value); setShowCommands(false); }}
-                  placeholder="wg-ext0"
-                  className="px-2 py-1 rounded bg-black/30 text-[12px] font-mono text-[var(--color-text-primary)]"
-                />
-              </label>
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowCommands(true)}
-                  className="px-2 py-1 text-[11px] rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-200"
-                >
-                  Print setup commands
-                </button>
-              </div>
-
-              {showCommands && chosenHost && (
-                <div className="grid gap-2">
-                  <div className="text-[11px] text-[var(--color-text-muted)]">
-                    Run these ON <code className="font-mono">{chosenHost.hostname || chosenHost.id}</code>,
-                    in order. Nothing here is sent anywhere — copy them to that machine yourself.
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-[var(--color-text-muted)]">
-                      1. Generate a key pair — the private half never leaves this host:
-                    </div>
-                    <CommandBlock commands={commands.genkey} />
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-[var(--color-text-muted)]">
-                      2. Fill in your provider&apos;s endpoint and server public key (the two{' '}
-                      <code className="font-mono">&lt;…&gt;</code> placeholders), then write the
-                      config. <code className="font-mono">Table = off</code> and the{' '}
-                      <code className="font-mono">PostDown</code> restore are required — without
-                      them the tunnel either fails inside a container runtime or leaves this host
-                      with no default route once it drops:
-                    </div>
-                    <CommandBlock commands={commands.config} />
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-[var(--color-text-muted)]">3. Bring it up:</div>
-                    <CommandBlock commands={commands.up} />
-                  </div>
-                  <div className="text-[11px] text-[var(--color-text-muted)]">
-                    Once it is up, this host&apos;s own tunnel appears under External VPNs above on
-                    the next reload — read back from <code className="font-mono">wg show</code>,
-                    the same as every other entry there. Routing another host&apos;s traffic THROUGH
-                    it is done from the exit gate picker above, once it appears as a candidate.
-                  </div>
-                </div>
-              )}
-            </>
-          )}
         </div>
       )}
     </div>
@@ -1818,8 +1535,8 @@ export default function NetworkingTab() {
   const [reloadToken, setReloadToken] = useState(0);
   // Every external route APPLIED FROM THIS SCREEN, this session — the only
   // record the screen has. The route itself lives in the acting host's own
-  // state.json and no status verb publishes it yet (see ExternalVpnsSection's
-  // footer and card E4, vpn:status-publishes-recorded-external-route), so a
+  // state.json and no status verb publishes it yet (see card E4,
+  // vpn:status-publishes-recorded-external-route), so a
   // route applied before this page loaded is invisible here regardless. One
   // entry per MOVED host — a second apply for the same host replaces its
   // entry rather than appending, since only the latest is still in force.
@@ -2062,10 +1779,6 @@ export default function NetworkingTab() {
           </>
         )}
       </Section>
-
-      {!loading && !error && (
-        <ExternalVpnsSection hosts={hosts} mesh={mesh} />
-      )}
 
       <Section
         title="Install tailscale"

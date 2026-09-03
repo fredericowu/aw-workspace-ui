@@ -1335,74 +1335,6 @@ const MESH_WITH_EXTERNAL = {
   },
 };
 
-describe('External VPNs section', () => {
-  beforeEach(() => { apiFetch.mockReset(); });
-
-  it("renders each interface once, with the peers' handshake age and counters", async () => {
-    // `wg show all dump` emits one line per (interface, peer): the production
-    // hub arrives as nine rows of `wg0` and there is ONE tunnel. Nine rows
-    // rendered as nine VPNs would invent eight.
-    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    expect(screen.getByText('External VPNs')).toBeInTheDocument();
-    expect(screen.getAllByText('wg0')).toHaveLength(1);
-    expect(screen.getByText('2 peers')).toBeInTheDocument();
-    expect(screen.getByText('24.90.8.255:51820')).toBeInTheDocument();
-    expect(screen.getByText(/handshake 42s ago/)).toBeInTheDocument();
-    expect(screen.getByText(/rx 5\.0 MiB · tx 1\.0 MiB/)).toBeInTheDocument();
-  });
-
-  it('says "never" and 0/0 for a peer that has never handshaked', async () => {
-    // The pair that says "configured, and nothing has ever come through". An
-    // age computed from a zero timestamp would print an age since the epoch,
-    // and a counter defaulted to 0 would hide a counter that never arrived.
-    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    expect(screen.getByText(/handshake never/)).toBeInTheDocument();
-    expect(screen.getByText(/rx 0 B · tx 0 B/)).toBeInTheDocument();
-  });
-
-  it('keeps "could not look" apart from "there is none", with the host\'s own sentence', async () => {
-    // The failure this whole block exists to prevent: a host with no `wg`
-    // binary rendered as a host with no external VPN is a claim nobody made.
-    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    expect(screen.getByText('could not look')).toBeInTheDocument();
-    expect(screen.getByText('the wg CLI is not installed on this host')).toBeInTheDocument();
-    // Never a verdict about the tunnel itself.
-    expect(screen.queryByText(/no external VPN/i)).not.toBeInTheDocument();
-  });
-
-  it('reports a host that answered nothing at all as unanswered, not as empty', async () => {
-    // The default fixture has no `external_tunnels` anywhere — every agent on
-    // it predates the field. That is a third state, and it is not "none".
-    mockApi({ hosts: HOSTS_WITH_CONTAINER });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    expect(screen.getAllByText('no answer').length).toBeGreaterThan(0);
-    expect(screen.queryByText('none found')).not.toBeInTheDocument();
-  });
-
-  it('offers no way to create a tunnel or read a config back', async () => {
-    // §3.2/§3.6: the config and its private key stay on the machine that
-    // dials. A form here would be a second source of truth and a place for a
-    // key to land.
-    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    expect(screen.queryByRole('button', { name: /add (a )?vpn|new vpn|connect/i })).toBeNull();
-    expect(document.body.textContent).not.toMatch(/PrivateKey/);
-  });
-});
-
 describe('external tunnel as an exit gate', () => {
   beforeEach(() => { apiFetch.mockReset(); });
 
@@ -1646,10 +1578,10 @@ describe('external tunnel as an exit gate', () => {
 // Card 3cf5bf3b-9510-81b5-a009-cd87a14f4996, item 3. Sweeps every host row
 // with a mesh exit_node (clearExitGate) plus every external route THIS
 // SESSION applied (clearExternalRoute, tracked from onExternalRouteApplied —
-// there is nowhere else to read it from, see ExternalVpnsSection's own
-// footer note). Ships partial on purpose: a route recorded before the page
-// loaded is invisible until card E4 publishes it, and the confirmation says
-// so rather than silently doing less than it promises.
+// there is nowhere else to read it from). Ships partial on purpose: a route
+// recorded before the page loaded is invisible until card E4 publishes it,
+// and the confirmation says so rather than silently doing less than it
+// promises.
 
 describe('global VPN kill switch', () => {
   beforeEach(() => { apiFetch.mockReset(); });
@@ -1727,56 +1659,5 @@ describe('global VPN kill switch', () => {
     await screen.findByText('b614f41828c8');
 
     expect(screen.getByRole('button', { name: /^disable vpn$/i })).toBeDisabled();
-  });
-});
-
-// ─────────────────────────── Add external VPN panel ───────────────────────
-//
-// Card 3cf5bf3b-9510-81b5-a009-cd87a14f4996, item 4. The commands-tier half
-// of registering a self-hosted tunnel: prints wg genkey/pubkey and a
-// [Interface]/[Peer] skeleton for a host to run itself. Never posts, never
-// stores — externalVpnSetupCommands is a pure function, no network call.
-
-describe('Add external VPN panel', () => {
-  beforeEach(() => { apiFetch.mockReset(); });
-
-  it('opens closed, offers only the host that can read its own wg interfaces, and prints the skeleton', async () => {
-    mockApi({ hosts: HOSTS_WITH_CONTAINER, mesh: MESH_WITH_EXTERNAL });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    // Closed by default — no config text anywhere yet, same guarantee the
-    // existing "offers no way to create a tunnel" test already checks.
-    expect(document.body.textContent).not.toMatch(/PrivateKey/);
-
-    fireEvent.click(screen.getByRole('button', { name: /add external vpn/i }));
-
-    // b614f41828c8 (11e8bd4157845a24) reports external_tunnels.supported;
-    // the workspace container (e91aacf5a3a3) explicitly does not — it must
-    // not be offered as a dialling host.
-    const select = screen.getByRole('combobox', { name: /host that will dial it/i });
-    expect(within(select).getByRole('option', { name: 'b614f41828c8' })).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: 'e91aacf5a3a3' })).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: /print setup commands/i }));
-
-    expect(document.body.textContent).toMatch(/wg genkey \| sudo tee/);
-    expect(document.body.textContent).toMatch(/Table = off/);
-    expect(document.body.textContent).toMatch(/PostDown/);
-    expect(document.body.textContent).toMatch(/wg-quick up wg-ext0/);
-    // Never posted, never a stored-config route.
-    expect(apiFetch.mock.calls.some(([u]) => /wireguard|external-vpn/i.test(u))).toBe(false);
-  });
-
-  it('says plainly when no host can be asked, instead of a silently empty picker', async () => {
-    // Every host in the default fixture predates external_tunnels entirely.
-    mockApi({ hosts: HOSTS_WITH_CONTAINER });
-    render(<NetworkingTab />);
-    await screen.findByText('188.250.165.236');
-
-    fireEvent.click(screen.getByRole('button', { name: /add external vpn/i }));
-
-    expect(screen.getByText(/none can be asked to dial one/i)).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: /host that will dial it/i })).toBeNull();
   });
 });
