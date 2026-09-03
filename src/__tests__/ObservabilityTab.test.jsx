@@ -26,6 +26,33 @@ describe('ObservabilityTab', () => {
     expect(off.checked).toBe(true);
   });
 
+  it('selects Auto and shows the resolved endpoint when that is what the backend reports', async () => {
+    apiFetch.mockImplementation(() => getJson({
+      mode: 'auto', local_available: true, custom: { endpoint: '', api_key: '' },
+      resolved: { endpoint: 'https://signoz.app.ws.example.com', api_key: 'k', source: 'auto' },
+      warning: null,
+    }));
+
+    render(<ObservabilityTab />);
+
+    const auto = await screen.findByRole('radio', { name: /^Auto$/i });
+    expect(auto.checked).toBe(true);
+    expect((await screen.findByTestId('observability-resolved-endpoint')).textContent)
+      .toBe('https://signoz.app.ws.example.com');
+  });
+
+  it('Auto is never disabled, even without aw-app-signoz installed', async () => {
+    apiFetch.mockImplementation(() => getJson({
+      mode: 'auto', local_available: false, custom: { endpoint: '', api_key: '' },
+      resolved: null, warning: null,
+    }));
+
+    render(<ObservabilityTab />);
+
+    const auto = await screen.findByRole('radio', { name: /^Auto$/i });
+    expect(auto.disabled).toBe(false);
+  });
+
   it('disables Local when aw-app-signoz is not installed', async () => {
     apiFetch.mockImplementation(() => getJson({
       mode: 'off', local_available: false, custom: { endpoint: '', api_key: '' },
@@ -34,7 +61,7 @@ describe('ObservabilityTab', () => {
 
     render(<ObservabilityTab />);
 
-    const local = await screen.findByRole('radio', { name: /Local \(auto\)/i });
+    const local = await screen.findByRole('radio', { name: /Local \(fixed\)/i });
     expect(local.disabled).toBe(true);
     expect(screen.getByText(/Requires aw-app-signoz installed/i)).toBeTruthy();
   });
@@ -55,7 +82,7 @@ describe('ObservabilityTab', () => {
     });
 
     render(<ObservabilityTab />);
-    const local = await screen.findByRole('radio', { name: /Local \(auto\)/i });
+    const local = await screen.findByRole('radio', { name: /Local \(fixed\)/i });
     fireEvent.click(local);
 
     await waitFor(() => {
@@ -132,7 +159,7 @@ describe('ObservabilityTab', () => {
     });
 
     render(<ObservabilityTab />);
-    const local = await screen.findByRole('radio', { name: /Local \(auto\)/i });
+    const local = await screen.findByRole('radio', { name: /Local \(fixed\)/i });
     fireEvent.click(local);
 
     const warning = await screen.findByTestId('observability-push-warning');
@@ -157,7 +184,7 @@ describe('ObservabilityTab', () => {
     });
 
     render(<ObservabilityTab />);
-    const local = await screen.findByRole('radio', { name: /Local \(auto\)/i });
+    const local = await screen.findByRole('radio', { name: /Local \(fixed\)/i });
     fireEvent.click(local);
 
     await waitFor(() => {

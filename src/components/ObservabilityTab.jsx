@@ -2,22 +2,34 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../auth';
 
 // Settings > Observability — where THIS workspace sends OTLP telemetry.
-// Mirrors aw-workspace's src/api/observability.py: three explicit states
-// (never "blank field = auto", which is ambiguous once aw-app-signoz is
-// installed — does blank mean "don't export" or "use the local one"?).
+// Mirrors aw-workspace's src/api/observability.py: four explicit states
+// (never "blank field = auto-or-off, guess which", which is ambiguous once
+// aw-app-signoz is installed — does blank mean "don't export" or "use the
+// local one"?).
 //
-// - off (Desligado, default) — nothing exported.
-// - local — only selectable while aw-app-signoz is installed; endpoint +
-//   key are resolved server-side, nothing typed here.
+// - auto (default) — exports to this workspace's own aw-app-signoz WHILE
+//   it's installed, exports nothing while it isn't. No manual step either
+//   way: install the app and telemetry just appears.
+// - off — an explicit opt-out. Unlike auto, installing aw-app-signoz later
+//   does not turn this back on.
+// - local — an explicit opt-in, only selectable while aw-app-signoz is
+//   installed; endpoint + key are resolved server-side, nothing typed here.
+//   Differs from auto only in what happens if the app disappears: this one
+//   falls back to Desligado and stays there (see the warning banner below).
 // - custom — endpoint + key typed by hand, e.g. pointing at the
 //   aw-app-signoz of a *different* workspace of the same owner.
 
 const MODES = [
-  { key: 'off', label: 'Desligado', hint: 'Nothing is exported.' },
+  {
+    key: 'auto',
+    label: 'Auto',
+    hint: 'Uses this workspace’s own aw-app-signoz automatically while it’s installed; exports nothing otherwise.',
+  },
+  { key: 'off', label: 'Desligado', hint: 'Nothing is exported, even if aw-app-signoz is installed.' },
   {
     key: 'local',
-    label: 'Local (auto)',
-    hint: 'Uses this workspace’s own aw-app-signoz — endpoint and auth resolved automatically.',
+    label: 'Local (fixed)',
+    hint: 'Same as Auto, but if aw-app-signoz is later uninstalled this falls back to Desligado instead of resuming automatically.',
   },
   {
     key: 'custom',
@@ -164,7 +176,7 @@ export default function ObservabilityTab() {
           })}
         </div>
 
-        {selectedMode === 'local' && data?.resolved && (
+        {(selectedMode === 'local' || selectedMode === 'auto') && data?.resolved && (
           <div className="pt-2 border-t border-[var(--color-border)] space-y-1.5">
             <div className="text-[11px] text-[var(--color-text-muted)]">Resolved endpoint</div>
             <code
@@ -229,9 +241,9 @@ export default function ObservabilityTab() {
         Persisted in this workspace's own settings table (key <code>observability</code>).
         If <code>aw-app-signoz</code> is uninstalled while Local is selected, this falls back
         to Desligado and shows a warning here rather than silently keeping a dead endpoint.
-        Known gap: neither aw-backend nor mcp-gateway in this workspace emit any OTel
-        telemetry today, so a working config here has nothing to export yet unless something
-        else was instrumented separately.
+        This workspace's own core process (logs + traces) already exports itself under Auto
+        and Local. aw-backend and mcp-gateway are not instrumented yet — a working config
+        here has nothing to export from them until that happens separately.
       </div>
     </div>
   );
