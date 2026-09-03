@@ -1342,13 +1342,15 @@ function ExternalVpnEntry({ entry }) {
  * External VPNs — the tunnels this account's hosts terminate that are NOT
  * this tenant's mesh.
  *
- * DISCOVERED, NOT AUTHORED. There is no form here and no "connect" button, and
- * both absences are decisions: the config and its private key stay on the
- * machine that dials (external-vpns-in-networking.md §3.2, and §3.6 of
- * vpn-concentrator.md, which rules out anything that could read a config
- * back), and routing is chosen in the gate picker one section up, because two
- * controls that both look like "turn the VPN on" is how somebody stops knowing
- * which one is in force.
+ * DISCOVERED, NOT AUTHORED. There is still no "connect" button and no form
+ * that PERSISTS a config — both absences are decisions: the config and its
+ * private key stay on the machine that dials (external-vpns-in-networking.md
+ * §3.2, and §3.6 of vpn-concentrator.md, which rules out anything that could
+ * read a config back), and routing is chosen in the gate picker one section
+ * up, because two controls that both look like "turn the VPN on" is how
+ * somebody stops knowing which one is in force. "Add external VPN" below is
+ * the one write this section does: it PRINTS commands, posts nothing, and
+ * stores nothing — see AddExternalVpnPanel.
  */
 function ExternalVpnsSection({ hosts, mesh }) {
   const entries = useMemo(() => externalVpnEntries(hosts, mesh), [hosts, mesh]);
@@ -1371,7 +1373,136 @@ function ExternalVpnsSection({ hosts, mesh }) {
         picker above still applies and clears one — it just cannot tell you, on a fresh load,
         that it did.
       </div>
+      <AddExternalVpnPanel hosts={hosts} mesh={mesh} />
     </Section>
+  );
+}
+
+/**
+ * "Add external VPN" — the assisted, command-printing half of registering a
+ * self-hosted tunnel (e.g. `aw-vpn-hub`). Same two-tier pattern this screen
+ * already uses for a machine that cannot be driven remotely: "Join this
+ * mesh" prints a command (`JoinCommandSection`, below); "Join mesh" per row
+ * is the driven version for a host already linked. This is the commands
+ * tier — the driven one (a button that calls `vpn_external_up` directly)
+ * waits on E3 and is not this card's scope.
+ *
+ * NOTHING IS POSTED, NOTHING IS STORED, NO ROUTE EVER RETURNS RAW CONFIG.
+ * `externalVpnSetupCommands` is a pure function — no network call — so the
+ * key pair genuinely never touches this screen or the control plane; it is
+ * generated ON the host the commands are copied to, from a local `wg genkey`.
+ * Pasting a commercial provider's OWN config (which carries THEIR private
+ * key) is deliberately out of scope — see the architect's card comment,
+ * 2026-09-02T19:23: accepting that paste would route a real secret through
+ * aw-backend and dissolve the structural guarantee §3.2 relies on.
+ */
+function AddExternalVpnPanel({ hosts, mesh }) {
+  const capable = useMemo(() => externalTunnelCapableHosts(hosts, mesh), [hosts, mesh]);
+  const [open, setOpen] = useState(false);
+  // Explicit pick, or the first capable host — derived on every render
+  // rather than synced with an effect, so a host that drops off the capable
+  // list (disconnects, loses its `wg` capability) falls back cleanly instead
+  // of pointing the panel at a host that is no longer offered.
+  const [hostId, setHostId] = useState('');
+  const [iface, setIface] = useState('wg-ext0');
+  const [showCommands, setShowCommands] = useState(false);
+
+  const effectiveHostId = capable.some((h) => h.id === hostId) ? hostId : (capable[0]?.id || '');
+  const commands = useMemo(() => externalVpnSetupCommands(iface), [iface]);
+  const chosenHost = capable.find((h) => h.id === effectiveHostId) || null;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="text-[12px] text-sky-300 hover:text-sky-200"
+      >
+        {open ? '▼' : '▶'} Add external VPN
+      </button>
+
+      {open && (
+        <div className="mt-2 p-3 rounded bg-white/[0.03] grid gap-2">
+          {capable.length === 0 ? (
+            <div className="text-[11px] text-[var(--color-text-muted)]">
+              No connected host reports it can read its own WireGuard interfaces (the{' '}
+              <code className="font-mono">wg</code> CLI), so none can be asked to dial one yet.
+              Install <code className="font-mono">wg</code> on a host and reload this screen.
+            </div>
+          ) : (
+            <>
+              <label className="grid gap-1 text-[11px] text-[var(--color-text-muted)]">
+                Host that will dial it
+                <select
+                  value={effectiveHostId}
+                  onChange={(e) => { setHostId(e.target.value); setShowCommands(false); }}
+                  className="px-2 py-1 rounded bg-black/30 text-[12px] text-[var(--color-text-primary)]"
+                >
+                  {capable.map((h) => (
+                    <option key={h.id} value={h.id}>{h.hostname || h.id}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-[11px] text-[var(--color-text-muted)]">
+                Interface name
+                <input
+                  value={iface}
+                  onChange={(e) => { setIface(e.target.value); setShowCommands(false); }}
+                  placeholder="wg-ext0"
+                  className="px-2 py-1 rounded bg-black/30 text-[12px] font-mono text-[var(--color-text-primary)]"
+                />
+              </label>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowCommands(true)}
+                  className="px-2 py-1 text-[11px] rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-200"
+                >
+                  Print setup commands
+                </button>
+              </div>
+
+              {showCommands && chosenHost && (
+                <div className="grid gap-2">
+                  <div className="text-[11px] text-[var(--color-text-muted)]">
+                    Run these ON <code className="font-mono">{chosenHost.hostname || chosenHost.id}</code>,
+                    in order. Nothing here is sent anywhere — copy them to that machine yourself.
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--color-text-muted)]">
+                      1. Generate a key pair — the private half never leaves this host:
+                    </div>
+                    <CommandBlock commands={commands.genkey} />
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--color-text-muted)]">
+                      2. Fill in your provider&apos;s endpoint and server public key (the two{' '}
+                      <code className="font-mono">&lt;…&gt;</code> placeholders), then write the
+                      config. <code className="font-mono">Table = off</code> and the{' '}
+                      <code className="font-mono">PostDown</code> restore are required — without
+                      them the tunnel either fails inside a container runtime or leaves this host
+                      with no default route once it drops:
+                    </div>
+                    <CommandBlock commands={commands.config} />
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--color-text-muted)]">3. Bring it up:</div>
+                    <CommandBlock commands={commands.up} />
+                  </div>
+                  <div className="text-[11px] text-[var(--color-text-muted)]">
+                    Once it is up, this host&apos;s own tunnel appears under External VPNs above on
+                    the next reload — read back from <code className="font-mono">wg show</code>,
+                    the same as every other entry there. Routing another host&apos;s traffic THROUGH
+                    it is done from the exit gate picker above, once it appears as a candidate.
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1478,6 +1609,198 @@ function JoinCommandSection({ slug, controlPlane }) {
   );
 }
 
+/**
+ * The global "Disable VPN" — sweeps everything this screen can SEE, in one
+ * press: every host's own exit gate (`node.exitNode`, via `clearExitGate`)
+ * AND every external route this session applied (`sessionExternalRoutes`,
+ * via `clearExternalRoute`). Includes every host in `hosts` uniformly — the
+ * workspace's OWN host row is not special-cased, it is simply whichever row
+ * happens to carry an `exitNode` right now.
+ *
+ * SHIPS PARTIAL, ON PURPOSE, AND SAYS SO. The route a host is actually
+ * carrying lives in the acting machine's own `state.json`
+ * (aw-remote-host `internal/state/state.go:105`) and no status verb
+ * publishes it — so a route applied before this page loaded (or in a
+ * different tab, or by a previous session) is invisible here and this
+ * button cannot reach it. Card E4
+ * (`vpn:status-publishes-recorded-external-route`) closes that gap; until
+ * then the confirmation says so rather than silently doing less than it
+ * promises.
+ *
+ * REJECTED design: a blind sweep calling `clearExternalRoute` with an
+ * invented `(moved, acting)` pair for every host, exploiting the verb
+ * ignoring args it doesn't need. It would "work" but report the WRONG host
+ * as moved whenever the acting host differs from the moved one — code that
+ * lies about what it did. This only clears routes the screen can actually
+ * name.
+ */
+function GlobalVpnKillSwitch({
+  hosts, mesh, slug, sessionExternalRoutes, onChanged, onExternalRouteCleared,
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [outcomes, setOutcomes] = useState(null);
+  const [fatalError, setFatalError] = useState('');
+
+  const gatedHosts = useMemo(
+    () => (hosts || []).filter((h) => mesh?.available && mesh.nodes?.[h.id]?.exitNode),
+    [hosts, mesh],
+  );
+  const routes = useMemo(() => sessionExternalRoutes || [], [sessionExternalRoutes]);
+  const targetCount = gatedHosts.length + routes.length;
+
+  const openConfirm = useCallback(() => {
+    setOutcomes(null);
+    setFatalError('');
+    setConfirming(true);
+  }, []);
+
+  const run = useCallback(async () => {
+    setConfirming(false);
+    setBusy(true);
+    setFatalError('');
+    const results = [];
+    for (const h of gatedHosts) {
+      try {
+        const res = await clearExitGate(slug, h.id);
+        results.push({
+          key: `mesh:${h.id}`,
+          hostname: h.hostname || h.id,
+          kind: 'exit gate',
+          ok: true,
+          detail: res.egress ? `egress now ${res.egress}` : (res.egressError || ''),
+        });
+      } catch (e) {
+        results.push({
+          key: `mesh:${h.id}`, hostname: h.hostname || h.id, kind: 'exit gate', ok: false, detail: String(e.message || e),
+        });
+      }
+    }
+    for (const r of routes) {
+      const hostname = (hosts || []).find((h) => h.id === r.hostId)?.hostname || r.hostId;
+      try {
+        const res = await clearExternalRoute(slug, r.hostId, r.viaHostId);
+        results.push({
+          key: `external:${r.hostId}`,
+          hostname,
+          kind: `external route via ${r.viaHostName}`,
+          ok: true,
+          detail: res.containerEgressAfter?.ip ? `egress now ${res.containerEgressAfter.ip}` : (res.reason || ''),
+        });
+        onExternalRouteCleared?.(r.hostId);
+      } catch (e) {
+        results.push({
+          key: `external:${r.hostId}`, hostname, kind: `external route via ${r.viaHostName}`, ok: false, detail: String(e.message || e),
+        });
+      }
+    }
+    setOutcomes(results);
+    setBusy(false);
+    try {
+      await onChanged?.();
+    } catch (e) {
+      setFatalError(String(e.message || e));
+    }
+  }, [gatedHosts, routes, hosts, slug, onChanged, onExternalRouteCleared]);
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          disabled={busy || (targetCount === 0 && !confirming)}
+          onClick={openConfirm}
+          title={targetCount === 0 ? 'Nothing this screen can currently see is routed anywhere.' : undefined}
+          className="px-3 py-1.5 text-[12px] rounded bg-red-500/15 hover:bg-red-500/25 text-red-300 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Disabling VPN…' : 'Disable VPN'}
+        </button>
+        {targetCount > 0 && !confirming && (
+          <span className="text-[11px] text-[var(--color-text-muted)]">
+            {gatedHosts.length} exit gate{gatedHosts.length === 1 ? '' : 's'}, {routes.length} external
+            route{routes.length === 1 ? '' : 's'} visible right now.
+          </span>
+        )}
+      </div>
+
+      {confirming && (
+        <div className="mt-2 p-3 rounded bg-red-500/10 grid gap-2">
+          <div className="text-[12px] text-red-300 font-medium">
+            This clears {gatedHosts.length} exit gate{gatedHosts.length === 1 ? '' : 's'} and{' '}
+            {routes.length} external route{routes.length === 1 ? '' : 's'} — every host row this
+            screen can currently see is routed anywhere, including this workspace&apos;s own host
+            if it is one of them.
+          </div>
+          {gatedHosts.length > 0 && (
+            <ul className="text-[11px] text-[var(--color-text-muted)] grid gap-0.5">
+              {gatedHosts.map((h) => (
+                <li key={h.id}>
+                  <code className="font-mono">{h.hostname || h.id}</code> — exit gate{' '}
+                  <code className="font-mono">{mesh.nodes[h.id].exitNode}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+          {routes.length > 0 && (
+            <ul className="text-[11px] text-[var(--color-text-muted)] grid gap-0.5">
+              {routes.map((r) => {
+                const hostname = (hosts || []).find((h) => h.id === r.hostId)?.hostname || r.hostId;
+                return (
+                  <li key={r.hostId}>
+                    <code className="font-mono">{hostname}</code> — external route via {r.viaHostName}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="text-[11px] text-amber-300">
+            What this cannot reach: a route recorded before this page loaded — in a host&apos;s own{' '}
+            <code className="font-mono">state.json</code>, not in anything this screen tracked this
+            session — stays invisible here and will NOT be turned off by this button. Card E4
+            publishes that state to close the gap; until it does, clear it directly on the row (or
+            the host) that is carrying it.
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={run}
+              className="px-2 py-1 text-[11px] rounded bg-red-500/25 hover:bg-red-500/40 text-red-200"
+            >
+              Confirm — disable VPN
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="px-2 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {outcomes && (
+        <div className="mt-2 grid gap-1">
+          {outcomes.map((o) => (
+            <div key={o.key} className="flex items-center gap-2 flex-wrap">
+              <Pill tone={o.ok ? 'ok' : 'err'}>{o.ok ? 'cleared' : 'failed'}</Pill>
+              <span className="text-[11px] text-[var(--color-text-secondary)]">
+                {o.hostname} — {o.kind}
+              </span>
+              {o.detail && (
+                <span className="text-[11px] text-[var(--color-text-muted)]">{o.detail}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {fatalError && (
+        <div className="mt-1 text-[11px] text-[var(--color-danger)] break-all">{fatalError}</div>
+      )}
+    </div>
+  );
+}
+
 export default function NetworkingTab() {
   const [hosts, setHosts] = useState(null);
   const [mesh, setMesh] = useState(null);
@@ -1493,6 +1816,25 @@ export default function NetworkingTab() {
   // in the effect body — a synchronous setState there cascades a second render
   // on every mount (react-hooks/set-state-in-effect).
   const [reloadToken, setReloadToken] = useState(0);
+  // Every external route APPLIED FROM THIS SCREEN, this session — the only
+  // record the screen has. The route itself lives in the acting host's own
+  // state.json and no status verb publishes it yet (see ExternalVpnsSection's
+  // footer and card E4, vpn:status-publishes-recorded-external-route), so a
+  // route applied before this page loaded is invisible here regardless. One
+  // entry per MOVED host — a second apply for the same host replaces its
+  // entry rather than appending, since only the latest is still in force.
+  const [sessionExternalRoutes, setSessionExternalRoutes] = useState([]);
+
+  const handleExternalRouteApplied = useCallback((hostId, viaHostId, viaHostName) => {
+    setSessionExternalRoutes((prev) => [
+      ...prev.filter((r) => r.hostId !== hostId),
+      { hostId, viaHostId, viaHostName },
+    ]);
+  }, []);
+
+  const handleExternalRouteCleared = useCallback((hostId) => {
+    setSessionExternalRoutes((prev) => prev.filter((r) => r.hostId !== hostId));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -1609,6 +1951,17 @@ export default function NetworkingTab() {
 
       <PublicIpBanner egress={egress} loading={egressLoading} onRefresh={remeasure} />
 
+      {!loading && !error && hosts && (
+        <GlobalVpnKillSwitch
+          hosts={hosts}
+          mesh={mesh}
+          slug={slug}
+          sessionExternalRoutes={sessionExternalRoutes}
+          onChanged={afterGateChange}
+          onExternalRouteCleared={handleExternalRouteCleared}
+        />
+      )}
+
       <Section title="Control plane">
         {controlPlane ? (
           <code className="text-[12px] font-mono text-[var(--color-text-secondary)] break-all">{controlPlane}</code>
@@ -1671,6 +2024,8 @@ export default function NetworkingTab() {
                 publicIp={hostPublicIpState(h)}
                 hostIps={hostIps}
                 egress={egress}
+                onExternalRouteApplied={handleExternalRouteApplied}
+                onExternalRouteCleared={handleExternalRouteCleared}
               />
             ))}
 
@@ -1696,6 +2051,8 @@ export default function NetworkingTab() {
                         publicIp={hostPublicIpState(h)}
                         hostIps={hostIps}
                         egress={egress}
+                        onExternalRouteApplied={handleExternalRouteApplied}
+                        onExternalRouteCleared={handleExternalRouteCleared}
                       />
                     ))}
                   </div>
