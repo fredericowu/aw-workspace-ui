@@ -1322,3 +1322,18 @@ export async function renameRemoteHost(slug, hostId, friendlyName) {
   }).then(readJson);
   return { id: data?.id || hostId, friendlyName: data?.friendly_name || null };
 }
+
+/**
+ * Unlink a host from this account — irreversible: the credential is revoked
+ * immediately, with no grace period, and getting the machine back means
+ * re-running install + link on it from scratch. 404s if `hostId` isn't the
+ * caller's or is already revoked.
+ *
+ * REJECTS on failure, following `renameRemoteHost`'s convention — the
+ * button press owns its own error.
+ */
+export async function deleteRemoteHost(slug, hostId) {
+  const s = slug || (await currentWorkspaceSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}`);
+  return apiFetch(url, { method: 'DELETE' }).then(readJson);
+}

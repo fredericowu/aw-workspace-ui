@@ -43,12 +43,14 @@ const MESH = {
 const HOSTS_PATH = /\/remote-hosts$/;
 const MESH_PATH = /\/mesh-status$/;
 const HOST_PUBLIC_IP_PATH = /\/remote-hosts\/([^/]+)\/public-ip$/;
-const RENAME_PATH = /\/remote-hosts\/([^/]+)$/;
+const RENAME_OR_DELETE_PATH = /\/remote-hosts\/([^/]+)$/;
 const BOOTSTRAP_TOKEN_PATH = /\/bootstrap-token$/;
 
 function mockApi({
   hosts = HOSTS, mesh = MESH, meshFail = false, hostPublicIps = {}, rename = null, bootstrapToken = null,
+  deleteHost = null, hostsAfterDelete = null,
 } = {}) {
+  let currentHosts = hosts;
   apiFetch.mockImplementation((url, options) => {
     if (url === '/api/identity/me') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ memberships: [{ workspace: 'aw', role: 'owner' }] }) });
@@ -71,8 +73,8 @@ function mockApi({
       const reply = hostPublicIps[hostIpMatch[1]] || { ip: null, via: null, error: 'not measured in this fixture' };
       return Promise.resolve({ ok: true, json: () => Promise.resolve(reply) });
     }
-    if (options?.method === 'PATCH' && RENAME_PATH.test(url)) {
-      const idMatch = url.match(RENAME_PATH);
+    if (options?.method === 'PATCH' && RENAME_OR_DELETE_PATH.test(url)) {
+      const idMatch = url.match(RENAME_OR_DELETE_PATH);
       const reply = typeof rename === 'function' ? rename(idMatch[1], options) : rename;
       if (reply instanceof Error) {
         return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: reply.message }) });
@@ -83,15 +85,27 @@ function mockApi({
         json: () => Promise.resolve(reply || { id: idMatch[1], friendly_name: body.friendly_name }),
       });
     }
+    if (options?.method === 'DELETE' && RENAME_OR_DELETE_PATH.test(url)) {
+      const idMatch = url.match(RENAME_OR_DELETE_PATH);
+      const reply = typeof deleteHost === 'function' ? deleteHost(idMatch[1], options) : deleteHost;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      if (hostsAfterDelete) currentHosts = hostsAfterDelete;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || { ok: true }) });
+    }
     if (HOSTS_PATH.test(url)) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ count: hosts.length, hosts }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ count: currentHosts.length, hosts: currentHosts }) });
     }
     return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'unhandled ' + url }) });
   });
 }
 
 describe('RemoteHostsTab', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.confirm = vi.fn(() => true);
+  });
 
   it('lists every linked host, offline included, one row per link', async () => {
     mockApi();
@@ -259,5 +273,59 @@ describe('RemoteHostsTab', () => {
 
     expect(await screen.findByText(/Could not list the hosts/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it('deletes a host on confirm, calling DELETE with that host id', async () => {
+    mockApi({ hostsAfterDelete: HOSTS.filter((h) => h.id !== '11e8bd4157845a24') });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    fireEvent.click(screen.getByRole('button', { name: /delete link to b614f41828c8/i }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('b614f41828c8'));
+    await waitFor(() => {
+      const deleted = apiFetch.mock.calls.some(
+        ([url, opts]) => opts?.method === 'DELETE' && /11e8bd4157845a24/.test(url),
+      );
+      expect(deleted).toBe(true);
+    });
+  });
+
+  it('does not call the network at all when the confirm dialog is dismissed', async () => {
+    window.confirm = vi.fn(() => false);
+    mockApi();
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+    apiFetch.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: /delete link to b614f41828c8/i }));
+
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it('refetches the list on a successful delete, so the row disappears', async () => {
+    mockApi({ hostsAfterDelete: HOSTS.filter((h) => h.id !== '11e8bd4157845a24') });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    fireEvent.click(screen.getByRole('button', { name: /delete link to b614f41828c8/i }));
+
+    await waitFor(() => expect(screen.queryByText('b614f41828c8')).not.toBeInTheDocument());
+    // The other rows are untouched.
+    expect(screen.getByText('Mac.Home')).toBeInTheDocument();
+  });
+
+  it('shows a row error and keeps the row on a failed delete', async () => {
+    mockApi({ deleteHost: (id) => (id === '11e8bd4157845a24' ? new Error('not found') : null) });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    fireEvent.click(screen.getByRole('button', { name: /delete link to b614f41828c8/i }));
+
+    expect(await screen.findByText(/not found/)).toBeInTheDocument();
+    // Still in the table — a failed delete does not remove the row.
+    expect(screen.getByText('b614f41828c8')).toBeInTheDocument();
+    // The button is re-enabled, not stuck disabled from the failed attempt.
+    expect(screen.getByRole('button', { name: /delete link to b614f41828c8/i })).not.toBeDisabled();
   });
 });

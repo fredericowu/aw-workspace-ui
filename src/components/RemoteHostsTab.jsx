@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   currentWorkspaceSlug,
+  deleteRemoteHost,
   exitOfferState,
   fetchHostPublicIp,
   fetchMeshStatus,
@@ -194,7 +195,7 @@ function LinkedAt({ host }) {
   return <span className="text-[11px] text-[var(--color-text-secondary)]">{relativeSeen(host.created_at)}</span>;
 }
 
-const GRID_COLS = 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,1.2fr)_6.5rem_5.5rem_5.5rem_5.5rem]';
+const GRID_COLS = 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,1.2fr)_6.5rem_5.5rem_5.5rem_5.5rem_4.5rem]';
 
 function TableHeader() {
   return (
@@ -208,6 +209,7 @@ function TableHeader() {
       <div>State</div>
       <div>Agent</div>
       <div>Linked</div>
+      <div />
     </div>
   );
 }
@@ -216,7 +218,7 @@ function FieldLabel({ children }) {
   return <div className="lg:hidden text-[9px] uppercase tracking-wide text-[var(--color-text-muted)]">{children}</div>;
 }
 
-function HostRow({ host, mesh, publicIp, draftName, dirty, error, onNameChange }) {
+function HostRow({ host, mesh, publicIp, draftName, dirty, error, onNameChange, onDelete, deleting }) {
   return (
     <div className={`grid grid-cols-1 ${GRID_COLS} gap-x-3 gap-y-2 lg:gap-y-1 items-start py-3 border-b border-[var(--color-border)] last:border-b-0`}>
       <div className="min-w-0">
@@ -274,6 +276,23 @@ function HostRow({ host, mesh, publicIp, draftName, dirty, error, onNameChange }
       <div className="min-w-0">
         <FieldLabel>Linked</FieldLabel>
         <LinkedAt host={host} />
+      </div>
+
+      <div className="min-w-0">
+        <FieldLabel>Delete</FieldLabel>
+        {/* window.confirm() depends on this component being a plain React
+            mount, never an iframe — see the Architect's decision on card
+            feature:remote-hosts-delete-single-link. If Settings NEW is ever
+            embedded, this goes silently dead. */}
+        <button
+          type="button"
+          onClick={() => onDelete(host)}
+          disabled={deleting}
+          aria-label={`Delete link to ${host.hostname || host.id}`}
+          className="px-2 py-1 text-[11px] rounded bg-red-500/15 hover:bg-red-500/25 text-red-300 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {deleting ? 'Deleting…' : 'Delete'}
+        </button>
       </div>
     </div>
   );
@@ -365,6 +384,7 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
   const [draft, setDraft] = useState({});
   const [rowErrors, setRowErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [deletingIds, setDeletingIds] = useState({});
 
   useEffect(() => {
     let alive = true;
@@ -463,6 +483,41 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
     setSaving(false);
   }, [isDirty, saving, dirtyHostIds, draft, slug]);
 
+  // Not part of the dirty/Save batch above — a delete has no draft state,
+  // and batching it in would let a Save press destroy a link staged
+  // minutes earlier. It fires immediately once confirmed. Disabled while
+  // in flight: a repeat delete 404s ("not found") for a delete that
+  // actually already worked.
+  const handleDelete = useCallback(async (host) => {
+    if (deletingIds[host.id]) return;
+    const label = host.friendly_name || host.hostname || host.id;
+    const confirmed = window.confirm(
+      `Delete the link to "${label}"? It will stop being linked to this account immediately. `
+      + 'To use it again, you will need to re-run install and link on that machine.',
+    );
+    if (!confirmed) return;
+
+    setDeletingIds((prev) => ({ ...prev, [host.id]: true }));
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[host.id];
+      return next;
+    });
+    try {
+      await deleteRemoteHost(slug, host.id);
+      // No optimistic splice — the server-filtered list is the only source
+      // of truth for what still exists.
+      setReloadToken((t) => t + 1);
+    } catch (e) {
+      setRowErrors((prev) => ({ ...prev, [host.id]: String(e.message || e) }));
+      setDeletingIds((prev) => {
+        const next = { ...prev };
+        delete next[host.id];
+        return next;
+      });
+    }
+  }, [deletingIds, slug]);
+
   const installEntries = useMemo(() => remoteHostInstallInstructions(), []);
 
   return (
@@ -539,6 +594,8 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
                     dirty={rowDirty(h.id)}
                     error={rowErrors[h.id]}
                     onNameChange={(v) => setDraftName(h.id, v)}
+                    onDelete={handleDelete}
+                    deleting={!!deletingIds[h.id]}
                   />
                 ))}
               </>
