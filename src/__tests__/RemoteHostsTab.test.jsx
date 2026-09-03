@@ -45,10 +45,12 @@ const MESH_PATH = /\/mesh-status$/;
 const HOST_PUBLIC_IP_PATH = /\/remote-hosts\/([^/]+)\/public-ip$/;
 const RENAME_OR_DELETE_PATH = /\/remote-hosts\/([^/]+)$/;
 const BOOTSTRAP_TOKEN_PATH = /\/bootstrap-token$/;
+const VERSIONS_PATH = /\/versions$/;
+const UPDATE_REMOTE_HOST_PATH = /\/remote-host\/update$/;
 
 function mockApi({
   hosts = HOSTS, mesh = MESH, meshFail = false, hostPublicIps = {}, rename = null, bootstrapToken = null,
-  deleteHost = null, hostsAfterDelete = null,
+  deleteHost = null, hostsAfterDelete = null, latest = null, updateRemoteHost = null, hostsAfterUpdate = null,
 } = {}) {
   let currentHosts = hosts;
   apiFetch.mockImplementation((url, options) => {
@@ -67,6 +69,17 @@ function mockApi({
         return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: 'Bad Gateway' }) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(mesh) });
+    }
+    if (VERSIONS_PATH.test(url)) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ remote_host: { current: null, latest, outdated: null } }) });
+    }
+    if (options?.method === 'POST' && UPDATE_REMOTE_HOST_PATH.test(url)) {
+      const reply = typeof updateRemoteHost === 'function' ? updateRemoteHost(url, options) : updateRemoteHost;
+      if (reply instanceof Error) {
+        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: reply.message }) });
+      }
+      if (hostsAfterUpdate) currentHosts = hostsAfterUpdate;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(reply || { slug: 'aw' }) });
     }
     const hostIpMatch = url.match(HOST_PUBLIC_IP_PATH);
     if (hostIpMatch) {
@@ -327,5 +340,75 @@ describe('RemoteHostsTab', () => {
     expect(screen.getByText('b614f41828c8')).toBeInTheDocument();
     // The button is re-enabled, not stuck disabled from the failed attempt.
     expect(screen.getByRole('button', { name: /delete link to b614f41828c8/i })).not.toBeDisabled();
+  });
+
+  it('shows an enabled Update button only for the row that is outdated AND has a remote-host workspace', async () => {
+    mockApi({ latest: 'v0.1.99' });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    // HOSTS[0] is outdated (v0.1.58) and carries a placement_driver:'remote-host'
+    // workspace — the only row that qualifies for an enabled button.
+    const enabled = screen.getByRole('button', { name: /update to v0\.1\.99/i });
+    expect(enabled).not.toBeDisabled();
+    expect(screen.getAllByRole('button', { name: /update to v0\.1\.99/i })).toHaveLength(1);
+  });
+
+  it('renders no button, just a titled note, when outdated but the host has no remote-host workspace', async () => {
+    mockApi({ latest: 'v0.1.99' });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    // HOSTS[1] (Mac.Home) and HOSTS[2] (DESKTOP-DRMKFBT) are both outdated
+    // and both have `workspaces: []` — no button, just a titled "outdated".
+    const notes = screen.getAllByTitle(/no BYOD workspace to dispatch the update through/i);
+    expect(notes).toHaveLength(2);
+    for (const note of notes) {
+      expect(note.tagName).not.toBe('BUTTON');
+    }
+  });
+
+  it('shows a disabled "Up to date" button when cli_version already matches latest', async () => {
+    mockApi({ latest: 'v0.1.58' });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    // HOSTS[0] and HOSTS[1] are both already on v0.1.58.
+    const upToDate = screen.getAllByRole('button', { name: /up to date/i });
+    expect(upToDate).toHaveLength(2);
+    for (const btn of upToDate) expect(btn).toBeDisabled();
+  });
+
+  it('renders no update affordance at all when latest is unknown', async () => {
+    mockApi({ latest: null });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    expect(screen.queryByRole('button', { name: /update to/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /up to date/i })).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/no BYOD workspace to dispatch the update through/i)).not.toBeInTheDocument();
+  });
+
+  it('dispatches the update to the row\'s remote-host workspace slug, then refetches instead of relabeling', async () => {
+    const updatedHosts = HOSTS.map((h) => (
+      h.id === '11e8bd4157845a24' ? { ...h, cli_version: 'v0.1.99' } : h
+    ));
+    mockApi({ latest: 'v0.1.99', hostsAfterUpdate: updatedHosts });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    fireEvent.click(screen.getByRole('button', { name: /update to v0\.1\.99/i }));
+
+    await waitFor(() => {
+      const called = apiFetch.mock.calls.some(
+        ([url, opts]) => opts?.method === 'POST' && /\/workspaces\/aw\/remote-host\/update$/.test(url),
+      );
+      expect(called).toBe(true);
+    });
+
+    // The endpoint's own response carries no cli_version — the row only
+    // flips to "Up to date" once the REFETCHED host list reports the new
+    // version, never by relabeling the click's response directly.
+    await waitFor(() => expect(screen.getByRole('button', { name: /up to date/i })).toBeInTheDocument());
   });
 });

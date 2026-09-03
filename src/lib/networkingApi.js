@@ -1337,3 +1337,45 @@ export async function deleteRemoteHost(slug, hostId) {
   const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}`);
   return apiFetch(url, { method: 'DELETE' }).then(readJson);
 }
+
+/**
+ * The single global "latest aw-remote-host release" value — NOT the
+ * `remote_host.current`/`.outdated` fields this same endpoint also returns,
+ * which resolve ONE workspace's active host row (`_active_remote_host_row`)
+ * and are meaningless against an account-wide table of many hosts. Per-row
+ * current is `host.cli_version`, already in the table payload; only
+ * `latest` is safe to reuse here.
+ *
+ * Resolves to `null` on any failure, never rejects — same bargain
+ * `fetchMeshStatus` makes, so a version-lookup hiccup can't blank the host
+ * table.
+ */
+export async function fetchRemoteHostLatestVersion(slug) {
+  try {
+    const s = slug || (await currentWorkspaceSlug());
+    const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/versions`);
+    const data = await apiFetch(url).then(readJson);
+    return data?.remote_host?.latest || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dispatch a binary self-update to the remote host backing `slug`'s
+ * workspace — the same `remote-host-update` action aw-console's BYOD panel
+ * already triggers. Blocks for minutes, not seconds: the driver dispatches
+ * with `SELF_UPDATE_TIMEOUT_S` (120s) and then waits out the host's
+ * reconnect on the new binary, up to `SELF_UPDATE_RECONNECT_TIMEOUT_S`
+ * (default 300s), before returning. The response is a serialized Workspace
+ * row — it carries no `cli_version` — so the caller must refetch the host
+ * list to see the new version, not relabel from this response.
+ *
+ * REJECTS on failure, following `renameRemoteHost`'s convention — the
+ * button press owns its own error.
+ */
+export async function updateRemoteHostBinary(slug) {
+  const s = slug || (await currentWorkspaceSlug());
+  const url = centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-host/update`);
+  return apiFetch(url, { method: 'POST' }).then(readJson);
+}

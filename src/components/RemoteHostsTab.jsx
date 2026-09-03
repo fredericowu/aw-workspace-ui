@@ -5,11 +5,13 @@ import {
   exitOfferState,
   fetchHostPublicIp,
   fetchMeshStatus,
+  fetchRemoteHostLatestVersion,
   fetchRemoteHosts,
   linkCommand,
   mintBootstrapToken,
   remoteHostInstallInstructions,
   renameRemoteHost,
+  updateRemoteHostBinary,
 } from '../lib/networkingApi';
 
 // Settings → General → Remote Hosts
@@ -195,6 +197,61 @@ function LinkedAt({ host }) {
   return <span className="text-[11px] text-[var(--color-text-secondary)]">{relativeSeen(host.created_at)}</span>;
 }
 
+/** The first workspace on this link the self-update path can actually
+ *  dispatch through. `workspaces.py:531-532` 400s any workspace whose
+ *  `placement_driver` isn't `remote-host` — gating on mere workspace
+ *  presence would put a button on screen that always fails. */
+function updateTargetWorkspace(host) {
+  return (host.workspaces || []).find((w) => w.placement_driver === 'remote-host') || null;
+}
+
+/**
+ * The per-row Update affordance, rendered under the version string in the
+ * existing Agent cell — never a new column. Four states, and states 1 and 4
+ * deliberately render no button: a verdict is never fabricated, and a
+ * button that would always 400 is worse than no button.
+ */
+function AgentUpdateButton({ host, latest, updating, onUpdate }) {
+  const current = host.cli_version || null;
+  if (!latest || !current) return null;
+
+  if (current === latest) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="mt-1 px-2 py-1 text-[11px] rounded bg-white/5 text-[var(--color-text-muted)] disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        Up to date
+      </button>
+    );
+  }
+
+  const target = updateTargetWorkspace(host);
+  if (!target) {
+    return (
+      <span
+        className="mt-1 inline-block text-[10px] text-[var(--color-text-muted)]"
+        title="This host has no BYOD workspace to dispatch the update through, so it cannot be updated from here."
+      >
+        outdated
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onUpdate(host, target.slug)}
+      disabled={updating}
+      title={updating ? 'This can take several minutes while the host installs the new binary and reconnects.' : undefined}
+      className="mt-1 px-2 py-1 text-[11px] rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 disabled:opacity-60 disabled:cursor-not-allowed"
+    >
+      {updating ? 'Updating…' : `Update to ${latest}`}
+    </button>
+  );
+}
+
 const GRID_COLS = 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,1.2fr)_6.5rem_5.5rem_5.5rem_5.5rem_4.5rem]';
 
 function TableHeader() {
@@ -218,7 +275,10 @@ function FieldLabel({ children }) {
   return <div className="lg:hidden text-[9px] uppercase tracking-wide text-[var(--color-text-muted)]">{children}</div>;
 }
 
-function HostRow({ host, mesh, publicIp, draftName, dirty, error, onNameChange, onDelete, deleting }) {
+function HostRow({
+  host, mesh, publicIp, draftName, dirty, error, onNameChange, onDelete, deleting,
+  latest, updating, onUpdate,
+}) {
   return (
     <div className={`grid grid-cols-1 ${GRID_COLS} gap-x-3 gap-y-2 lg:gap-y-1 items-start py-3 border-b border-[var(--color-border)] last:border-b-0`}>
       <div className="min-w-0">
@@ -271,6 +331,9 @@ function HostRow({ host, mesh, publicIp, draftName, dirty, error, onNameChange, 
       <div className="min-w-0">
         <FieldLabel>Agent</FieldLabel>
         <span className="text-[11px] text-[var(--color-text-secondary)] font-mono">{host.cli_version || '—'}</span>
+        <div>
+          <AgentUpdateButton host={host} latest={latest} updating={updating} onUpdate={onUpdate} />
+        </div>
       </div>
 
       <div className="min-w-0">
@@ -385,18 +448,21 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
   const [rowErrors, setRowErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [deletingIds, setDeletingIds] = useState({});
+  const [latestVersion, setLatestVersion] = useState(null);
+  const [updatingIds, setUpdatingIds] = useState({});
 
   useEffect(() => {
     let alive = true;
     currentWorkspaceSlug()
       .then((s) => {
         if (alive) setSlug(s);
-        return Promise.all([fetchRemoteHosts(s), fetchMeshStatus(s)]);
+        return Promise.all([fetchRemoteHosts(s), fetchMeshStatus(s), fetchRemoteHostLatestVersion(s)]);
       })
-      .then(([h, m]) => {
+      .then(([h, m, latest]) => {
         if (!alive) return;
         setHosts(h);
         setMesh(m);
+        setLatestVersion(latest);
         setServerRows(Object.fromEntries(h.map((row) => [row.id, { friendlyName: row.friendly_name || null }])));
       })
       .catch((e) => { if (alive) setError(String(e.message || e)); })
@@ -518,6 +584,37 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
     }
   }, [deletingIds, slug]);
 
+  // Per-row busy state keyed by host id, like `deletingIds` — never a single
+  // shared flag, since one row's ~7-minute wait must not disable every other
+  // row's Update button. The endpoint's own response carries no
+  // `cli_version` (it returns the Workspace row, not the RemoteHost row), so
+  // a successful update refetches the table exactly like `save()` does
+  // rather than optimistically relabeling — the precise bug fixed on
+  // 2026-07-30 (aw-console-update-finished-version-refresh).
+  const handleUpdate = useCallback(async (host, targetSlug) => {
+    if (updatingIds[host.id]) return;
+    setUpdatingIds((prev) => ({ ...prev, [host.id]: true }));
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[host.id];
+      return next;
+    });
+    try {
+      await updateRemoteHostBinary(targetSlug);
+      const fresh = await fetchRemoteHosts(slug);
+      setHosts(fresh);
+      setServerRows(Object.fromEntries(fresh.map((row) => [row.id, { friendlyName: row.friendly_name || null }])));
+    } catch (e) {
+      setRowErrors((prev) => ({ ...prev, [host.id]: String(e.message || e) }));
+    } finally {
+      setUpdatingIds((prev) => {
+        const next = { ...prev };
+        delete next[host.id];
+        return next;
+      });
+    }
+  }, [updatingIds, slug]);
+
   const installEntries = useMemo(() => remoteHostInstallInstructions(), []);
 
   return (
@@ -600,6 +697,9 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
                     onNameChange={(v) => setDraftName(h.id, v)}
                     onDelete={handleDelete}
                     deleting={!!deletingIds[h.id]}
+                    latest={latestVersion}
+                    updating={!!updatingIds[h.id]}
+                    onUpdate={handleUpdate}
                   />
                 ))}
               </>
