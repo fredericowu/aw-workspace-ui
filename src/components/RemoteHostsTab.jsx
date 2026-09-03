@@ -70,6 +70,19 @@ function relativeSeen(ts) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+// How long the host has been in its CURRENT state, as HH:MM — zero-padded,
+// days prefixed past 24h (`3d 04:12`) rather than letting hours run past 24
+// (`76:12`), which reads as a broken clock. Deliberately not prose — that's
+// `relativeSeen`'s job for the Linked column; this cell stays a duration.
+function sinceHhMm(ts) {
+  if (typeof ts !== 'number') return null;
+  const totalMins = Math.floor(Math.max(0, Date.now() / 1000 - ts) / 60);
+  const days = Math.floor(totalMins / 1440);
+  const hh = String(Math.floor((totalMins % 1440) / 60)).padStart(2, '0');
+  const mm = String(totalMins % 60).padStart(2, '0');
+  return days > 0 ? `${days}d ${hh}:${mm}` : `${hh}:${mm}`;
+}
+
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -176,6 +189,28 @@ function WorkspacesCell({ workspaces }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Online/offline pill plus how long the host has been in that CURRENT
+ * state. The two halves use different timestamps and must not be swapped:
+ * offline duration is `now - last_seen_at` (stops updating the moment the
+ * link drops, so it is already correct); online duration is
+ * `now - connected_since`, never `last_seen_at` — that field is rewritten
+ * on every heartbeat while connected, so substituting it here would always
+ * read ~0 and be a confident lie. `connected_since` may be null even while
+ * connected (backend couldn't determine it): render the pill alone then,
+ * same "no duration is better than a wrong one" rule `LinkedAt` below
+ * already keeps for `created_at`.
+ */
+function StateCell({ host }) {
+  const duration = host.connected ? sinceHhMm(host.connected_since) : sinceHhMm(host.last_seen_at);
+  return (
+    <>
+      <Pill tone={host.connected ? 'ok' : 'muted'}>{host.connected ? 'online' : 'offline'}</Pill>
+      {duration && <div className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{duration}</div>}
+    </>
   );
 }
 
@@ -332,7 +367,7 @@ function HostRow({
 
       <div className="min-w-0">
         <FieldLabel>State</FieldLabel>
-        <Pill tone={host.connected ? 'ok' : 'muted'}>{host.connected ? 'online' : 'offline'}</Pill>
+        <StateCell host={host} />
       </div>
 
       <div className="min-w-0">
