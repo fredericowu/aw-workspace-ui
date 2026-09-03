@@ -366,4 +366,63 @@ describe('AppLauncher — F5 Apps view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     expect(await screen.findByTestId('installed-list')).toBeInTheDocument();
   });
+
+  // ── Keyboard navigation across search results (Kanban 3d05bf3b) ─────────
+  // Arrows move a selection across AppSearchResults rows; the selected row
+  // has to visually read as "hovered" without a real mouse hover, so the
+  // decoration must reuse the exact class AppSearchResults already pairs
+  // with :hover — not a new one.
+  it('nothing is selected until the first arrow press, and ArrowDown then selects the first result', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    render(
+      <AppLauncher
+        workspaceApps={[]}
+        components={[]}
+        onOpenApp={vi.fn()}
+        onOpenInstalledApp={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByTestId('installed-list');
+
+    const input = screen.getByLabelText('Search apps');
+    fireEvent.change(input, { target: { value: 'git' } });
+    const row = await screen.findByRole('button', { name: 'Open Git + GitHub CLI' });
+
+    // Just typed, haven't navigated yet — no row reads as selected.
+    expect(row.className).not.toContain('applt-installed-row-selected');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+    // Same class AppSearchResults' CSS pairs with :hover for the border-color
+    // decoration — reusing the hover token instead of inventing a new one.
+    expect(row.className).toContain('applt-installed-row-openable');
+    expect(row.className).toContain('applt-installed-row-selected');
+    // Keyboard focus never left the search input.
+    expect(input).toHaveFocus();
+  });
+
+  it('Enter opens the currently-selected search result via the same onOpen a click uses', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    const onOpenInstalledApp = vi.fn();
+    render(
+      <AppLauncher
+        workspaceApps={[]}
+        components={[]}
+        onOpenApp={vi.fn()}
+        onOpenInstalledApp={onOpenInstalledApp}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByTestId('installed-list');
+
+    const input = screen.getByLabelText('Search apps');
+    fireEvent.change(input, { target: { value: 'git' } });
+    await screen.findByRole('button', { name: 'Open Git + GitHub CLI' });
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onOpenInstalledApp).toHaveBeenCalledWith('git');
+  });
 });

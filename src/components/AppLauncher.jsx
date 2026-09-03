@@ -9,7 +9,7 @@ import { pollInstallStatus } from './AppsMarketplace';
 import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
 import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
-import { buildSearchIndex } from '../apps/appSearch';
+import { buildSearchIndex, matchesQuery } from '../apps/appSearch';
 import { colorForApp } from '../apps/appColor';
 
 function catalogVersionsFrom(catalog) {
@@ -105,6 +105,11 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   // active tab's content with one flat list spanning every category, so
   // finding an app never means clicking through all four tabs.
   const [query, setQuery] = useState('');
+  // Keyboard selection across the search results (see AppSearchResults) —
+  // -1 means "nothing selected yet", which is the state right after typing
+  // and before the first ArrowUp/ArrowDown press. Reset below whenever the
+  // query changes so a fresh search never starts pre-selected.
+  const [selectedResultIndex, setSelectedResultIndex] = useState(-1);
   // Catalog versions, keyed by app id/slug — so the Installed list can show
   // an "Update available" badge without opening the Marketplace panel
   // (app-update-mechanism ADR). Seeded from cache same as `installed`.
@@ -117,6 +122,15 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   // typing works immediately, no click required.
   const searchInputRef = useRef(null);
   useEffect(() => { searchInputRef.current?.focus(); }, []);
+  // Reset the keyboard selection whenever the search text itself changes —
+  // adjusted during render (React's recommended pattern for "state derived
+  // from a prop/state change") rather than in an effect, which would fire a
+  // second, avoidable render.
+  const [prevQuery, setPrevQuery] = useState(query);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
+    setSelectedResultIndex(-1);
+  }
 
   const refreshInstalled = useCallback(async () => {
     try {
@@ -304,11 +318,34 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
     uiApps, legacyApps: apps, servicesFrameworkApps, runnableApps, toolsApps,
   });
   const searching = query.trim().length > 0;
+  // Same filter AppSearchResults renders — computed here too so ArrowUp/
+  // ArrowDown can clamp/wrap against the actual on-screen result count.
+  const searchResults = searching ? searchIndex.filter((e) => matchesQuery(e, query)) : [];
 
   const openSearchResult = useCallback((entry) => {
     if (entry.kind === 'legacy') onOpenApp(entry.app.id);
     else if (onOpenInstalledApp) onOpenInstalledApp(entry.app.slug);
   }, [onOpenApp, onOpenInstalledApp]);
+
+  // Arrow keys move the selection across search results (wrapping at either
+  // end); Enter opens whatever is currently selected — the same onOpen a
+  // click already uses. Scoped to the search input so keyboard focus never
+  // has to leave it. Plain function (not useCallback) — it's only ever used
+  // as an inline prop below, so there's no stable identity to preserve.
+  const handleSearchKeyDown = (e) => {
+    if (!searching || searchResults.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedResultIndex((i) => (i < 0 ? 0 : (i + 1) % searchResults.length));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedResultIndex((i) => (i < 0 ? searchResults.length - 1 : (i - 1 + searchResults.length) % searchResults.length));
+    } else if (e.key === 'Enter' && selectedResultIndex >= 0 && selectedResultIndex < searchResults.length) {
+      e.preventDefault();
+      const entry = searchResults[selectedResultIndex];
+      if (entry.openable) openSearchResult(entry);
+    }
+  };
 
   return (
     <>
@@ -386,6 +423,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
               aria-label="Search apps"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
             />
             {query && (
               <button
@@ -407,7 +445,8 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
           <section className="applt-section">
             <AppSearchResults
               query={query}
-              index={searchIndex}
+              results={searchResults}
+              selectedIndex={selectedResultIndex}
               busy={rowBusy}
               catalogVersions={catalogVersions}
               onOpen={openSearchResult}

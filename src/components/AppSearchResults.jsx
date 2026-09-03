@@ -13,11 +13,10 @@
 // pin/rollback, uninstall, update).
 import AppIcon from './AppIcon';
 import { InstalledActions } from './InstalledApps';
-import { matchesQuery } from '../apps/appSearch';
 import { semverGt } from '../apps/semver';
 import { colorForApp } from '../apps/appColor';
 
-function ResultRow({ entry, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
+function ResultRow({ entry, selected, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
   const { app, kind, category, openable } = entry;
   const name = kind === 'legacy' ? app.label : app.name;
   const catalogVersion = kind === 'framework' ? catalogVersions?.[app.slug] : undefined;
@@ -26,7 +25,7 @@ function ResultRow({ entry, busy, catalogVersions, onOpen, onConfig, onVersion, 
 
   return (
     <li
-      className={`applt-installed-row applt-search-row ${open ? 'applt-installed-row-openable' : 'applt-installed-row-command'}`}
+      className={`applt-installed-row applt-search-row ${open ? 'applt-installed-row-openable' : 'applt-installed-row-command'} ${selected ? 'applt-installed-row-selected' : ''}`}
       onClick={open}
       role={open ? 'button' : undefined}
       tabIndex={open ? 0 : undefined}
@@ -68,9 +67,7 @@ function ResultRow({ entry, busy, catalogVersions, onOpen, onConfig, onVersion, 
   );
 }
 
-export default function AppSearchResults({ query, index, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
-  const results = index.filter((e) => matchesQuery(e, query));
-
+export default function AppSearchResults({ query, results, selectedIndex, busy, catalogVersions, onOpen, onConfig, onVersion, onUninstall, onUpdate }) {
   if (results.length === 0) {
     return (
       <p className="applt-installed-empty" data-testid="search-empty">
@@ -85,9 +82,9 @@ export default function AppSearchResults({ query, index, busy, catalogVersions, 
         {`${results.length} ${results.length === 1 ? 'app' : 'apps'} across all categories`}
       </p>
       <ul className="applt-installed applt-search-results" data-testid="search-results">
-        {results.map((entry) => (
+        {results.map((entry, i) => (
           <ResultRow
-            key={entry.key} entry={entry} busy={busy} catalogVersions={catalogVersions}
+            key={entry.key} entry={entry} selected={i === selectedIndex} busy={busy} catalogVersions={catalogVersions}
             onOpen={onOpen} onConfig={onConfig} onVersion={onVersion}
             onUninstall={onUninstall} onUpdate={onUpdate}
           />
