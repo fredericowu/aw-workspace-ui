@@ -1597,7 +1597,12 @@ export default function NetworkingTab() {
   const controlPlane = mesh?.available ? mesh.controlPlaneUrl : null;
 
   return (
-    <div className="max-w-4xl">
+    // No max-w cap: HOST_GRID_COLS' `fr` columns are built to fill the pane,
+    // and a leftover prose-width cap here left the same dead space
+    // RemoteHostsTab had — measured live at 896px used of 1694px available
+    // in a maximized Settings NEW window — while cramming the Links table
+    // into it (see RemoteHostsTab.jsx for the matching fix and the numbers).
+    <div>
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Networking</h3>
       </div>

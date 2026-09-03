@@ -521,7 +521,11 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
   const installEntries = useMemo(() => remoteHostInstallInstructions(), []);
 
   return (
-    <div className="max-w-5xl">
+    // No max-w cap: GRID_COLS' `fr` columns are built to fill the pane, and
+    // a leftover prose-width cap here left ~40% of a maximized window black
+    // (measured live: 1024px used of 1694px available) while cramming this
+    // 10-column table into it.
+    <div>
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Remote Hosts</h3>
       </div>
