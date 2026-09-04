@@ -6,6 +6,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { apiFetch } from '../auth';
 import { fetchContributions } from '../apps/appsApi';
+import { SOURCES, resolveOptions } from '../lib/configOptions';
 import AppWindow from './AppWindow';
 import McpGatewayConfigEditor from './McpGatewayConfigEditor';
 import McpGatewayNamedConfigs from './McpGatewayNamedConfigs';
@@ -13,10 +14,45 @@ import JsonConfigEditor from './JsonConfigEditor';
 
 function fieldType(spec) {
   if (spec['x-secret']) return 'secret';
-  if (Array.isArray(spec.enum)) return 'enum';
+  if (Array.isArray(spec.enum) || spec['x-options']) return 'enum';
   if (spec.type === 'integer' || spec.type === 'number') return 'number';
   if (spec.type === 'boolean') return 'boolean';
   return 'text';
+}
+
+// A saved value that fell out of the resolved list (host unlinked, or an id
+// typed before this field had options at all) must survive — shown as its
+// own selected option and submitted unchanged, never silently reselected.
+function withSavedOption(options, value) {
+  if (!value || options.some((o) => o.value === value)) return options;
+  return [{ value, label: value }, ...options];
+}
+
+// One fetch per distinct `x-options` source per mount, not one per field —
+// several fields could name the same source (today only windows-pilot's
+// `remote_host_id` does, but the mechanism is shared).
+async function resolveFieldOptionsMap(xOptionFields) {
+  if (!xOptionFields.length) return {};
+  const rowsBySource = new Map();
+  const rowsFor = (source) => {
+    if (!rowsBySource.has(source)) {
+      const fetcher = SOURCES[source];
+      rowsBySource.set(source, fetcher ? fetcher() : Promise.resolve(null));
+    }
+    return rowsBySource.get(source);
+  };
+  const entries = await Promise.all(xOptionFields.map(async ([key, spec]) => {
+    try {
+      const rows = await rowsFor(spec['x-options']?.source);
+      if (rows == null) return [key, null];
+      return [key, await resolveOptions(spec, rows)];
+    } catch {
+      // A thrown fetch (fetchRemoteHosts on a non-ok response) degrades this
+      // one field to a text input — it must not blank the rest of the form.
+      return [key, null];
+    }
+  }));
+  return Object.fromEntries(entries);
 }
 
 const MANAGED_APP_PROPS = {
@@ -62,12 +98,13 @@ export default function AppConfigBody({ app, onSaved }) {
   // config_schema, render THAT window here instead of the generated form.
   // Falls back to the schema form when no window.
   const [settingsWindowSpec, setSettingsWindowSpec] = useState(null);
+  const [fieldOptions, setFieldOptions] = useState({});
   const [resolving, setResolving] = useState(true);
   useEffect(() => {
     let alive = true;
     setResolving(true);
     setSettingsWindowSpec(null);
-    fetchContributions()
+    const contributionsDone = fetchContributions()
       .then((c) => {
         if (!alive) return;
         const panel = (c.settings || []).find((s) => s.app === app.slug && s.window);
@@ -76,10 +113,14 @@ export default function AppConfigBody({ app, onSaved }) {
         const spec = win?.body?.spec_data;
         if (spec) setSettingsWindowSpec(spec);
       })
-      .catch(() => {})
+      .catch(() => {});
+    const xOptionFields = fields.filter(([, spec]) => spec['x-options']);
+    const optionsDone = resolveFieldOptionsMap(xOptionFields)
+      .then((resolved) => { if (alive) setFieldOptions(resolved); });
+    Promise.all([contributionsDone, optionsDone])
       .finally(() => { if (alive) setResolving(false); });
     return () => { alive = false; };
-  }, [app.slug]);
+  }, [app.slug, fields]);
 
   const [values, setValues] = useState(() => {
     const init = {};
@@ -151,6 +192,9 @@ export default function AppConfigBody({ app, onSaved }) {
           {fields.map(([key, spec]) => {
             const type = fieldType(spec);
             const id = `appcfg-${key}`;
+            const isXOptions = !!spec['x-options'];
+            const xOptions = isXOptions ? fieldOptions[key] : null;
+            const hasXOptions = Array.isArray(xOptions) && xOptions.length > 0;
             return (
               <div className={`appcfg-field ${type === 'boolean' ? 'appcfg-field-toggle' : ''}`} key={key}>
                 {type === 'boolean' ? (
@@ -180,7 +224,14 @@ export default function AppConfigBody({ app, onSaved }) {
                       {spec.title || key}
                     </label>
                     {spec.description && <p className="appcfg-desc">{spec.description}</p>}
-                    {type === 'enum' ? (
+                    {type === 'enum' && isXOptions && hasXOptions ? (
+                      <select id={id} className="appcfg-input" value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
+                        {!values[key] && <option value="">Select…</option>}
+                        {withSavedOption(xOptions, values[key]).map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ) : type === 'enum' && !isXOptions ? (
                       <select id={id} className="appcfg-input" value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
                         {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                       </select>

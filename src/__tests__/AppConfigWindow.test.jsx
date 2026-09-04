@@ -2,8 +2,39 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../auth', () => ({ apiFetch: vi.fn() }));
+vi.mock('../lib/networkingApi', () => ({ fetchRemoteHosts: vi.fn() }));
 import { apiFetch } from '../auth';
+import { fetchRemoteHosts } from '../lib/networkingApi';
 import AppConfigWindow from '../components/AppConfigWindow';
+
+const WINDOWS_HOSTS = [
+  { id: 'c76c606b0a2a5a8b', os: 'windows', friendly_name: 'DESKTOP-DRMKFBT' },
+  { id: 'noname-win', os: 'windows' },
+  { id: 'linux-1', os: 'linux', friendly_name: 'linux-box' },
+];
+
+const WIN_APP = {
+  slug: 'windows-pilot',
+  name: 'Windows Pilot',
+  version: '0.1.0',
+  config: { remote_host_id: 'c76c606b0a2a5a8b' },
+  config_schema: {
+    type: 'object',
+    properties: {
+      remote_host_id: {
+        type: 'string',
+        default: 'c76c606b0a2a5a8b',
+        'x-options': {
+          source: 'remote-hosts',
+          filter: { os: 'windows' },
+          value: 'id',
+          label: ['{id} ({friendly_name})', '{id}'],
+        },
+      },
+      python_exe: { type: 'string', default: 'py -3' },
+    },
+  },
+};
 
 const GIT_APP = {
   slug: 'git',
@@ -330,6 +361,92 @@ describe('AppConfigWindow — schema-driven config window', () => {
     render(<AppConfigWindow app={GIT_APP} onClose={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  });
+
+  it('x-options renders a select filtered to os==="windows", labelled "<id> (<friendly_name>)"', async () => {
+    fetchRemoteHosts.mockResolvedValue(WINDOWS_HOSTS);
+    render(<AppConfigWindow app={WIN_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const select = document.getElementById('appcfg-remote_host_id');
+    expect(select.tagName).toBe('SELECT');
+    const optionTexts = [...select.options].map((o) => o.textContent);
+    expect(optionTexts).toContain('c76c606b0a2a5a8b (DESKTOP-DRMKFBT)');
+    // The non-windows host must not appear at all.
+    expect(optionTexts.some((t) => t.startsWith('linux-1'))).toBe(false);
+    // Stored value stays the bare id, never the decorated label.
+    const winOpt = [...select.options].find((o) => o.textContent === 'c76c606b0a2a5a8b (DESKTOP-DRMKFBT)');
+    expect(winOpt.value).toBe('c76c606b0a2a5a8b');
+  });
+
+  it('a windows host with no friendly_name labels as the bare id', async () => {
+    fetchRemoteHosts.mockResolvedValue(WINDOWS_HOSTS);
+    render(<AppConfigWindow app={WIN_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const select = document.getElementById('appcfg-remote_host_id');
+    const optionTexts = [...select.options].map((o) => o.textContent);
+    expect(optionTexts).toContain('noname-win');
+  });
+
+  it('submitting an x-options field posts the bare id, not the label', async () => {
+    fetchRemoteHosts.mockResolvedValue(WINDOWS_HOSTS);
+    apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    render(<AppConfigWindow app={WIN_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    fireEvent.change(document.getElementById('appcfg-remote_host_id'), { target: { value: 'noname-win' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/apps/windows-pilot/config',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    const configCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/windows-pilot/config');
+    const body = JSON.parse(configCall[1].body);
+    expect(body.config.remote_host_id).toBe('noname-win');
+  });
+
+  it('a saved id absent from the resolved list is preserved, selected, and still posted', async () => {
+    fetchRemoteHosts.mockResolvedValue(WINDOWS_HOSTS);
+    apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    const app = { ...WIN_APP, config: { remote_host_id: 'ghost-id' } };
+    render(<AppConfigWindow app={app} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const select = document.getElementById('appcfg-remote_host_id');
+    expect(select.value).toBe('ghost-id');
+    expect([...select.options].some((o) => o.value === 'ghost-id')).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/apps/windows-pilot/config',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    const configCall = apiFetch.mock.calls.find((c) => c[0] === '/api/apps/windows-pilot/config');
+    expect(JSON.parse(configCall[1].body).config.remote_host_id).toBe('ghost-id');
+  });
+
+  it('falls back to the text input, saved value intact, when the resolved list is empty', async () => {
+    fetchRemoteHosts.mockResolvedValue([]);
+    render(<AppConfigWindow app={WIN_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const field = document.getElementById('appcfg-remote_host_id');
+    expect(field.tagName).toBe('INPUT');
+    expect(field.value).toBe('c76c606b0a2a5a8b');
+  });
+
+  it('falls back to the text input, without blanking the rest of the form, when the fetch throws', async () => {
+    fetchRemoteHosts.mockRejectedValue(new Error('HTTP 500'));
+    render(<AppConfigWindow app={WIN_APP} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('appcfg-loading')).not.toBeInTheDocument());
+
+    const field = document.getElementById('appcfg-remote_host_id');
+    expect(field.tagName).toBe('INPUT');
+    expect(field.value).toBe('c76c606b0a2a5a8b');
+    // The other field on the same form must not have been blanked by the throw.
+    expect(document.getElementById('appcfg-python_exe')).toHaveValue('py -3');
   });
 
   it('shows a spinner instead of the empty state while resolving whether the app has a settings window', () => {
