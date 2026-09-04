@@ -282,8 +282,10 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
     let intentionalClose = false;
+    console.debug('[DUPDBG] ws-construct', sessionId, 'reconnectKey=', reconnectKey, 't=', performance.now());
 
     ws.onopen = () => {
+      console.debug('[DUPDBG] ws-open', sessionId, 't=', performance.now());
       reconnectAttemptsRef.current = 0;
       try {
         const dims = fitAddon.proposeDimensions();
@@ -322,21 +324,26 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
+        const preview = new TextDecoder().decode(event.data).slice(0, 40);
+        console.debug('[DUPDBG] ws-message', sessionId, 'len=', event.data.byteLength, 'preview=', JSON.stringify(preview), 't=', performance.now());
         term.write(new Uint8Array(event.data));
         if (onData) onData(new TextDecoder().decode(event.data));
       } else {
+        console.debug('[DUPDBG] ws-message-text', sessionId, 'len=', event.data.length, 'preview=', JSON.stringify(event.data.slice(0, 40)), 't=', performance.now());
         term.write(event.data);
         if (onData) onData(event.data);
       }
     };
 
     ws.onclose = () => {
+      console.debug('[DUPDBG] ws-close', sessionId, 'intentional=', intentionalClose, 't=', performance.now());
       if (intentionalClose) return;
       // Auto-reconnect — handles restarts triggered from other browsers.
       // Back off: 1s, 2s, 3s... Give up after 8 attempts.
       if (reconnectAttemptsRef.current < 8) {
         reconnectAttemptsRef.current += 1;
         const delay = Math.min(reconnectAttemptsRef.current * 1000, 3000);
+        console.debug('[DUPDBG] ws-reconnect-scheduled', sessionId, 'attempt=', reconnectAttemptsRef.current, 'delay=', delay);
         setTimeout(() => setReconnectKey((k) => k + 1), delay);
       } else {
         term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
@@ -385,6 +392,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
           .replace(/–/g, '-')   // – EN DASH
           .replace(/—/g, '--'); // — EM DASH
         const encoded = new TextEncoder().encode(mapped);
+        console.debug('[DUPDBG] term-onData', sessionId, 'raw=', JSON.stringify(data), 'len=', encoded.length, 't=', performance.now());
         if (encoded.length <= CHUNK_SIZE) {
           ws.send(encoded);
         } else {
@@ -440,6 +448,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
   const prevSignalRef = useRef(reconnectSignal);
   useEffect(() => {
     if (reconnectSignal !== prevSignalRef.current) {
+      console.debug('[DUPDBG] external-reconnect-signal', sessionId, 'from=', prevSignalRef.current, 'to=', reconnectSignal, 't=', performance.now());
       prevSignalRef.current = reconnectSignal;
       reconnectAttemptsRef.current = 0;
       setTimeout(() => setReconnectKey((k) => k + 1), 500);
