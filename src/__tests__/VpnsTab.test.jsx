@@ -69,12 +69,11 @@ describe('VpnsTab — plane discipline', () => {
 });
 
 describe('VpnsTab — dialer honesty (phase 2)', () => {
-  it('says what connecting actually changes, and cross-references Networking', async () => {
+  it('says what connecting actually changes', async () => {
     apiFetch.mockImplementation(baseImpl());
     render(<VpnsTab />);
 
     expect(await screen.findByText(/workspace's own outbound traffic/)).toBeInTheDocument();
-    expect(screen.getByText(/External VPNs/)).toBeInTheDocument();
     expect(screen.getByText(/Not connected/)).toBeInTheDocument();
   });
 

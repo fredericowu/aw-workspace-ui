@@ -765,9 +765,7 @@ export default function VpnsTab() {
           imports) — {configCount} on file. Connecting dials the selected profile and routes this
           workspace's own outbound traffic through it — nothing else on your account moves.
           WireGuard/NordLynx is the supported dialing path; OpenVPN profiles are stored but their
-          Connect stays disabled for now, second-class. This is a different screen from Settings →
-          General → Networking → External VPNs, which only shows what a remote host is already
-          dialing and cannot start or stop anything — this one is the one that actually connects.
+          Connect stays disabled for now, second-class.
         </p>
       </div>
 
