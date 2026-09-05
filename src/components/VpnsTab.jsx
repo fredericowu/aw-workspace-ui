@@ -1,19 +1,35 @@
-// Settings → General → VPNs — a profile manager: upload, edit, delete VPN
-// configs (WireGuard/OpenVPN) and import from NordVPN. Markup harvested from
-// the legacy VpnTab.jsx/VpnNav.jsx (hanging off the OLD SettingsPanel), but
-// the data layer is new — see src/lib/vpnApi.js for why the fetch plane
-// differs from Networking's.
+// Settings → General → VPNs — a profile manager AND the dialer control:
+// upload/edit/delete VPN configs (WireGuard/OpenVPN), import from NordVPN,
+// and connect/disconnect the tunnel this workspace's own egress goes
+// through. Markup harvested from the legacy VpnTab.jsx/VpnNav.jsx (hanging
+// off the OLD SettingsPanel), but the data layer is new — see
+// src/lib/vpnApi.js for why the fetch plane differs from Networking's.
 //
-// Phase 1 cannot connect anything (see
-// docs/architecture/vpn-profiles-in-general.md §2.3/§2.4): the capability to
-// dial a tunnel is a separate, not-yet-built card. This screen only stores
-// and validates profiles, so it renders no Connect/Disconnect action and no
-// connected/disconnected state — there is nothing to ask that of yet.
+// Connect is per-profile; Disconnect is global — only one tunnel can be
+// active at a time, so there is exactly one Disconnect control, not one per
+// row (docs/architecture/vpn-profiles-in-general.md §2.7). Dialing moves
+// THIS WORKSPACE CONTAINER's own outbound traffic and nothing else on the
+// account. WireGuard/NordLynx is the supported path; an OpenVPN profile's
+// Connect stays disabled — second-class per the architect's decision.
+//
+// The backend's three outcomes for connect/disconnect must never collapse
+// into one generic toast — see VpnActionError in vpnApi.js:
+//   - refusal — the host declined and changed nothing; render the sentence
+//     verbatim, never paraphrase it.
+//   - failure — something was attempted and did not work.
+//   - timeout — the conversation didn't complete. A dead-man's switch on the
+//     host can revert an unconfirmed change on its own, so this is NOT a
+//     verdict either way — the only honest UI is "go look" (refresh status).
+//
+// Dial + confirm takes tens of seconds: while a connect/disconnect request
+// is in flight, the whole action surface (Connect/Disconnect/delete/view)
+// locks so a slow first click can't be read as "nothing happened" and
+// doubled.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchConfigs, fetchConfig, saveConfig, uploadConfig, deleteConfig, fetchVpnStatus,
   fetchNordCredentials, saveNordCredentials, fetchNordCountries, fetchNordRecommendations,
-  importNordServer,
+  importNordServer, connectVpn, disconnectVpn, normalizeVpnStatus,
 } from '../lib/vpnApi';
 
 function Section({ title, description, defaultOpen = true, children }) {
@@ -79,9 +95,92 @@ function ErrorBanner({ message }) {
   );
 }
 
+// ── Connection bar — the global, single source of "what is the workspace
+// actually doing right now" — status is polled fresh after every action
+// rather than inferred from that action's own response. ──────────────────
+
+function ConnectionBar({ status, statusErr, actionPending, onDisconnect, onRefresh }) {
+  const busy = !!actionPending;
+  return (
+    <div className="mb-3 px-3 py-2.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-header)]">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-xs">
+          {busy ? (
+            <>
+              <Pill tone="warn">
+                {actionPending === '__disconnect__' ? 'Disconnecting…' : 'Connecting…'}
+              </Pill>
+              <span className="text-[var(--color-text-muted)]">
+                {actionPending === '__disconnect__'
+                  ? 'Tearing down the tunnel'
+                  : `Dialing "${actionPending}"`} — this can take up to a minute. Every
+                Connect/Disconnect control is locked until it finishes.
+              </span>
+            </>
+          ) : status.connected ? (
+            <>
+              <Pill tone="ok">Connected</Pill>
+              <span className="text-[var(--color-text-muted)]">
+                via <span className="font-mono">{status.profile || '(unknown profile)'}</span> — this
+                workspace's own outbound traffic is routed through this tunnel.
+              </span>
+            </>
+          ) : (
+            <>
+              <Pill tone="muted">Not connected</Pill>
+              <span className="text-[var(--color-text-muted)]">no tunnel is dialed from this workspace.</span>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Btn onClick={onRefresh} disabled={busy} title="Refresh status">Refresh</Btn>
+          <Btn kind="danger" onClick={onDisconnect} disabled={busy || !status.connected}>
+            {actionPending === '__disconnect__' ? 'Disconnecting…' : 'Disconnect'}
+          </Btn>
+        </div>
+      </div>
+      {statusErr && (
+        <div className="mt-2 text-[11px] text-amber-300">
+          Status unavailable: {statusErr}. The state shown above may be stale.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── The last connect/disconnect outcome — refusal, failure and timeout each
+// get a visibly different banner; they must never collapse into one shape. ──
+
+function ActionOutcomeBanner({ err }) {
+  if (!err) return null;
+  if (err.refused) {
+    return (
+      <div className="mb-3 px-3 py-2 rounded bg-sky-500/10 border border-sky-500/30 text-xs text-sky-200">
+        <div className="font-semibold mb-0.5">Refused — nothing changed</div>
+        {err.refusal || err.message}
+      </div>
+    );
+  }
+  if (err.timedOut) {
+    return (
+      <div className="mb-3 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+        <div className="font-semibold mb-0.5">Timed out — unknown state</div>
+        {err.message} This is not a "connected" or "disconnected" verdict — refresh status above to see
+        what the host actually did.
+      </div>
+    );
+  }
+  return (
+    <div className="mb-3 px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-xs text-red-300">
+      <div className="font-semibold mb-0.5">Failed</div>
+      {err.message}
+    </div>
+  );
+}
+
 // ── Profiles list ───────────────────────────────────────────────────────────
 
-function ProfilesSection({ configs, loading, error, onView, onDelete }) {
+function ProfilesSection({ configs, loading, error, status, actionPending, onView, onDelete, onConnect }) {
   return (
     <Section title="Profiles" description={loading ? 'loading…' : `${configs.length} stored`} defaultOpen>
       <ErrorBanner message={error} />
@@ -102,20 +201,39 @@ function ProfilesSection({ configs, loading, error, onView, onDelete }) {
             </tr>
           </thead>
           <tbody>
-            {configs.map((c) => (
-              <tr key={c.name} className="border-b border-[var(--color-border)]/40">
-                <td className="py-1.5 font-mono">{c.name}</td>
-                <td className="py-1.5"><Pill tone="info">{c.type}</Pill></td>
-                <td className="py-1.5 text-[var(--color-text-muted)]">{c.source || 'disk'}</td>
-                <td className="py-1.5 font-mono text-[var(--color-text-muted)]">{c.endpoint || '—'}</td>
-                <td className="py-1.5 text-right">
-                  <div className="inline-flex gap-1.5">
-                    <Btn onClick={() => onView(c.name)}>View / edit</Btn>
-                    <Btn kind="danger" onClick={() => onDelete(c.name)} title="Delete profile">×</Btn>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {configs.map((c) => {
+              const isOpenvpn = c.type === 'openvpn';
+              const isConnectedHere = status.connected && status.profile === c.name;
+              const isConnectingHere = actionPending === c.name;
+              const busy = !!actionPending;
+              const connectDisabled = busy || isOpenvpn || (status.connected && !isConnectedHere);
+              const connectTitle = isOpenvpn
+                ? 'OpenVPN profiles are stored but second-class — WireGuard/NordLynx is the supported dialing path.'
+                : status.connected && !isConnectedHere
+                  ? 'Only one tunnel can be active — disconnect the current one first.'
+                  : undefined;
+              return (
+                <tr key={c.name} className="border-b border-[var(--color-border)]/40">
+                  <td className="py-1.5 font-mono">{c.name}</td>
+                  <td className="py-1.5"><Pill tone={isOpenvpn ? 'warn' : 'info'}>{c.type}</Pill></td>
+                  <td className="py-1.5 text-[var(--color-text-muted)]">{c.source || 'disk'}</td>
+                  <td className="py-1.5 font-mono text-[var(--color-text-muted)]">{c.endpoint || '—'}</td>
+                  <td className="py-1.5 text-right">
+                    <div className="inline-flex gap-1.5">
+                      {isConnectedHere ? (
+                        <Pill tone="ok">Connected</Pill>
+                      ) : (
+                        <Btn kind="primary" onClick={() => onConnect(c.name)} disabled={connectDisabled} title={connectTitle}>
+                          {isConnectingHere ? 'Connecting…' : 'Connect'}
+                        </Btn>
+                      )}
+                      <Btn onClick={() => onView(c.name)} disabled={busy}>View / edit</Btn>
+                      <Btn kind="danger" onClick={() => onDelete(c.name)} title="Delete profile" disabled={busy}>×</Btn>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -508,9 +626,19 @@ export default function VpnsTab() {
   const [loading, setLoading] = useState(true);
   const [listErr, setListErr] = useState(null);
   const [viewing, setViewing] = useState(null);
+
+  const [status, setStatus] = useState({ connected: false, profile: null });
   // Set only if GET /api/vpn/status itself fails to answer — a written
   // reason the plane/route isn't reachable, never a fabricated tunnel state.
-  const [backendErr, setBackendErr] = useState(null);
+  const [statusErr, setStatusErr] = useState(null);
+
+  // The profile name being dialed, '__disconnect__' while tearing down, or
+  // null when idle. Locks the whole action surface — see the header comment.
+  const [actionPending, setActionPending] = useState(null);
+  // The last connect/disconnect VpnActionError (refusal/failure/timeout), or
+  // null. Cleared at the start of the next action, not on every render, so
+  // the outcome stays visible until the user tries again.
+  const [actionErr, setActionErr] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -524,10 +652,20 @@ export default function VpnsTab() {
     }
   }, []);
 
+  const refreshStatus = useCallback(async () => {
+    try {
+      const data = await fetchVpnStatus();
+      setStatus(normalizeVpnStatus(data));
+      setStatusErr(null);
+    } catch (e) {
+      setStatusErr(e.message);
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
-    fetchVpnStatus().then(() => setBackendErr(null)).catch((e) => setBackendErr(e.message));
-  }, [refresh]);
+    refreshStatus();
+  }, [refresh, refreshStatus]);
 
   const remove = async (name) => {
     if (!window.confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
@@ -539,6 +677,31 @@ export default function VpnsTab() {
     }
   };
 
+  // Shared by connect and disconnect: lock the surface, run the call, and —
+  // whatever the outcome (success, refusal, failure, or timeout) — always
+  // re-poll status rather than trust the action response's own claim. A
+  // timeout in particular tells us nothing about the real state; only the
+  // status endpoint (backed by the host's own dead-man's switch) does.
+  const runAction = useCallback(
+    async (pendingKey, fn) => {
+      if (actionPending) return;
+      setActionPending(pendingKey);
+      setActionErr(null);
+      try {
+        await fn();
+      } catch (e) {
+        setActionErr(e);
+      } finally {
+        await refreshStatus();
+        setActionPending(null);
+      }
+    },
+    [actionPending, refreshStatus],
+  );
+
+  const connect = (name) => runAction(name, () => connectVpn(name));
+  const disconnect = () => runAction('__disconnect__', () => disconnectVpn());
+
   const configCount = useMemo(() => configs.length, [configs]);
 
   return (
@@ -547,25 +710,34 @@ export default function VpnsTab() {
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">VPNs</h2>
         <p className="text-xs text-[var(--color-text-muted)] mt-1">
           Store, edit and validate VPN profiles (WireGuard/OpenVPN configs, including NordVPN
-          imports) — {configCount} on file. Nothing here dials a tunnel yet: this phase stores and
-          validates profiles only, and no traffic is routed through them. Dialing is a separate,
-          not-yet-built capability that needs a deliberate go-ahead. See Settings → General →
-          Networking for choosing an exit gate or joining the tenant mesh — that screen handles
-          routing, this one only manages profiles.
+          imports) — {configCount} on file. Connecting dials the selected profile and routes this
+          workspace's own outbound traffic through it — nothing else on your account moves.
+          WireGuard/NordLynx is the supported dialing path; OpenVPN profiles are stored but their
+          Connect stays disabled for now, second-class. This is a different screen from Settings →
+          General → Networking → External VPNs, which only shows what a remote host is already
+          dialing and cannot start or stop anything — this one is the one that actually connects.
         </p>
-        {backendErr && (
-          <div className="mt-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300">
-            The VPN backend didn't answer status: {backendErr}. The list below may also fail.
-          </div>
-        )}
       </div>
+
+      <ConnectionBar
+        status={status}
+        statusErr={statusErr}
+        actionPending={actionPending}
+        onDisconnect={disconnect}
+        onRefresh={refreshStatus}
+      />
+
+      <ActionOutcomeBanner err={actionErr} />
 
       <ProfilesSection
         configs={configs}
         loading={loading}
         error={listErr}
+        status={status}
+        actionPending={actionPending}
         onView={setViewing}
         onDelete={remove}
+        onConnect={connect}
       />
 
       <AddNewSection onSaved={refresh} />
