@@ -117,12 +117,22 @@ function ConnectionBar({ status, statusErr, actionPending, onDisconnect, onRefre
                 Connect/Disconnect control is locked until it finishes.
               </span>
             </>
+          ) : status.unknown ? (
+            <>
+              <Pill tone="warn">Unknown</Pill>
+              <span className="text-[var(--color-text-muted)]">
+                the host won't say up or down right now — this is not "disconnected", refresh or go look
+                rather than trust a guess.
+              </span>
+            </>
           ) : status.connected ? (
             <>
               <Pill tone="ok">Connected</Pill>
               <span className="text-[var(--color-text-muted)]">
-                via <span className="font-mono">{status.profile || '(unknown profile)'}</span> — this
-                workspace's own outbound traffic is routed through this tunnel.
+                via <span className="font-mono">{status.profile || '(unknown profile)'}</span>
+                {status.egressIp && (
+                  <> — egress now <span className="font-mono">{status.egressIp}</span></>
+                )} — this workspace's own outbound traffic is routed through this tunnel.
               </span>
             </>
           ) : (
@@ -139,6 +149,9 @@ function ConnectionBar({ status, statusErr, actionPending, onDisconnect, onRefre
           </Btn>
         </div>
       </div>
+      {status.detail && (
+        <div className="mt-2 text-[11px] text-[var(--color-text-muted)]">{status.detail}</div>
+      )}
       {statusErr && (
         <div className="mt-2 text-[11px] text-amber-300">
           Status unavailable: {statusErr}. The state shown above may be stale.

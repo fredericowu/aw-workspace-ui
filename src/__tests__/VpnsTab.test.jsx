@@ -23,7 +23,12 @@ function jsonRes(body, ok = true, status = 200) {
 
 const ONE_WIREGUARD_PROFILE = [{ name: 'client_1', type: 'wireguard', source: 'upload', endpoint: '1.2.3.4:51820' }];
 
-function baseImpl({ configs = [], status = {} } = {}) {
+// A well-formed "nothing dialed" status per the pinned phase-2 contract
+// (src/vpn/profiles.py's status(), additive over `active`/`state`) — the
+// default for tests that don't care about status shape.
+const DISCONNECTED_STATUS = { state: 'disconnected', connected: false, active: null };
+
+function baseImpl({ configs = [], status = DISCONNECTED_STATUS } = {}) {
   return (url) => {
     if (url === '/api/vpn/configs') return jsonRes({ configs });
     if (url === '/api/vpn/status') return jsonRes(status);
@@ -113,7 +118,7 @@ describe('VpnsTab — Connect is per-profile, Disconnect is global', () => {
           { name: 'client_1', type: 'wireguard' },
           { name: 'client_2', type: 'wireguard' },
         ],
-        status: { connected: true, profile: 'client_1' },
+        status: { state: 'connected', connected: true, active: 'client_1' },
       }),
     );
 
@@ -138,6 +143,70 @@ describe('VpnsTab — Connect is per-profile, Disconnect is global', () => {
   });
 });
 
+describe('VpnsTab — status contract: "active" is canonical, "unknown" is first-class', () => {
+  it('reads "active", not "profile" — the pinned field for the connected profile name', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: [{ name: 'client_1', type: 'wireguard' }],
+        status: { state: 'connected', connected: true, active: 'client_1' },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    await screen.findAllByText('Connected');
+    // A normalizer still reading the old speculative "profile" key would
+    // find nothing here and fall back to the unknown-profile placeholder —
+    // that placeholder must never appear once "active" is populated.
+    expect(screen.queryByText('(unknown profile)')).not.toBeInTheDocument();
+    expect(screen.getAllByText('client_1').length).toBeGreaterThanOrEqual(2); // row + connection bar
+  });
+
+  it('renders "unknown" distinctly from "disconnected" — the backend refused to guess, so must the UI', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: {
+          state: 'unknown', connected: false, active: null,
+          detail: 'no route to the aw-remote-host netns to ask right now',
+        },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    expect(await screen.findByText('Unknown')).toBeInTheDocument();
+    expect(screen.queryByText('Not connected')).not.toBeInTheDocument();
+    expect(screen.getByText(/no route to the aw-remote-host netns to ask right now/)).toBeInTheDocument();
+  });
+
+  it('a malformed/empty status payload also reads as unknown, never smoothed into "disconnected"', async () => {
+    apiFetch.mockImplementation(baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: {} }));
+
+    render(<VpnsTab />);
+
+    expect(await screen.findByText('Unknown')).toBeInTheDocument();
+    expect(screen.queryByText('Not connected')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the backend\'s detail sentence and the measured egress_ip when connected', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: {
+          state: 'connected', connected: true, active: 'client_1',
+          egress_ip: '185.12.64.7', detail: 'dialed via NordLynx, handshake fresh',
+        },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    expect(await screen.findByText(/185\.12\.64\.7/)).toBeInTheDocument();
+    expect(screen.getByText(/dialed via NordLynx, handshake fresh/)).toBeInTheDocument();
+  });
+});
+
 describe('VpnsTab — connect outcomes never collapse into one shape', () => {
   it('renders a refusal sentence verbatim, and does not claim a connected state', async () => {
     const refusal = 'This host declined: the profile pins no single endpoint, so the dead-man\'s switch could not be armed.';
@@ -145,7 +214,7 @@ describe('VpnsTab — connect outcomes never collapse into one shape', () => {
       if (url === '/api/vpn/connect' && opts?.method === 'POST') {
         return jsonRes({ refused: true, refusal });
       }
-      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: { connected: false, profile: null } })(url, opts);
+      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: DISCONNECTED_STATUS })(url, opts);
     });
 
     render(<VpnsTab />);
@@ -161,7 +230,7 @@ describe('VpnsTab — connect outcomes never collapse into one shape', () => {
       if (url === '/api/vpn/connect' && opts?.method === 'POST') {
         return jsonRes({ detail: 'wg-quick exited 1: device busy' }, false, 500);
       }
-      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: { connected: false, profile: null } })(url, opts);
+      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: DISCONNECTED_STATUS })(url, opts);
     });
 
     render(<VpnsTab />);
@@ -177,7 +246,7 @@ describe('VpnsTab — connect outcomes never collapse into one shape', () => {
       if (url === '/api/vpn/connect' && opts?.method === 'POST') {
         return Promise.reject(new Error('the connection dropped mid-dial'));
       }
-      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: { connected: false, profile: null } })(url, opts);
+      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: DISCONNECTED_STATUS })(url, opts);
     });
 
     render(<VpnsTab />);
@@ -198,7 +267,7 @@ describe('VpnsTab — in-progress lockout', () => {
 
     apiFetch.mockImplementation((url, opts) => {
       if (url === '/api/vpn/connect' && opts?.method === 'POST') return pending;
-      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: { connected: false, profile: null } })(url, opts);
+      return baseImpl({ configs: ONE_WIREGUARD_PROFILE, status: DISCONNECTED_STATUS })(url, opts);
     });
 
     render(<VpnsTab />);

@@ -33,11 +33,15 @@
  *     revert an unconfirmed change on its own, so the honest UI message is
  *     "go look" — refresh status — never "connected" or "disconnected".
  *
- * GET /api/vpn/status's extended (post-phase-1) shape isn't pinned to one
- * exact field-naming convention here — it's built in that same sibling task.
- * `normalizeVpnStatus` reads it defensively, the same discipline
- * `NordSection` already applies to credential-presence responses, rather
- * than assume one exact key survives to production.
+ * GET /api/vpn/status's extended (phase 2) shape is now PINNED by the
+ * architect, additive over what `src/vpn/profiles.py`'s `status()` already
+ * returns in production — `active` (not `profile`) is the canonical field
+ * for the connected profile's name, and `state` can be `"unknown"`, which is
+ * a distinct, first-class case (the backend refusing to fabricate an up/down)
+ * and must never collapse into "disconnected". `normalizeVpnStatus` reads
+ * this contract directly rather than guessing at alternate field names —
+ * guessing turns a payload that doesn't match the contract into a silent
+ * half-failure instead of a visible one.
  */
 import { apiFetch } from '../auth';
 
@@ -103,15 +107,37 @@ export async function fetchVpnStatus() {
 }
 
 /**
- * Reads GET /api/vpn/status's extended shape defensively — see this file's
- * header for why. `raw` is kept so a caller that needs a field this doesn't
- * know about yet still has it.
+ * Reads GET /api/vpn/status's pinned phase-2 shape — see this file's header.
+ * `active` (not `profile`) is the canonical field for the connected
+ * profile's name; `state: "unknown"` is a distinct case the caller must not
+ * fold into "disconnected" (the backend refusing to fabricate an up/down,
+ * per src/vpn/profiles.py's status() docstring). A payload that doesn't even
+ * carry a recognizable `state` is treated as unknown too, for the same
+ * reason: a missing/malformed field must read as "we don't know", never as
+ * a smoothed-over "disconnected".
  */
 export function normalizeVpnStatus(data) {
-  if (!data || typeof data !== 'object') return { connected: false, profile: null, raw: data ?? null };
-  const connected = !!(data.connected ?? data.is_connected ?? data.up ?? data.state === 'connected');
-  const profile = data.profile ?? data.active_profile ?? data.profile_name ?? data.name ?? null;
-  return { connected, profile, raw: data };
+  if (!data || typeof data !== 'object') {
+    return {
+      connected: false, state: 'unknown', unknown: true, profile: null, detail: null,
+      egressIp: null, container: null, since: null, deadmanArmed: false, canDial: false,
+      raw: data ?? null,
+    };
+  }
+  const state = data.state ?? (data.connected ? 'connected' : 'unknown');
+  return {
+    connected: !!data.connected,
+    state,
+    unknown: state === 'unknown',
+    profile: data.active ?? null,
+    detail: data.detail ?? null,
+    egressIp: data.egress_ip ?? null,
+    container: data.container ?? null,
+    since: data.since ?? null,
+    deadmanArmed: !!data.deadman_armed,
+    canDial: !!data.can_dial,
+    raw: data,
+  };
 }
 
 async function vpnAction(path, body) {
