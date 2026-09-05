@@ -42,6 +42,23 @@
  * this contract directly rather than guessing at alternate field names —
  * guessing turns a payload that doesn't match the contract into a silent
  * half-failure instead of a visible one.
+ *
+ * Two more top-level fields, also pinned, both TRI-STATE (true/false/null —
+ * null means "could not be measured" and must never render the same as
+ * false, same discipline as `state: "unknown"` vs `"disconnected"`):
+ *   - `dns_tunneled` — DNS lookups are NOT tunneled here (a measured
+ *     platform limit, not a bug: podman 4.3.1 has no `network update`, and
+ *     the aardvark resolver config regenerates on tmpfs with no upstream
+ *     field). `false` must render as a standing, visible line, not a
+ *     tooltip — a user who assumes DNS is private when it isn't is the
+ *     exact failure this screen exists to prevent.
+ *   - `kill_switch` — whether the host could pin its control-plane address
+ *     outside the tunnel so Disconnect stays reachable if the tunnel
+ *     degrades. `false` means Disconnect itself may become unreachable.
+ * `warnings` (array, default `[]`, never null) are complete sentences
+ * written by the host — the only layer that can measure what they
+ * describe — and render verbatim, same rule as `refusal`, in a persistent
+ * caution area that does not disappear once connected.
  */
 import { apiFetch } from '../auth';
 
@@ -121,6 +138,7 @@ export function normalizeVpnStatus(data) {
     return {
       connected: false, state: 'unknown', unknown: true, profile: null, detail: null,
       egressIp: null, container: null, since: null, deadmanArmed: false, canDial: false,
+      dnsTunneled: null, killSwitch: null, warnings: [],
       raw: data ?? null,
     };
   }
@@ -136,6 +154,12 @@ export function normalizeVpnStatus(data) {
     since: data.since ?? null,
     deadmanArmed: !!data.deadman_armed,
     canDial: !!data.can_dial,
+    // Tri-state: `data.x ?? null` maps both "absent" and an explicit `null`
+    // to null ("not measured") while leaving an explicit `false` as `false`
+    // ("measured as off") — those two must never render the same.
+    dnsTunneled: data.dns_tunneled ?? null,
+    killSwitch: data.kill_switch ?? null,
+    warnings: Array.isArray(data.warnings) ? data.warnings : [],
     raw: data,
   };
 }

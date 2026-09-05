@@ -207,6 +207,85 @@ describe('VpnsTab — status contract: "active" is canonical, "unknown" is first
   });
 });
 
+describe('VpnsTab — dns_tunneled / kill_switch / warnings are tri-state, never smoothed over', () => {
+  it('renders every warnings[] sentence verbatim, and keeps them visible while connected', async () => {
+    const w1 = 'DNS is not tunneled: podman 4.3.1 has no network update, so lookups resolve outside the tunnel.';
+    const w2 = 'The control-plane pin could not be re-verified this cycle.';
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: { state: 'connected', connected: true, active: 'client_1', warnings: [w1, w2] },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    // Still connected, and the warnings render alongside that state, not as
+    // a toast standing in for it.
+    expect(await screen.findAllByText('Connected')).not.toHaveLength(0);
+    expect(screen.getByText(w1)).toBeInTheDocument();
+    expect(screen.getByText(w2)).toBeInTheDocument();
+  });
+
+  it('dns_tunneled: false shows the DNS limitation in the user\'s own words', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: { state: 'connected', connected: true, active: 'client_1', dns_tunneled: false },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    expect(await screen.findByText(/DNS is not tunneled/)).toBeInTheDocument();
+    expect(screen.getByText(/DNS lookups still resolve outside it/)).toBeInTheDocument();
+  });
+
+  it('dns_tunneled: null renders NEITHER the limitation NOR an all-clear', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: { state: 'connected', connected: true, active: 'client_1', dns_tunneled: null },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    await screen.findAllByText('Connected');
+    // Both absences matter: a test that only checked the warning is missing
+    // would still pass on a screen that wrongly claims DNS is protected.
+    expect(screen.queryByText(/DNS is not tunneled/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/DNS.*tunneled/i)).not.toBeInTheDocument();
+  });
+
+  it('kill_switch: false shows a caution next to Disconnect specifically', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: { state: 'connected', connected: true, active: 'client_1', kill_switch: false },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    expect(await screen.findByText(/kill switch unavailable/)).toBeInTheDocument();
+  });
+
+  it('kill_switch: null renders no kill-switch claim either way', async () => {
+    apiFetch.mockImplementation(
+      baseImpl({
+        configs: ONE_WIREGUARD_PROFILE,
+        status: { state: 'connected', connected: true, active: 'client_1', kill_switch: null },
+      }),
+    );
+
+    render(<VpnsTab />);
+
+    await screen.findAllByText('Connected');
+    expect(screen.queryByText(/kill switch/)).not.toBeInTheDocument();
+  });
+});
+
 describe('VpnsTab — connect outcomes never collapse into one shape', () => {
   it('renders a refusal sentence verbatim, and does not claim a connected state', async () => {
     const refusal = 'This host declined: the profile pins no single endpoint, so the dead-man\'s switch could not be armed.';

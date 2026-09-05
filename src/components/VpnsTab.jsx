@@ -144,11 +144,48 @@ function ConnectionBar({ status, statusErr, actionPending, onDisconnect, onRefre
         </div>
         <div className="flex items-center gap-2">
           <Btn onClick={onRefresh} disabled={busy} title="Refresh status">Refresh</Btn>
-          <Btn kind="danger" onClick={onDisconnect} disabled={busy || !status.connected}>
-            {actionPending === '__disconnect__' ? 'Disconnecting…' : 'Disconnect'}
-          </Btn>
+          <div className="flex flex-col items-end gap-1">
+            <Btn kind="danger" onClick={onDisconnect} disabled={busy || !status.connected}>
+              {actionPending === '__disconnect__' ? 'Disconnecting…' : 'Disconnect'}
+            </Btn>
+            {/* Kill-switch caution sits next to the control it's actually
+                about — false means Disconnect itself may not be reachable
+                if the tunnel degrades. null ("not measured") renders nothing
+                here, never a false "yes" or "no". */}
+            {status.killSwitch === false && (
+              <span className="text-[10px] text-amber-300 text-right max-w-[220px]">
+                kill switch unavailable — Disconnect may not be reachable if the tunnel degrades
+              </span>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Standing, not tucked in a tooltip — visible in every state,
+          including while connected. false ("measured, not tunneled") and
+          null ("could not be measured") must never render the same, so
+          only an explicit false shows this line. */}
+      {status.dnsTunneled === false && (
+        <div className="mt-2 text-[11px] text-amber-300">
+          DNS is not tunneled: traffic goes through this VPN, but DNS lookups still resolve outside it.
+        </div>
+      )}
+
+      {/* The host's own sentences, verbatim — a persistent caution area
+          that does not disappear once connected, same rule as `refusal`. */}
+      {status.warnings.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {status.warnings.map((w, i) => (
+            <div
+              key={i}
+              className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1"
+            >
+              {w}
+            </div>
+          ))}
+        </div>
+      )}
+
       {status.detail && (
         <div className="mt-2 text-[11px] text-[var(--color-text-muted)]">{status.detail}</div>
       )}
@@ -640,7 +677,9 @@ export default function VpnsTab() {
   const [listErr, setListErr] = useState(null);
   const [viewing, setViewing] = useState(null);
 
-  const [status, setStatus] = useState({ connected: false, profile: null });
+  const [status, setStatus] = useState({
+    connected: false, profile: null, dnsTunneled: null, killSwitch: null, warnings: [],
+  });
   // Set only if GET /api/vpn/status itself fails to answer — a written
   // reason the plane/route isn't reachable, never a fabricated tunnel state.
   const [statusErr, setStatusErr] = useState(null);
