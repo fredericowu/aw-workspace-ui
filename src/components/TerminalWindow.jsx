@@ -282,11 +282,19 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
     let intentionalClose = false;
+    // Only forgive past reconnect attempts once the socket has proven it can
+    // stay open for a bit — resetting the counter the instant `onopen` fires
+    // (the old behaviour) let a socket that opens and immediately closes
+    // again reconnect forever, because the counter never got the chance to
+    // reach the give-up threshold below. A flapping connection (server
+    // rejecting/dropping it right away) would then hammer the endpoint with
+    // a new WebSocket every ~1-2s indefinitely instead of ever giving up.
+    let stableTimer = null;
     console.debug('[DUPDBG] ws-construct', sessionId, 'reconnectKey=', reconnectKey, 't=', performance.now());
 
     ws.onopen = () => {
       console.debug('[DUPDBG] ws-open', sessionId, 't=', performance.now());
-      reconnectAttemptsRef.current = 0;
+      stableTimer = setTimeout(() => { reconnectAttemptsRef.current = 0; }, 4000);
       try {
         const dims = fitAddon.proposeDimensions();
         if (dims) {
@@ -337,6 +345,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
 
     ws.onclose = () => {
       console.debug('[DUPDBG] ws-close', sessionId, 'intentional=', intentionalClose, 't=', performance.now());
+      clearTimeout(stableTimer);
       if (intentionalClose) return;
       // Auto-reconnect — handles restarts triggered from other browsers.
       // Back off: 1s, 2s, 3s... Give up after 8 attempts.
@@ -422,6 +431,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
 
     return () => {
       clearTimeout(fitTimeout.current);
+      clearTimeout(stableTimer);
       resizeObserver.disconnect();
       window.removeEventListener('aw-term-cmd', onTermCmd);
       // Deregister the fast-path send callback so a later HTTP

@@ -21,7 +21,18 @@ export function useComponentStatus() {
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      // This channel is JSON-text only, but the browser's default
+      // `binaryType` is 'blob' — if a binary frame ever lands here (e.g. a
+      // stray frame from a misrouted/reused connection), `event.data` is a
+      // Blob, and JSON.parse throws synchronously with no useful message.
+      // Drop it rather than let an uncaught exception skip whatever else
+      // was queued in this handler run.
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
 
       if (data.type === 'init') {
         setComponents(asArray(data.components));
