@@ -273,6 +273,23 @@ describe('NetworkingTab', () => {
     expect(screen.getByRole('button', { name: /offline links \(2\)/i })).toBeInTheDocument();
   });
 
+  it('shows a host row by its friendly_name over its raw hostname', async () => {
+    // Regression: hostLabel() was added to prioritize the per-link
+    // friendly_name aw-backend already returns, but nothing pinned its
+    // priority down — a rename in aw-backend without a matching test here
+    // would silently regress back to the raw agent hostname. Uses Mac.Home
+    // (824decc7e0610089) rather than the baremetal host: that one also backs
+    // the default mockApi() public-IP fixture's literal `host_name`, which
+    // has nothing to do with friendly_name and would collide here.
+    mockApi({
+      hosts: HOSTS.map((h) => (h.id === '824decc7e0610089' ? { ...h, friendly_name: 'aw-host' } : h)),
+    });
+    render(<NetworkingTab />);
+
+    expect(await screen.findByText('aw-host')).toBeInTheDocument();
+    expect(screen.queryByText('Mac.Home')).not.toBeInTheDocument();
+  });
+
   it('writes the ineligibility reason as text, not only in a tooltip', async () => {
     mockApi();
     render(<NetworkingTab />);
@@ -709,6 +726,33 @@ describe('exit gate picker', () => {
     const sel = screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT');
     const options = Array.from(sel.querySelectorAll('option')).map((o) => o.textContent);
     expect(options.join(' ')).toMatch(/aw-baremetal — 65\.109\.66\.88/);
+  });
+
+  it("labels a mesh candidate with the host's friendly_name, but still dispatches the real tailscale node name", async () => {
+    // Regression: exitGateCandidates() built the picker option off
+    // node.nodeName || host.hostname and never looked at friendly_name, so a
+    // host renamed in aw-backend still showed its raw tailscale/agent name
+    // here — same bug as the host-list rows, via a path that diff 8a69908
+    // didn't touch. The label may change; `value` must not, because that is
+    // what gets POSTed as `node` to the exit-gate API and a friendly_name is
+    // not something tailscale/headscale can resolve.
+    const posted = [];
+    mockApi({
+      hosts: HOSTS.map((h) => (h.id === '11e8bd4157845a24' ? { ...h, friendly_name: 'aw-host' } : h)),
+      exitGate: (options) => { posted.push(JSON.parse(options.body)); return { plan: true, gate: 'aw-baremetal', exclusions: [] }; },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const sel = screen.getByLabelText('Exit gate for DESKTOP-DRMKFBT');
+    const options = Array.from(sel.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options.join(' ')).toMatch(/aw-host/);
+    expect(options.join(' ')).not.toMatch(/aw-baremetal/);
+
+    fireEvent.change(sel, { target: { value: 'aw-baremetal' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /review change/i })[0]);
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].node).toBe('aw-baremetal');
   });
 
   it('never offers a host itself as its own exit', async () => {
@@ -1396,6 +1440,51 @@ describe('external tunnel as an exit gate', () => {
     // Never a placeholder that reads like an address, never "unknown" — the
     // same discipline `HostPublicIp` already keeps.
     expect(externalOption).toBe('wg0 on b614f41828c8 (2 peers)');
+  });
+
+  it("labels the external tunnel's acting host with friendly_name in the dropdown and the Clear/confirmation prose, but still acts on the real host id", async () => {
+    // Same bug as the mesh candidate, on the other kind of candidate:
+    // exitGateCandidates() built viaHostName/name off host.hostname alone,
+    // so this picker — reached via a different path than the 9 sites diff
+    // 8a69908 fixed — still showed the raw container id for a renamed host.
+    const hostsWithFriendlyName = HOSTS_WITH_CONTAINER.map((h) => (
+      h.id === '11e8bd4157845a24' ? { ...h, friendly_name: 'aw-host' } : h
+    ));
+    const seen = [];
+    mockApi({
+      hosts: hostsWithFriendlyName,
+      mesh: MESH_WITH_EXTERNAL,
+      // Overridden so the "measured on <host_name>" public-IP banner — a
+      // literal field on a fixture unrelated to hosts[].friendly_name —
+      // doesn't leave a stray "b614f41828c8" on the page and produce a false
+      // negative on the assertion below.
+      publicIp: { ip: '188.250.165.236', via: 'https://api.ipify.org', host_id: '11e8bd4157845a24', host_name: 'aw-host' },
+      externalRoute: (options) => {
+        seen.push(JSON.parse(options.body));
+        return { container: 'e91aacf5a3a3', container_after: '65.109.66.88' };
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const picker = screen.getAllByLabelText(/^Exit gate for /).find((s) => s.querySelector('optgroup'));
+    const options = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options.join(' ')).toMatch(/wg0 on aw-host/);
+    expect(options.join(' ')).not.toMatch(/b614f41828c8/);
+
+    fireEvent.change(screen.getByLabelText('Exit gate for e91aacf5a3a3'), {
+      target: { value: 'external:11e8bd4157845a24:wg0' },
+    });
+    expect(screen.getByRole('button', { name: /clear route via aw-host/i })).toBeInTheDocument();
+    revealEveryRefusal();
+    expect(screen.getByText(/This route is written on/)).toBeInTheDocument();
+    expect(screen.queryByText('b614f41828c8')).not.toBeInTheDocument();
+
+    // The undo still names the real host id to the API — friendly_name is a
+    // display label the acting machine's own /exit-gate endpoint never sees.
+    fireEvent.click(screen.getByRole('button', { name: /clear route via aw-host/i }));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual({ via_host: '11e8bd4157845a24' });
   });
 
   it('gives a host that is NOT on the mesh a picker it would otherwise never get', async () => {

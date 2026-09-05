@@ -21,6 +21,25 @@ export const MESH_UNAVAILABLE_REASON =
   'The mesh-status endpoint did not answer, so nothing is known about any '
   + "host's tailscale state. No agent data.";
 
+/**
+ * A host's display name — its per-link `friendly_name` when the owner has
+ * set one, else the raw `hostname` its agent reported at hello, else
+ * `fallback` (the link id, by default). `friendly_name` already comes back
+ * on every row `fetchRemoteHosts` returns (aw-backend's
+ * `list_account_remote_hosts`); this only fixes the PRIORITY callers read
+ * it at, matching the order RemoteHostsTab already renames by — a Mac
+ * dutifully renamed "aw-host" still showed its raw container id wherever a
+ * call site skipped straight to `hostname || id`.
+ *
+ * Lives here rather than in NetworkingTab.jsx so `exitGateCandidates` below
+ * — which builds labels the same host objects feed into, just for the
+ * exit-gate picker instead of the host rows — can share the exact priority
+ * instead of a second copy of it drifting.
+ */
+export function hostLabel(host, fallback = host?.id) {
+  return host?.friendly_name || host?.hostname || fallback;
+}
+
 async function readJson(res) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -719,13 +738,18 @@ export function exitGateCandidates(hosts, mesh, hostId) {
     if (host.id === hostId) continue;
     const node = mesh.nodes?.[host.id];
     if (node?.reported && node.up && node.offersExit) {
-      const name = node.nodeName || host.hostname;
-      if (name) {
+      // `value` has to stay the identifier tailscale itself resolves — see
+      // the doc comment above, "the node name the API takes verbatim" — so
+      // it is never `friendly_name`, which is an aw-backend label the mesh
+      // has never heard of and `vpn.ResolveExitPeer` would reject. Only the
+      // DISPLAY name gets the friendly_name-first priority.
+      const gateName = node.nodeName || host.hostname;
+      if (gateName) {
         out.push({
           kind: 'mesh',
-          value: name,
+          value: gateName,
           hostId: host.id,
-          name,
+          name: host.friendly_name || gateName,
           meshIp: node.meshIp || null,
           // Eligible AND costly are not opposites. `gateWarnings` is what
           // turns a silent "sure, pick it" into a sentence the user agrees
@@ -743,9 +767,9 @@ export function exitGateCandidates(hosts, mesh, hostId) {
         kind: 'external',
         value: `external:${host.id}:${entry.interface}`,
         viaHostId: host.id,
-        viaHostName: host.hostname || node?.nodeName || host.id,
+        viaHostName: hostLabel(host, node?.nodeName || host.id),
         interface: entry.interface,
-        name: `${entry.interface} on ${host.hostname || host.id}`,
+        name: `${entry.interface} on ${hostLabel(host)}`,
         // The PEER COUNT, not an endpoint. A hub carries one interface and
         // many peers, so "the endpoint" is not a thing it has — labelling the
         // option with the first peer's would name whichever one `wg show`

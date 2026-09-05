@@ -14,6 +14,7 @@ import {
   fetchMeshStatus,
   fetchPublicIp,
   fetchRemoteHosts,
+  hostLabel,
   installInstructions,
   joinCommand,
   joinMesh,
@@ -57,20 +58,6 @@ function Pill({ tone = 'muted', children, title }) {
       {children}
     </span>
   );
-}
-
-/**
- * A host's display name — its per-link `friendly_name` when the owner has
- * set one, else the raw `hostname` its agent reported at hello, else
- * `fallback` (the link id, by default). `friendly_name` already comes back
- * on every row `fetchRemoteHosts` returns (aw-backend's
- * `list_account_remote_hosts`); this only fixes the PRIORITY this tab reads
- * it at, matching the order RemoteHostsTab already renames by — a Mac
- * dutifully renamed "aw-host" still showed its raw container id here because
- * every call site skipped straight to `hostname || id`.
- */
-function hostLabel(host, fallback = host?.id) {
-  return host?.friendly_name || host?.hostname || fallback;
 }
 
 /**
