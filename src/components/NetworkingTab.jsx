@@ -60,6 +60,20 @@ function Pill({ tone = 'muted', children, title }) {
 }
 
 /**
+ * A host's display name — its per-link `friendly_name` when the owner has
+ * set one, else the raw `hostname` its agent reported at hello, else
+ * `fallback` (the link id, by default). `friendly_name` already comes back
+ * on every row `fetchRemoteHosts` returns (aw-backend's
+ * `list_account_remote_hosts`); this only fixes the PRIORITY this tab reads
+ * it at, matching the order RemoteHostsTab already renames by — a Mac
+ * dutifully renamed "aw-host" still showed its raw container id here because
+ * every call site skipped straight to `hostname || id`.
+ */
+function hostLabel(host, fallback = host?.id) {
+  return host?.friendly_name || host?.hostname || fallback;
+}
+
+/**
  * A refusal or a warning, said as STATE first and prose second.
  *
  * Every sentence this screen refuses with is worth reading, and none of
@@ -766,7 +780,7 @@ function ExitGateControl({
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[11px] text-[var(--color-text-muted)]">Exit gate</span>
         <select
-          aria-label={`Exit gate for ${host.hostname || host.id}`}
+          aria-label={`Exit gate for ${hostLabel(host)}`}
           value={choice}
           onChange={(e) => { setChoice(e.target.value); setPlan(null); setResult(null); setError(''); }}
           className="text-[12px] px-2 py-1 rounded bg-[var(--color-bg-header)] border border-[var(--color-border)] text-[var(--color-text-primary)]"
@@ -860,7 +874,7 @@ function ExitGateControl({
             <>
               This route is written on <code className="font-mono">{chosen.viaHostName}</code>, not
               here: it is that machine that terminates the tunnel and owns the routing table. It
-              works only if <code className="font-mono">{host.hostname || host.id}</code> runs as a
+              works only if <code className="font-mono">{hostLabel(host)}</code> runs as a
               container on it — the rule’s source comes out of that runtime, so a host it cannot
               resolve is refused rather than guessed at. “Review change” asks it and changes
               nothing.
@@ -895,7 +909,7 @@ function ExitGateControl({
               </>
             ) : (
               <>
-                This moves the CONTAINERS on {host.hostname || 'this host'} out through {plan.gate}
+                This moves the CONTAINERS on {hostLabel(host, 'this host')} out through {plan.gate}
                 {plan.gateIp ? ` (${plan.gateIp})` : ''}. The machine&apos;s own public IP must NOT
                 change, and the host checks that it did not.
               </>
@@ -1112,7 +1126,7 @@ function HostRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[13px] font-medium text-[var(--color-text-primary)] break-all">
-              {host.hostname || '(no hostname)'}
+              {hostLabel(host, '(no hostname)')}
             </span>
             <Pill tone={host.connected ? 'ok' : 'muted'}>
               {host.connected ? 'connected' : 'offline'}
@@ -1382,19 +1396,19 @@ function GlobalVpnKillSwitch({
         const res = await clearExitGate(slug, h.id);
         results.push({
           key: `mesh:${h.id}`,
-          hostname: h.hostname || h.id,
+          hostname: hostLabel(h),
           kind: 'exit gate',
           ok: true,
           detail: res.egress ? `egress now ${res.egress}` : (res.egressError || ''),
         });
       } catch (e) {
         results.push({
-          key: `mesh:${h.id}`, hostname: h.hostname || h.id, kind: 'exit gate', ok: false, detail: String(e.message || e),
+          key: `mesh:${h.id}`, hostname: hostLabel(h), kind: 'exit gate', ok: false, detail: String(e.message || e),
         });
       }
     }
     for (const r of routes) {
-      const hostname = (hosts || []).find((h) => h.id === r.hostId)?.hostname || r.hostId;
+      const hostname = hostLabel((hosts || []).find((h) => h.id === r.hostId), r.hostId);
       try {
         const res = await clearExternalRoute(slug, r.hostId, r.viaHostId);
         results.push({
@@ -1452,7 +1466,7 @@ function GlobalVpnKillSwitch({
             <ul className="text-[11px] text-[var(--color-text-muted)] grid gap-0.5">
               {gatedHosts.map((h) => (
                 <li key={h.id}>
-                  <code className="font-mono">{h.hostname || h.id}</code> — exit gate{' '}
+                  <code className="font-mono">{hostLabel(h)}</code> — exit gate{' '}
                   <code className="font-mono">{mesh.nodes[h.id].exitNode}</code>
                 </li>
               ))}
@@ -1461,7 +1475,7 @@ function GlobalVpnKillSwitch({
           {routes.length > 0 && (
             <ul className="text-[11px] text-[var(--color-text-muted)] grid gap-0.5">
               {routes.map((r) => {
-                const hostname = (hosts || []).find((h) => h.id === r.hostId)?.hostname || r.hostId;
+                const hostname = hostLabel((hosts || []).find((h) => h.id === r.hostId), r.hostId);
                 return (
                   <li key={r.hostId}>
                     <code className="font-mono">{hostname}</code> — external route via {r.viaHostName}

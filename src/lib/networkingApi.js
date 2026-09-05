@@ -68,13 +68,19 @@ export async function currentWorkspaceSlug() {
 }
 
 /**
- * `{count, hosts:[{id, workspace_slug, hostname, os, arch, last_seen_at,
- * connected}]}` — every non-revoked link across the account, connected or not.
+ * `{count, hosts:[{id, workspace_slug, hostname, friendly_name, os, arch,
+ * last_seen_at, connected}]}` — every non-revoked link across the account,
+ * connected or not.
  *
  * Rows are per LINK, never per machine — the same `hostname` legitimately
  * appears more than once with different ids (a re-link leaves the previous
  * row behind, and one machine can carry both a Windows and a WSL2 link), so
  * don't dedupe them away.
+ *
+ * `friendly_name` is a per-LINK rename set via `renameRemoteHost` below —
+ * `null` until someone sets one. Any UI that names a host from this row must
+ * prefer it over `hostname`, the same order `renameRemoteHost`'s own callers
+ * already read it in — else a rename silently does nothing on that screen.
  */
 export async function fetchRemoteHosts(slug) {
   const s = slug || (await resolveAccountSlug());
