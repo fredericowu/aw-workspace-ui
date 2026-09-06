@@ -262,7 +262,23 @@ function AuthenticatedApp() {
   // home-screen icon.  Real desktops stay clean.
   const showPhoneTools = isPhoneSized();
   const showWidthPicker = showPhoneTools;
-  const showKbdToggle = showPhoneTools;
+
+  // The keyboard-suppression toggle only works via iPadOS's native
+  // "hide on-screen keyboard when an external keyboard is attached"
+  // behavior — the inputmode="none" it sets (lib/keyboardMode.js) is a
+  // no-op on iOS Safari (WebKit bug 193811, resolved 2019 by making
+  // Safari ignore the attribute rather than implement it), on iPhone
+  // and iPad alike. Hide the toggle on iPhone, where it can never do
+  // anything; keep it on iPad. Same UA/screen-size heuristic
+  // TerminalWindow.jsx's isIPadDesktopMode uses, so both places agree
+  // on what counts as iPad vs iPhone.
+  const isIPadDesktopMode =
+    typeof navigator !== 'undefined' &&
+    typeof window !== 'undefined' &&
+    navigator.maxTouchPoints > 1 &&
+    /Macintosh/.test(navigator.userAgent) &&
+    Math.min(window.screen.width, window.screen.height) >= 600;
+  const showKbdToggle = showPhoneTools && isIPadDesktopMode;
 
   const { components, refetch } = useComponentStatus();
 
