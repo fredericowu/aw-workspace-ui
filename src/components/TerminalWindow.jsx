@@ -6,6 +6,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { apiFetch, wsUrl } from '../auth';
+import { attachHardwareKeyboardBridge, isKbdFocusProxy } from '../lib/hardwareKeyboardBridge';
+import { onSuppressKbdChange } from '../lib/keyboardMode';
 
 const API_BASE = '';
 
@@ -249,6 +251,19 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       term.textarea.setAttribute('inputmode', 'none');
     }
 
+    // iPhone: inputmode="none" is a no-op there (WebKit 193811), so the only
+    // way to keep the soft keyboard down is to never focus an editable
+    // element. The bridge parks focus on a non-editable div and re-dispatches
+    // keydowns into xterm — see lib/hardwareKeyboardBridge.js. It gates itself
+    // on the top-bar toggle and on iPhone-class screens, and is a no-op
+    // everywhere else, so this is unconditional here. Re-attach when the
+    // toggle flips so it takes effect without reopening the terminal.
+    let detachKbdBridge = attachHardwareKeyboardBridge(term, containerRef.current);
+    const offSuppressKbd = onSuppressKbdChange(() => {
+      detachKbdBridge();
+      detachKbdBridge = attachHardwareKeyboardBridge(term, containerRef.current);
+    });
+
     // ─── Mobile control bridge ─────────────────────────────────────
     // External controls (the floating PgUp/PgDn buttons in
     // MobileTerminalView) talk to this xterm instance via a
@@ -434,6 +449,8 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       clearTimeout(stableTimer);
       resizeObserver.disconnect();
       window.removeEventListener('aw-term-cmd', onTermCmd);
+      offSuppressKbd();
+      detachKbdBridge();
       // Deregister the fast-path send callback so a later HTTP
       // fallback knows the socket is gone.  Done before ws.close()
       // so any in-flight keystroke from the on-screen keyboard
@@ -528,11 +545,17 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       // textarea is the active element; if focus is on a button or the
       // outer container div, the SIGINT never reaches the PTY.
       // Guard: only act when xterm's own textarea does NOT have focus, so
-      // we never double-send when xterm is already handling the event.
-      if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'c') {
+      // we never double-send when xterm is already handling the event. In
+      // keyboard-suppressed mode the textarea is *never* focused — the
+      // hardware-keyboard bridge parks focus on a non-editable proxy and
+      // forwards the keystroke into xterm itself — so the proxy counts as
+      // "xterm has focus" here too, otherwise every Ctrl+C sends two SIGINTs.
+      // `e.key` can be undefined for some iOS hardware-key events.
+      if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && (e.key || '').toLowerCase() === 'c') {
         const term = termRef.current;
         const ws = wsRef.current;
-        if (term && document.activeElement !== term.textarea) {
+        const active = document.activeElement;
+        if (term && active !== term.textarea && !isKbdFocusProxy(active)) {
           if (term.hasSelection()) {
             const text = term.getSelection();
             try { navigator.clipboard?.writeText(text).catch(() => {}); } catch {}
