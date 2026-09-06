@@ -421,6 +421,57 @@ describe('RemoteHostsTab', () => {
     expect(screen.queryByTitle(/no BYOD workspace to dispatch the update through/i)).not.toBeInTheDocument();
   });
 
+  it('re-fetches hosts, mesh, and latest version on a manual refresh press, without blanking the table', async () => {
+    mockApi({ latest: 'v0.1.58' });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    apiFetch.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /^refresh$/i }));
+
+    await waitFor(() => {
+      expect(apiFetch.mock.calls.some(([url]) => HOSTS_PATH.test(url))).toBe(true);
+      expect(apiFetch.mock.calls.some(([url]) => MESH_PATH.test(url))).toBe(true);
+      expect(apiFetch.mock.calls.some(([url]) => VERSIONS_PATH.test(url))).toBe(true);
+    });
+    // The rows stayed on screen throughout — a refresh never blanks the table.
+    expect(screen.getByText('b614f41828c8')).toBeInTheDocument();
+    expect(screen.getByText('Mac.Home')).toBeInTheDocument();
+  });
+
+  it('surfaces a failed refresh without losing the rows already on screen', async () => {
+    let hostsCalls = 0;
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/identity/me') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ memberships: [{ workspace: 'aw', role: 'owner' }] }) });
+      }
+      if (MESH_PATH.test(url)) return Promise.resolve({ ok: true, json: () => Promise.resolve(MESH) });
+      if (VERSIONS_PATH.test(url)) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ remote_host: { current: null, latest: null, outdated: null } }) });
+      }
+      if (HOST_PUBLIC_IP_PATH.test(url)) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ip: null, via: null, error: 'not measured in this fixture' }) });
+      }
+      if (HOSTS_PATH.test(url)) {
+        hostsCalls += 1;
+        if (hostsCalls === 1) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ count: HOSTS.length, hosts: HOSTS }) });
+        }
+        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: 'Bad Gateway' }) });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'unhandled ' + url }) });
+    });
+    render(<RemoteHostsTab />);
+    await screen.findByText('b614f41828c8');
+
+    fireEvent.click(screen.getByRole('button', { name: /^refresh$/i }));
+
+    expect(await screen.findByText(/refresh failed/i)).toBeInTheDocument();
+    // The previous rows are untouched by the failed attempt.
+    expect(screen.getByText('b614f41828c8')).toBeInTheDocument();
+    expect(screen.getByText('Mac.Home')).toBeInTheDocument();
+  });
+
   it('dispatches the update to the row\'s remote-host workspace slug, then refetches instead of relabeling', async () => {
     const updatedHosts = HOSTS.map((h) => (
       h.id === '11e8bd4157845a24' ? { ...h, cli_version: 'v0.1.99' } : h

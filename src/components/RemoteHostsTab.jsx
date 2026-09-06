@@ -492,6 +492,8 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
   const [deletingIds, setDeletingIds] = useState({});
   const [latestVersion, setLatestVersion] = useState(null);
   const [updatingIds, setUpdatingIds] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -517,6 +519,38 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
     setError(null);
     setReloadToken((t) => t + 1);
   }, []);
+
+  /**
+   * Manual refresh — deliberately NOT routed through `retry`/`reloadToken`:
+   * those flip `loading` back to true, which hides the whole table while
+   * the mount effect re-runs. A press here must re-fetch without blanking
+   * what's already on screen or the honesty bar this screen holds
+   * everywhere else ("don't show stale data with no indication it might be
+   * stale") would be failed by the refresh button itself. Calls the exact
+   * same three fetches the mount effect calls, in the same order; setting
+   * `hosts` to a new array reference also re-fires the per-host public-IP
+   * effect below, so that data refreshes as part of the same press.
+   */
+  const refresh = useCallback(async () => {
+    if (!slug || refreshing) return;
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const [h, m, latest] = await Promise.all([
+        fetchRemoteHosts(slug),
+        fetchMeshStatus(slug),
+        fetchRemoteHostLatestVersion(slug),
+      ]);
+      setHosts(h);
+      setMesh(m);
+      setLatestVersion(latest);
+      setServerRows(Object.fromEntries(h.map((row) => [row.id, { friendlyName: row.friendly_name || null }])));
+    } catch (e) {
+      setRefreshError(String(e.message || e));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [slug, refreshing]);
 
   // Per-host public IP, one measurement per CONNECTED host — mirrors
   // Networking's own effect verbatim: offline hosts are never asked (their
@@ -672,14 +706,32 @@ export default function RemoteHostsTab({ onNavigateToNetworking }) {
       <Section
         title="Linked hosts"
         action={(
-          <button
-            type="button"
-            onClick={save}
-            disabled={!isDirty || saving}
-            className="px-3 py-1 text-[12px] rounded bg-[var(--color-accent)] text-white disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+          <div className="flex items-center gap-2">
+            {refreshError && (
+              <span
+                className="text-[11px] text-[var(--color-danger)]"
+                title={refreshError}
+              >
+                Refresh failed
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={loading || !!error || refreshing}
+              className="shrink-0 px-3 py-1 text-[12px] rounded bg-white/5 hover:bg-white/10 text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={!isDirty || saving}
+              className="px-3 py-1 text-[12px] rounded bg-[var(--color-accent)] text-white disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         )}
       >
         {loading && <div className="text-[12px] text-[var(--color-text-muted)]">Loading hosts…</div>}
