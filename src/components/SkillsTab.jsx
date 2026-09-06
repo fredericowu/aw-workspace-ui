@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../auth';
+import { apiUrl } from '../apiBase';
 
 /**
  * Workspace > Skills tab.
@@ -93,7 +94,7 @@ export default function SkillsTab() {
       }
       // Open in a separate browser window — code-server's bind mount writes
       // back to disk, the file watcher re-syncs automatically.
-      window.open(data.url, `aw-skill-${name}`, 'popup=1,width=1400,height=900');
+      window.open(apiUrl(data.url), `aw-skill-${name}`, 'popup=1,width=1400,height=900');
     } catch (e) {
       setError(`Open failed: ${e.message}`);
     }
