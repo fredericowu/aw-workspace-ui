@@ -9,7 +9,7 @@ import { pollInstallStatus } from './AppsMarketplace';
 import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
 import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
-import { buildSearchIndex, matchesQuery } from '../apps/appSearch';
+import { buildSearchIndex, matchesQuery, sortByRelevance } from '../apps/appSearch';
 import { colorForApp } from '../apps/appColor';
 
 function catalogVersionsFrom(catalog) {
@@ -318,9 +318,13 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
     uiApps, legacyApps: apps, servicesFrameworkApps, runnableApps, toolsApps,
   });
   const searching = query.trim().length > 0;
-  // Same filter AppSearchResults renders — computed here too so ArrowUp/
-  // ArrowDown can clamp/wrap against the actual on-screen result count.
-  const searchResults = searching ? searchIndex.filter((e) => matchesQuery(e, query)) : [];
+  // Same filter+order AppSearchResults renders — computed here too so
+  // ArrowUp/ArrowDown can clamp/wrap against the actual on-screen result
+  // list. Sorted by relevance so an app named for the query outranks one
+  // that only mentions it in a longer description.
+  const searchResults = searching
+    ? sortByRelevance(searchIndex.filter((e) => matchesQuery(e, query)), query)
+    : [];
 
   const openSearchResult = useCallback((entry) => {
     if (entry.kind === 'legacy') onOpenApp(entry.app.id);

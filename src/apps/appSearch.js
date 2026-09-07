@@ -14,6 +14,29 @@ export function matchesQuery(entry, query) {
   return terms.every((t) => hay.includes(t));
 }
 
+// Lower is more relevant. Only decides ORDER among entries that already
+// passed matchesQuery above — an app named for the query (e.g. "Browser")
+// should never rank below one that merely mentions it in a long description
+// (e.g. Blender's "3D in the browser...").
+function relevanceRank(entry, query) {
+  const q = query.trim().toLowerCase();
+  const name = entry.name.toLowerCase();
+  if (name === q) return 0;
+  if (name.startsWith(q)) return 1;
+  if (name.includes(q)) return 2;
+  if (entry.slug.toLowerCase().includes(q)) return 3;
+  return 4;
+}
+
+// Stable sort (ties keep the incoming category order: UI, Services,
+// Runnables, Tools) by relevance rank.
+export function sortByRelevance(entries, query) {
+  return entries
+    .map((entry, index) => ({ entry, index, rank: relevanceRank(entry, query) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ entry }) => entry);
+}
+
 // Flattens the four category buckets AppLauncher already computes into one
 // normalized, searchable list. Two shapes exist behind it and both have to
 // stay openable: framework apps from GET /api/apps (slug/name/version) and the
@@ -26,6 +49,8 @@ export function buildSearchIndex({ uiApps, legacyApps, servicesFrameworkApps, ru
     kind: 'framework',
     category,
     app,
+    name: app.name || app.slug,
+    slug: app.slug,
     openable: !!app.has_windows,
     haystack: [app.name, app.slug, app.description, category].filter(Boolean).join(' ').toLowerCase(),
   }));
@@ -36,6 +61,8 @@ export function buildSearchIndex({ uiApps, legacyApps, servicesFrameworkApps, ru
       kind: 'legacy',
       category: 'Services',
       app,
+      name: app.label || app.id,
+      slug: app.id,
       openable: true,
       haystack: [app.label, app.id, 'Services'].filter(Boolean).join(' ').toLowerCase(),
     })),
