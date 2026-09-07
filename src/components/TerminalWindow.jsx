@@ -6,7 +6,11 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { apiFetch, wsUrl } from '../auth';
-import { attachHardwareKeyboardBridge, isKbdFocusProxy } from '../lib/hardwareKeyboardBridge';
+import {
+  attachHardwareKeyboardBridge,
+  isKbdFocusProxy,
+  shouldAttachHardwareKeyboardBridge,
+} from '../lib/hardwareKeyboardBridge';
 import { onSuppressKbdChange } from '../lib/keyboardMode';
 
 const API_BASE = '';
@@ -192,6 +196,11 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       }
     };
     const execCommandCopy = (text) => {
+      // This focuses a real, editable textarea — a textbook keyboard-raiser
+      // on iPhone, and removing the node afterwards does not reliably
+      // dismiss it. In bridge mode a failed copy is a smaller regression
+      // than a keyboard that will not go away — skip the fallback entirely.
+      if (shouldAttachHardwareKeyboardBridge()) return;
       try {
         const ta = document.createElement('textarea');
         ta.value = text;

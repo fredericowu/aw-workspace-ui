@@ -56,6 +56,13 @@ describe('isPhoneClassTouchDevice', () => {
     expect(shouldAttachHardwareKeyboardBridge()).toBe(true);
     setSuppressKbd(false);
   });
+
+  it('is false on a desktop UA even with the toggle on', () => {
+    setDevice(DESKTOP);
+    setSuppressKbd(true);
+    expect(shouldAttachHardwareKeyboardBridge()).toBe(false);
+    setSuppressKbd(false);
+  });
 });
 
 describe('attachHardwareKeyboardBridge', () => {
@@ -168,6 +175,19 @@ describe('attachHardwareKeyboardBridge', () => {
       key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
     }));
     expect(sent).toEqual(['\r']);
+  });
+
+  it('marks the real textarea untappable on attach and clears it on detach', () => {
+    expect(term.textarea.getAttribute('data-aw-kbd-bridge')).toBe('1');
+    detach();
+    expect(term.textarea.hasAttribute('data-aw-kbd-bridge')).toBe(false);
+  });
+
+  it('injects a stylesheet rule making the marked textarea pointer-events:none', () => {
+    const style = document.getElementById('aw-kbd-bridge-style');
+    expect(style).toBeTruthy();
+    expect(style.textContent).toContain('.xterm-helper-textarea[data-aw-kbd-bridge]');
+    expect(style.textContent).toContain('pointer-events:none!important');
   });
 
   it('detach restores the real focus behaviour and removes the proxy', () => {

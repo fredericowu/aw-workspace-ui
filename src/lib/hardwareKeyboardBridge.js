@@ -54,6 +54,64 @@ const PROXY_ATTR = 'data-aw-kbd-proxy';
 // on containerEl sees it on the way down — without this flag that is a loop.
 const SYNTHETIC = '__awKbdBridgeSynthetic';
 
+// Marks the real xterm textarea while the bridge is attached, so the injected
+// stylesheet rule below can make it untappable. See the module doc: the proxy
+// keeps focus off it, but `_syncTextArea` still parks it, opacity:0, exactly on
+// the cursor cell — a real native tap can still hit-test and focus it.
+const BRIDGE_ATTR = 'data-aw-kbd-bridge';
+const STYLE_ID = 'aw-kbd-bridge-style';
+const MAX_LOG_ENTRIES = 200;
+
+/**
+ * Inject the untappable-textarea rule once per document. An attribute + a
+ * stylesheet `!important` rule, not `textarea.style.pointerEvents` — xterm's
+ * `_syncTextArea` writes inline styles on every cursor move and a future
+ * version that assigns `cssText` wholesale would silently wipe an inline
+ * property, with no error anywhere. A stylesheet rule cannot be clobbered
+ * that way. Left in the document once inserted; a second bridge attaching
+ * (e.g. a second terminal) just finds it already there.
+ */
+function ensureBridgeStyle(doc) {
+  if (doc.getElementById(STYLE_ID)) return;
+  const style = doc.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `.xterm-helper-textarea[${BRIDGE_ATTR}]{pointer-events:none!important;}`;
+  (doc.head || doc.documentElement).appendChild(style);
+}
+
+/** Short `TAG.class[#id][proxy]` description for the diagnostic log — never the node itself. */
+function describeEl(el) {
+  if (!el || el.nodeType !== 1) return null;
+  let s = el.tagName;
+  if (typeof el.className === 'string' && el.className.trim()) {
+    s += '.' + el.className.trim().split(/\s+/).join('.');
+  }
+  if (el.id) s += `#${el.id}`;
+  if (isKbdFocusProxy(el)) s += '[proxy]';
+  return s;
+}
+
+/**
+ * Diagnostic ring buffer for the next real-device report — see design §2d.
+ * Left on `window` after detach so DevCtl can read it after the fact; only
+ * the listeners that fill it are torn down.
+ */
+function logKbdEvent(win, doc, ev, target) {
+  const store = win.__awKbd || (win.__awKbd = { log: [] });
+  store.log.push({
+    t: Date.now(),
+    ev,
+    target: describeEl(target),
+    active: describeEl(doc.activeElement),
+    ih: win.innerHeight,
+    vv: win.visualViewport ? win.visualViewport.height : null,
+    sw: win.screen ? win.screen.width : null,
+  });
+  if (store.log.length > MAX_LOG_ENTRIES) {
+    store.log.splice(0, store.log.length - MAX_LOG_ENTRIES);
+  }
+}
+
 /**
  * True on iPhone-class touch devices: a real touch screen whose shortest side
  * is under 600px. Deliberately the complement of TerminalWindow.jsx's
@@ -122,6 +180,15 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
   if (!textarea) return noop;
 
   const doc = containerEl.ownerDocument || document;
+  const win = doc.defaultView || window;
+
+  // ── Untappable textarea ────────────────────────────────────────────
+  // The proxy below keeps DOM focus off the textarea, but xterm parks it,
+  // opacity:0, exactly on the cursor cell (`_syncTextArea`) — hit-testable,
+  // so a native tap can still focus it directly and raise the keyboard
+  // without ever going through our focus shadow. Make it untappable too.
+  ensureBridgeStyle(doc);
+  textarea.setAttribute(BRIDGE_ATTR, '1');
 
   // ── Focus proxy ────────────────────────────────────────────────────
   // Focusable (tabindex) but NOT editable — no contenteditable, no input.
@@ -167,6 +234,13 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
       if (!proxy.isConnected) return;
       const active = doc.activeElement;
       if (isKbdFocusProxy(active) || isEditableTarget(active, textarea)) return;
+      logKbdEvent(win, doc, 'bounce', ev.target);
+      // Moving focus away is not the same as ending WebKit's editing
+      // session — an explicit blur() is, and it must happen before the
+      // proxy takes focus back or the cursor renders hollow.
+      if (active === textarea) {
+        try { textarea.blur(); } catch { /* ignore */ }
+      }
       try { proxy.focus({ preventScroll: true }); } catch { /* ignore */ }
     }, 0);
   };
@@ -238,14 +312,35 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
   // style and calls `this.focus()`. Harmless with the shadow in place, but it
   // buys nothing and would reintroduce the bug if the shadow ever regressed.
 
+  // ── Diagnostic ring buffer (design §2d) ───────────────────────────
+  // Document-level, capture phase — not containerEl-scoped: the leading
+  // open question is whether something *outside* the terminal is what
+  // actually raises the keyboard, and a container-scoped listener could
+  // never see that.
+  const onDocFocusIn = (ev) => logKbdEvent(win, doc, 'focusin', ev.target);
+  const onDocFocusOut = (ev) => logKbdEvent(win, doc, 'focusout', ev.target);
+  const onTouchStart = (ev) => logKbdEvent(win, doc, 'touchstart', ev.target);
+  const onVisualViewportResize = () => logKbdEvent(win, doc, 'vvresize', null);
+
+  doc.addEventListener('focusin', onDocFocusIn, true);
+  doc.addEventListener('focusout', onDocFocusOut, true);
+  containerEl.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+  if (win.visualViewport) {
+    win.visualViewport.addEventListener('resize', onVisualViewportResize);
+  }
+
   proxy.addEventListener('focus', onProxyFocus);
   proxy.addEventListener('blur', onProxyBlur);
   proxy.addEventListener('focusout', onProxyFocusOut);
   containerEl.addEventListener('keydown', onKeyDown, true);
 
+  logKbdEvent(win, doc, 'attach', null);
+
   // Toggled on while the terminal is focused: move focus off the textarea now,
-  // which is what dismisses an already-open soft keyboard.
+  // which is what dismisses an already-open soft keyboard. blur() first — see
+  // onProxyFocusOut above for why moving focus alone is not enough.
   if (doc.activeElement === textarea) {
+    try { textarea.blur(); } catch { /* ignore */ }
     try { proxy.focus({ preventScroll: true }); } catch { /* ignore */ }
   }
 
@@ -257,6 +352,12 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
     proxy.removeEventListener('focus', onProxyFocus);
     proxy.removeEventListener('blur', onProxyBlur);
     proxy.removeEventListener('focusout', onProxyFocusOut);
+    doc.removeEventListener('focusin', onDocFocusIn, true);
+    doc.removeEventListener('focusout', onDocFocusOut, true);
+    containerEl.removeEventListener('touchstart', onTouchStart, true);
+    if (win.visualViewport) {
+      win.visualViewport.removeEventListener('resize', onVisualViewportResize);
+    }
 
     const hadFocus = doc.activeElement === proxy;
     if (hadOwnFocus) {
@@ -264,6 +365,7 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
     } else {
       try { delete textarea.focus; } catch { textarea.focus = originalFocus; }
     }
+    textarea.removeAttribute(BRIDGE_ATTR);
     try { proxy.remove(); } catch { /* already gone */ }
     // Toggled off while focused — hand the caret back to xterm so normal
     // on-screen typing works again.
