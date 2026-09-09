@@ -123,9 +123,15 @@ function BackChevron() {
   );
 }
 
-export default function SettingsPanelNew() {
+// initialTarget: optional {selection: {group, key}, nonce} — a caller (e.g.
+// VpnNav's "Open VPN settings") wants to land directly on a section instead
+// of the default. `nonce` matters because this component mounts once per
+// window open/close cycle: re-clicking the same target while the window is
+// already open changes the nonce even though `selection` itself is
+// identical, which is what makes the effect below fire again.
+export default function SettingsPanelNew({ initialTarget } = {}) {
   const [expanded, setExpanded] = useState({ general: true, apps: true });
-  const [selection, setSelection] = useState({ group: 'general', key: 'users' });
+  const [selection, setSelection] = useState(() => initialTarget?.selection || { group: 'general', key: 'users' });
   const [apps, setApps] = useState([]);
   const [appsError, setAppsError] = useState(null);
   const [query, setQuery] = useState('');
@@ -133,8 +139,19 @@ export default function SettingsPanelNew() {
   // Only consulted on the narrow path. The wide layout renders nav and content
   // side by side and ignores this entirely, so desktop behaviour is unchanged.
   // Starts false so the phone opens on the menu rather than dropping the user
-  // straight into Users with no visible way back to the section list.
-  const [detailOpen, setDetailOpen] = useState(false);
+  // straight into Users with no visible way back to the section list — unless
+  // a deep-link target was given, which should jump straight to its content.
+  const [detailOpen, setDetailOpen] = useState(() => !!initialTarget?.selection);
+
+  // Re-navigate on a fresh target even if this component was already mounted
+  // (window was open in the background) — the mount-time useState above only
+  // covers the first-open case.
+  useEffect(() => {
+    if (!initialTarget?.selection) return;
+    setSelection(initialTarget.selection);
+    setDetailOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTarget?.nonce]);
 
   useEffect(() => {
     let alive = true;

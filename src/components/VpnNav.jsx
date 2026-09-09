@@ -27,7 +27,7 @@ import { fetchVpnStatus, normalizeVpnStatus, fetchConfigs, connectVpn, disconnec
  */
 const HOVER_REFRESH_DEBOUNCE_MS = 5000;
 
-export default function VpnNav() {
+export default function VpnNav({ onOpenSettings }) {
   const [open, setOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [status, setStatus] = useState(() => normalizeVpnStatus(null));
@@ -110,13 +110,15 @@ export default function VpnNav() {
 
   const onDisconnect = () => runAction('__disconnect__', () => disconnectVpn());
 
-  // Jump to the full VPN settings page. We just push the hash and let
-  // App.jsx's hashchange listener flip view to 'settings' — no prop
-  // drilling required. Closing the popover keeps the transition clean.
+  // Jump straight to Settings NEW → General → VPNs. Settings is a floating
+  // window opened via App.jsx's openSettingsPanelNew(), not hash-routed (see
+  // App.jsx:451/454) — onOpenSettings is that function, prop-drilled with
+  // the target section already bound in. Closing the popover keeps the
+  // transition clean.
   const openSettings = () => {
     setOpen(false);
     setPickerOpen(false);
-    window.location.hash = '#settings/vpn';
+    onOpenSettings?.();
   };
 
   const shieldState = status.unknown ? 'unknown' : status.connected ? 'connected' : 'disconnected';

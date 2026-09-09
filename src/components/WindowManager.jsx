@@ -776,7 +776,7 @@ function loadFromStorage(key, fallback) {
   } catch { return fallback; }
 }
 
-export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, onUpdateAppWindowTitle }) {
+export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, onUpdateAppWindowTitle, settingsNewTarget }) {
   // Derive agentType from terminals array for any session key
   const _getAgentType = (key) => {
     const sessionId = key.replace('terminal:', '');
@@ -1181,7 +1181,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                     </div>
                   </div>
                   <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                    <SettingsPanelNew />
+                    <SettingsPanelNew initialTarget={settingsNewTarget} />
                   </div>
                 </div>
               ) : key === 'apis:hoppscotch' ? (

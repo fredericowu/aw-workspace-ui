@@ -243,6 +243,33 @@ describe('VpnNav — dead UI removed', () => {
   });
 });
 
+describe('VpnNav — "Open VPN settings" navigates via the prop, not a dead hash', () => {
+  // Regression for card 3d65bf3b-9510-810c-a8e6-ea56376647fc: this used to
+  // write window.location.hash = '#settings/vpn', which nothing has
+  // listened to since Settings moved to a floating window — the button did
+  // nothing. App.jsx now passes openSettingsPanelNew(...) in as this prop.
+  it('calls onOpenSettings and does not touch the hash', async () => {
+    apiFetch.mockImplementation(baseImpl());
+    const onOpenSettings = vi.fn();
+    const originalHash = window.location.hash;
+    const { container } = render(<VpnNav onOpenSettings={onOpenSettings} />);
+    openPopover(container);
+
+    fireEvent.click(await screen.findByTitle('Open Settings → VPN'));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe(originalHash);
+    window.location.hash = originalHash;
+  });
+
+  it('does not blow up when no onOpenSettings prop is given', async () => {
+    apiFetch.mockImplementation(baseImpl());
+    const { container } = render(<VpnNav />);
+    openPopover(container);
+    expect(() => fireEvent.click(screen.getByTitle('Open Settings → VPN'))).not.toThrow();
+  });
+});
+
 describe('VpnNav — hover is debounced against the live shellout', () => {
   it('does not refetch status on a second mouseenter shortly after the first', async () => {
     apiFetch.mockImplementation(baseImpl());
