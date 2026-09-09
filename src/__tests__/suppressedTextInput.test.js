@@ -153,13 +153,7 @@ describe('attachSuppressedTextInput', () => {
   // inert under suppression — "ele nem deixa eu entrar no campo de busca".
   // A tap must ACTIVATE the field (focus the proxy, never the input) and tell
   // the caller to offer a non-OS way to type.
-  it('a tap on the container focuses the PROXY and fires onActivate', () => {
-    detach();
-    const activations = [];
-    detach = attachSuppressedTextInput(input, container, {
-      onKey: () => {},
-      onActivate: (ev) => activations.push(ev.type),
-    });
+  it('a tap on the container silently focuses the PROXY — no callback, no UI', () => {
     // Move focus off the proxy first, so the assertion proves the tap did it.
     const button = document.createElement('button');
     container.appendChild(button);
@@ -167,7 +161,6 @@ describe('attachSuppressedTextInput', () => {
 
     container.dispatchEvent(new Event('touchstart', { bubbles: true }));
 
-    expect(activations).toEqual(['touchstart']);
     expect(document.activeElement).toBe(proxyOf());
     // The whole point: never the real input, which is what raises the keyboard.
     expect(document.activeElement).not.toBe(input);

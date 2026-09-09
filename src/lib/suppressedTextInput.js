@@ -32,12 +32,18 @@
  *      editing session.
  *
  * Suppressing the keyboard is only half the job: the field still has to be
- * usable. An earlier cut stopped at (a)-(c) and shipped a field that a
- * touch-only user could not enter at all ("ele nem deixa eu entrar no campo de
- * busca"). So a tap on `containerEl` focuses the proxy and calls `onActivate`,
- * leaving the caller to offer a way to type that is not the OS keyboard, and
- * the input is marked active (see ACTIVE_ATTR) so the tap visibly did
- * something.
+ * usable. An earlier cut stopped at (a)-(c) and shipped a field nobody could
+ * enter at all ("ele nem deixa eu entrar no campo de busca"). So a tap on
+ * `containerEl` focuses the proxy — silently, with no UI of any kind — and the
+ * input is marked active (see ACTIVE_ATTR) so the tap visibly did something.
+ *
+ * "No UI of any kind" is the point, and it was learned the hard way: a later
+ * cut answered "how does someone type with no keyboard?" by popping the in-app
+ * virtual keyboard on tap, which is the same mistake in a new costume. The
+ * user of this mode HAS a Bluetooth keyboard — that is why suppression is on —
+ * and wants zero keyboards on screen: "eu to com o teclado bluetooth, por isso
+ * eu quero dar o supress... nao quero ver o teclado virtual que criamos".
+ * Focusing the proxy is the whole job; the hardware keyboard does the rest.
  *
  * Scope: iPhone-class touch devices only. Desktop, iPad and everything else
  * get an immediate no-op detach and zero behaviour change.
@@ -135,21 +141,14 @@ function isEditableTarget(el, inputEl) {
  * @param {HTMLElement} containerEl      element the proxy is appended to and
  *                                       keydown is captured on — must be
  *                                       positioned (the proxy is absolute)
- * @param {{onKey?: (ev: KeyboardEvent) => void,
- *          onActivate?: (ev: Event) => void}} [opts]
+ * @param {{onKey?: (ev: KeyboardEvent) => void}} [opts]
  *        `onKey` receives every keydown reaching the proxy, raw. This module
  *        writes no key mapping of its own: the caller owns what a key means,
  *        because against a React controlled input the only correct write path
  *        is the caller's own state setter, never `input.value`.
- *
- *        `onActivate` fires when the user taps anywhere in `containerEl`. The
- *        proxy is focused first, so the field is *active* — the caller's job is
- *        to put up a way to type that is not the OS keyboard. Without this a
- *        touch-only user can tap the field and nothing whatsoever happens,
- *        which is exactly what Frederico hit on a real iPhone.
  * @returns {() => void} detach — always safe to call, idempotent
  */
-export function attachSuppressedTextInput(inputEl, containerEl, { onKey, onActivate } = {}) {
+export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) {
   const noop = () => {};
   if (!inputEl || !containerEl) return noop;
   if (!isPhoneClassTouchDevice()) return noop;
@@ -220,14 +219,13 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey, onActiv
 
   // ── Tap to activate ────────────────────────────────────────────────
   // The input is untappable, so the tap lands on containerEl. Focus the PROXY
-  // — never the input, which is what would raise the OS keyboard — and tell
-  // the caller, so it can offer a non-OS way to type. No preventDefault: the
-  // tap must still complete as a normal click for anything else in the box
-  // (a clear button, say).
+  // — never the input, which is what would raise the OS keyboard. Nothing else
+  // happens: no keyboard is summoned, in-app or otherwise (see the header).
+  // No preventDefault either, so the tap still completes as a normal click for
+  // anything else in the box (a clear button, say).
   const onActivatePointer = (ev) => {
     logKbdEvent(win, doc, 'activate', ev.target);
     try { proxy.focus({ preventScroll: true }); } catch { /* ignore */ }
-    if (typeof onActivate === 'function') onActivate(ev);
   };
 
   // ── Active styling ─────────────────────────────────────────────────

@@ -24,7 +24,7 @@ import {
   installApp, getAppVersions,
 } from '../apps/appsApi';
 import { setSuppressKbd } from '../lib/keyboardMode';
-import { isVirtualKeyboardTrackpadOpen, closeVirtualKeyboardTrackpad } from '../lib/virtualKeyboardTrackpad';
+import { isVirtualKeyboardTrackpadOpen, openVirtualKeyboardTrackpad, closeVirtualKeyboardTrackpad } from '../lib/virtualKeyboardTrackpad';
 import AppLauncher from '../components/AppLauncher';
 import ErrorBoundary from '../components/ErrorBoundary';
 
@@ -534,7 +534,7 @@ describe('AppLauncher — iPhone keyboard suppression', () => {
   // consigo buscar". A tap must ACTIVATE search without ever focusing the real
   // input (which is what would raise the OS keyboard), and must put up the
   // in-app keyboard so a touch-only user can actually type.
-  it('a tap on the search box activates search and opens the in-app keyboard, never focusing the real input', async () => {
+  it('a tap on the search box silently activates search — NO keyboard of any kind', async () => {
     renderLauncher();
     await screen.findByTestId('installed-list');
 
@@ -542,16 +542,32 @@ describe('AppLauncher — iPhone keyboard suppression', () => {
     fireEvent.touchStart(document.querySelector('.applt-search'));
 
     const input = screen.getByLabelText('Search apps');
-    // Focus is on the proxy — the field is active…
+    // Focus is on the proxy — the field is active, so a Bluetooth keyboard
+    // types straight into it…
     await waitFor(() => expect(document.activeElement).toHaveAttribute('data-aw-kbd-proxy'));
     expect(input).not.toHaveFocus();
     expect(input).toHaveAttribute('data-aw-kbd-untappable', '1');
     // …it renders as active rather than looking dead…
     expect(input).toHaveAttribute('data-aw-kbd-active', '1');
-    // …and there is now a way to type that is not the OS keyboard.
-    expect(isVirtualKeyboardTrackpadOpen()).toBe(true);
+    // …and NOTHING is put on screen. Not the OS keyboard (the untappable +
+    // never-focused input is what guarantees that), and not the in-app one
+    // either: whoever turns suppression on has a hardware keyboard and wants
+    // no keyboard UI at all. A previous cut opened this on tap and was wrong.
+    expect(isVirtualKeyboardTrackpadOpen()).toBe(false);
+  });
 
-    closeVirtualKeyboardTrackpad();
+  it('a Bluetooth keystroke on the proxy still searches after a tap', async () => {
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    fireEvent.touchStart(document.querySelector('.applt-search'));
+    const proxy = document.querySelector('[data-aw-kbd-proxy]');
+    'git'.split('').forEach((key) => fireEvent.keyDown(proxy, { key }));
+
+    const results = await screen.findByTestId('search-results');
+    expect(results).toHaveTextContent('Git + GitHub CLI');
+    expect(screen.getByLabelText('Search apps')).toHaveValue('git');
+    expect(isVirtualKeyboardTrackpadOpen()).toBe(false);
   });
 
   it('the in-app keyboard types into the search box, not into a terminal behind it', async () => {
@@ -582,6 +598,10 @@ describe('AppLauncher — iPhone keyboard suppression', () => {
       renderLauncher();
       await screen.findByTestId('installed-list');
       fireEvent.touchStart(document.querySelector('.applt-search'));
+      // Opened DELIBERATELY by the user from the toolbar — the launcher never
+      // opens it on its own (see the test above). This pins what happens when
+      // someone who wants it on screen types into a suppressed field.
+      openVirtualKeyboardTrackpad();
       await waitFor(() => expect(isVirtualKeyboardTrackpadOpen()).toBe(true));
 
       // Tap g, i, t on the in-app keyboard.

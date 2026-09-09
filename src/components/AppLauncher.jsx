@@ -14,7 +14,6 @@ import { colorForApp } from '../apps/appColor';
 import { getSuppressKbd, onSuppressKbdChange } from '../lib/keyboardMode';
 import { isPhoneClassTouchDevice } from '../lib/hardwareKeyboardBridge';
 import { attachSuppressedTextInput } from '../lib/suppressedTextInput';
-import { isVirtualKeyboardTrackpadOpen, openVirtualKeyboardTrackpad } from '../lib/virtualKeyboardTrackpad';
 
 function catalogVersionsFrom(catalog) {
   const versions = {};
@@ -129,12 +128,18 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   // nem deixa eu entrar no campo de busca, nao consigo buscar": search was
   // simply dead for anyone without a Bluetooth keyboard.
   //
+  // A later cut then over-corrected the other way, popping the in-app virtual
+  // keyboard on tap — same mistake in a new costume. Whoever turns suppression
+  // on HAS a Bluetooth keyboard; that is why they turned it on. They want zero
+  // keyboards on screen: "eu to com o teclado bluetooth, por isso eu quero dar
+  // o supress... nao quero ver o teclado virtual que criamos".
+  //
   // So while the top-bar suppress toggle is on, the real input stays
   // unfocusable and untappable (lib/suppressedTextInput.js) — that is what
-  // keeps iOS from ever raising its keyboard — but a tap on the box now
-  // focuses the non-editable proxy and opens the in-app keyboard, whose keys
-  // arrive as ordinary keydowns on that proxy. Mount-autofocus still lands on
-  // the proxy, so merely opening the launcher raises nothing.
+  // keeps iOS from ever raising its keyboard — and a tap on the box silently
+  // focuses the non-editable proxy, with no UI of any kind. The Bluetooth
+  // keyboard then types straight into it. Mount-autofocus lands on that same
+  // proxy, so merely opening the launcher raises nothing either.
   //
   // Same gate as the terminal bridge: the toggle AND a phone-class screen.
   // Desktop, iPad and everything else: zero behaviour change.
@@ -194,27 +199,12 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   // run in declaration order, and the focus shadow has to be installed before
   // `searchInputRef.current.focus()` runs — otherwise the keyboard flashes up
   // on open before being dismissed.
-  // Tapping the field must let the user actually search — Frederico's real-iPhone
-  // report on the first cut: "quando eu to com o icone de supress ligado, ele nem
-  // deixa eu entrar no campo de busca". The proxy is focused by the suppressor
-  // before this runs, so the field is already active; this just puts up a way to
-  // type that is not the OS keyboard. The in-app keyboard writes into the proxy
-  // as plain keydowns (see routeText in virtualKeyboardTrackpad.js), which land
-  // in handleProxyKey exactly like a Bluetooth keystroke would.
-  const handleSearchActivate = useCallback((ev) => {
-    // The clear button lives inside the same wrapper — "erase what I typed",
-    // not "give me a keyboard".
-    if (ev.target?.closest?.('.applt-search-clear')) return;
-    if (!isVirtualKeyboardTrackpadOpen()) openVirtualKeyboardTrackpad();
-  }, []);
-
   useEffect(() => {
     if (!suppressed) return undefined;
     return attachSuppressedTextInput(searchInputRef.current, searchWrapRef.current, {
       onKey: handleProxyKey,
-      onActivate: handleSearchActivate,
     });
-  }, [suppressed, handleProxyKey, handleSearchActivate]);
+  }, [suppressed, handleProxyKey]);
 
   // AppsNav only mounts this component while `open` is true, so a mount
   // here IS the launcher becoming visible — autofocus the search field so
