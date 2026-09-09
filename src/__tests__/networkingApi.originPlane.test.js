@@ -230,7 +230,7 @@ describe('fetchHostPublicIp', () => {
 
     const result = await fetchHostPublicIp('aw', '2d5d56ef224359c0');
 
-    expect(result).toEqual({ ip: '65.109.66.88', via: null, error: null });
+    expect(result).toEqual({ ip: '65.109.66.88', via: null, error: null, containerEgress: null });
     expect(apiFetch).toHaveBeenCalledWith(
       'https://api.aw.tekflox.com/api/workspaces/aw/remote-hosts/2d5d56ef224359c0/public-ip',
     );

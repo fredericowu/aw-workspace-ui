@@ -40,6 +40,21 @@ const revealEveryRefusal = () => {
   screen.getAllByRole('button', { name: /^why\?$/ }).forEach((b) => fireEvent.click(b));
 };
 
+/**
+ * Scopes to the "Public IP" banner alone. Needed once the banner started
+ * rendering BOTH the host's and the containers' egress: every connected
+ * host row below it renders the exact same "host egress"/"container
+ * egress"/"not known" text for ITS OWN pair, so an unscoped `getByText` on
+ * any of those is ambiguous the moment more than one host is connected —
+ * which every fixture here already has.
+ */
+const bannerBox = () => screen.getByText('Public IP').closest('.mb-4');
+
+/** Scopes to one host row by its (unique) link id — hostname is not unique
+ *  in these fixtures (three rows share `DESKTOP-DRMKFBT`), so this is the
+ *  only reliable way to isolate a single row's own host/container pair. */
+const hostRowById = (id) => screen.getByText(id).closest('.py-3');
+
 // The mesh-status payload as aw-backend's `mesh_status` builds it — snake_case
 // on the wire, keyed by remote-host id. Values are the real mesh measured
 // 2026-08-25: the Mac reaches the bare-metal directly, and the Surface's WSL2
@@ -460,9 +475,81 @@ describe('public IP', () => {
   it('says it does not know rather than showing a stale address', async () => {
     mockApi({ publicIp: { ip: null, error: 'this host is not connected, so it could not be asked' } });
     render(<NetworkingTab />);
-    expect(await screen.findByText('not known')).toBeInTheDocument();
-    expect(screen.getByText(/not connected, so it could not be asked/)).toBeInTheDocument();
+    await screen.findByText('Public IP');
+    const banner = within(bannerBox());
+    // Neither side was measured this call, so BOTH read "not known" — the
+    // container side with its own (generic, never-measured) reason, never a
+    // copy of the host's.
+    expect(banner.getAllByText('not known')).toHaveLength(2);
+    expect(banner.getByText(/not connected, so it could not be asked/)).toBeInTheDocument();
     expect(screen.queryByText('188.250.165.236')).not.toBeInTheDocument();
+  });
+
+  // networking:vpn-public-ip-dual-egress (card C) — the pair IS the
+  // diagnostic, so all four combinations of "measured / not known" across
+  // the two addresses have to render distinctly, never one standing in for
+  // the other.
+  it('shows the host and container addresses side by side when they differ', async () => {
+    mockApi({
+      publicIp: {
+        ip: '188.250.165.236', via: 'https://api.ipify.org',
+        host_id: '11e8bd4157845a24', host_name: 'b614f41828c8',
+        container_egress: { ip: '65.109.66.88', via: 'wg0', network: 'bridge' },
+      },
+    });
+    render(<NetworkingTab />);
+    const banner = within(bannerBox());
+    expect(await banner.findByText('188.250.165.236')).toBeInTheDocument();
+    expect(banner.getByText('65.109.66.88')).toBeInTheDocument();
+    expect(banner.getByText('host egress')).toBeInTheDocument();
+    expect(banner.getByText('container egress')).toBeInTheDocument();
+  });
+
+  it('shows the same address on both sides when nothing has moved the containers — the healthy no-gate case', async () => {
+    mockApi({
+      publicIp: {
+        ip: '188.250.165.236', via: 'https://api.ipify.org',
+        host_id: '11e8bd4157845a24', host_name: 'b614f41828c8',
+        container_egress: { ip: '188.250.165.236', via: 'https://api.ipify.org', network: 'bridge' },
+      },
+    });
+    render(<NetworkingTab />);
+    const banner = within(bannerBox());
+    await banner.findByText('host egress');
+    // Equal on purpose — this is the one healthy state gate-less, and the
+    // widget must be able to say so with two real measurements, not one
+    // rendered twice.
+    expect(banner.getAllByText('188.250.165.236')).toHaveLength(2);
+  });
+
+  it('says the container side is not known, with its own reason, while the host side is measured', async () => {
+    mockApi({
+      publicIp: {
+        ip: '188.250.165.236', via: 'https://api.ipify.org',
+        host_id: '11e8bd4157845a24', host_name: 'b614f41828c8',
+        container_egress: { ip: null, error: 'no container runtime on this host' },
+      },
+    });
+    render(<NetworkingTab />);
+    const banner = within(bannerBox());
+    expect(await banner.findByText('188.250.165.236')).toBeInTheDocument();
+    expect(banner.getByText('not known')).toBeInTheDocument();
+    expect(banner.getByText('no container runtime on this host')).toBeInTheDocument();
+  });
+
+  it('says the host side is not known, with its own reason, while the container side is measured', async () => {
+    mockApi({
+      publicIp: {
+        ip: null, error: 'this host is not connected, so it could not be asked',
+        host_id: '11e8bd4157845a24', host_name: 'b614f41828c8',
+        container_egress: { ip: '65.109.66.88', via: 'wg0' },
+      },
+    });
+    render(<NetworkingTab />);
+    const banner = within(bannerBox());
+    expect(await banner.findByText('65.109.66.88')).toBeInTheDocument();
+    expect(banner.getByText('not known')).toBeInTheDocument();
+    expect(banner.getByText(/not connected, so it could not be asked/)).toBeInTheDocument();
   });
 
   it('blanks the old address while re-measuring, instead of leaving it up', async () => {
@@ -520,10 +607,11 @@ describe('per-host public IP', () => {
 
   it('says why a connected host could not be measured, without guessing an address', async () => {
     mockApi({
-      // Give every OTHER connected host a real address, so the "not known"
-      // pill on screen can only be this one host's — the default fixture
-      // answer ('not measured in this fixture') would otherwise render the
-      // same pill for the other three connected hosts too.
+      // Give every OTHER connected host a real address, so the assertions
+      // below can be scoped to this one host's row and still mean something
+      // — the default fixture answer ('not measured in this fixture') would
+      // otherwise render the same "not known" pill for the other three
+      // connected hosts too.
       hostPublicIps: {
         '11e8bd4157845a24': { ip: '24.90.8.255' },
         caf475b7032ee441: { ip: '65.109.66.88' },
@@ -534,8 +622,36 @@ describe('per-host public IP', () => {
     render(<NetworkingTab />);
     await screen.findByText('188.250.165.236'); // wait for the screen to settle
 
-    expect(await screen.findByText('public IP not known')).toBeInTheDocument();
-    expect(screen.getByText(/agent is too old to report its public IP/)).toBeInTheDocument();
+    // This host's row: host side unknown with its own written reason, AND
+    // container side unknown too (never measured in this fixture either) —
+    // the "host half missing" case, with the row's container half missing
+    // right alongside it rather than silently repeating the host's blank.
+    const row = within(hostRowById('c76c606b0a2a5a8b'));
+    expect(await row.findAllByText('not known')).toHaveLength(2);
+    expect(row.getByText(/agent is too old to report its public IP/)).toBeInTheDocument();
+    expect(row.getByText(/container.*could not be measured/)).toBeInTheDocument();
+  });
+
+  it("shows one host's own container half missing while its host half is measured — never a repeat of the host's number", async () => {
+    mockApi({
+      hostPublicIps: {
+        // Every OTHER connected host gets a real host-side address too, so
+        // the scoped assertions below can only be about this one row.
+        caf475b7032ee441: { ip: '65.109.66.88' },
+        '824decc7e0610089': { ip: '73.15.200.4' },
+        c76c606b0a2a5a8b: { ip: '10.1.2.3' },
+        '11e8bd4157845a24': { ip: '24.90.8.255' }, // no container_egress at all — never shipped for this row
+      },
+    });
+    render(<NetworkingTab />);
+    await screen.findByText('188.250.165.236');
+
+    const row = within(hostRowById('11e8bd4157845a24'));
+    expect(await row.findByText('24.90.8.255')).toBeInTheDocument();
+    expect(row.getByText('not known')).toBeInTheDocument();
+    // The regression this guards: a missing container measurement must
+    // never fall back to rendering the host's own address a second time.
+    expect(row.getAllByText('24.90.8.255')).toHaveLength(1);
   });
 
   it('never asks an offline host — no network call, and the row says so without waiting', async () => {
@@ -1432,7 +1548,10 @@ describe('external tunnel as an exit gate', () => {
       publicIp: { ip: null, error: 'measurement timed out' },
     });
     render(<NetworkingTab />);
-    await screen.findByText('not known');
+    // Scoped to the banner: with no container_egress in this fixture either,
+    // BOTH its addresses read "not known", and every connected host row
+    // below renders its own pair of the exact same words.
+    await within(bannerBox()).findAllByText('not known');
 
     const picker = screen.getAllByLabelText(/^Exit gate for /).find((s) => s.querySelector('optgroup'));
     const options = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent);

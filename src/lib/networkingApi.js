@@ -453,13 +453,17 @@ export function joinMeshAvailability(host, node, eligibility) {
 
 /**
  * The public IP this workspace's own host goes out through, right now.
- * Resolves to `{ip, via, hostId, hostName, error}` and NEVER rejects — same
- * bargain as fetchMeshStatus: fetched alongside the host list, so a throw
- * would report an egress problem as "could not list the hosts".
+ * Resolves to `{ip, via, hostId, hostName, error, containerEgress}` and
+ * NEVER rejects — same bargain as fetchMeshStatus: fetched alongside the
+ * host list, so a throw would report an egress problem as "could not list
+ * the hosts".
  *
  * `ip` is null unless a live measurement came back on THIS call — no cache,
  * no last-known fallback, because a remembered address rendered as current
  * would answer "did the route change" wrongly, with total confidence.
+ * `containerEgress` (see `mapContainerEgress`) keeps the exact same bargain
+ * for the containers' address, independently — one can be measured while the
+ * other is not.
  *
  * `hostName` is not decoration: this is one machine's egress, not the
  * account's, and a public IP with no owner is worse than none.
@@ -474,18 +478,24 @@ export async function fetchPublicIp(slug) {
       hostId: data?.host_id || null,
       hostName: data?.host_name || null,
       error: data?.error || null,
+      containerEgress: mapContainerEgress(data?.container_egress),
     };
   } catch (e) {
-    return { ip: null, via: null, hostId: null, hostName: null, error: String(e.message || e) };
+    return {
+      ip: null, via: null, hostId: null, hostName: null, error: String(e.message || e),
+      containerEgress: mapContainerEgress(null),
+    };
   }
 }
 
 /**
  * The public IP one named REMOTE HOST goes out through, right now — not
- * necessarily this workspace's own machine. Same `{ip, via, error}`
- * contract and the same no-cache bargain as `fetchPublicIp` above: `ip` is
- * null unless this call measured it live, and an offline or too-old-agent
- * host answers with its own written reason rather than a guess.
+ * necessarily this workspace's own machine. Same
+ * `{ip, via, error, containerEgress}` contract and the same no-cache bargain
+ * as `fetchPublicIp` above: `ip` is null unless this call measured it live,
+ * and an offline or too-old-agent host answers with its own written reason
+ * rather than a guess. `containerEgress` (see `mapContainerEgress`) keeps
+ * that same bargain independently for the containers' address.
  *
  * `hostId` is resolved against the caller's whole ACCOUNT on the backend
  * (`_resolve_account_host` in aw-backend's `host_link.py`), the same way
@@ -502,9 +512,17 @@ export async function fetchHostPublicIp(slug, hostId) {
   try {
     const s = slug || (await currentWorkspaceSlug());
     const data = await apiFetch(centralApiUrl(`/api/workspaces/${encodeURIComponent(s)}/remote-hosts/${encodeURIComponent(hostId)}/public-ip`)).then(readJson);
-    return { ip: data?.ip || null, via: data?.via || null, error: data?.error || null };
+    return {
+      ip: data?.ip || null,
+      via: data?.via || null,
+      error: data?.error || null,
+      containerEgress: mapContainerEgress(data?.container_egress),
+    };
   } catch (e) {
-    return { ip: null, via: null, error: String(e.message || e) };
+    return {
+      ip: null, via: null, error: String(e.message || e),
+      containerEgress: mapContainerEgress(null),
+    };
   }
 }
 

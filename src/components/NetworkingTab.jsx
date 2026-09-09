@@ -204,45 +204,81 @@ function MeshState({ mesh, hostId }) {
 }
 
 /**
- * The public egress IP, at the top of the screen.
+ * One address's three states, in the banner's own block form — measuring /
+ * not known + reason / measured. `PublicIpBanner` renders this once for the
+ * HOST's egress and once for the CONTAINERS', so the two never render off
+ * two copies of the same ternary that could quietly drift apart. Each call
+ * renders exactly one side: a missing measurement here is its own
+ * "not known", never a stand-in for whatever the other side has.
+ */
+function BannerEgress({ label, value, loading, emptyReason }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] text-[var(--color-text-secondary)] mb-0.5">{label}</div>
+      {loading ? (
+        <div className="text-[12px] text-[var(--color-text-muted)]">Measuring…</div>
+      ) : value?.ip ? (
+        <>
+          <code className="text-[18px] font-mono text-[var(--color-text-primary)] break-all">
+            {value.ip}
+          </code>
+          {value.via && (
+            <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5 break-all">
+              via <code className="font-mono">{value.via}</code>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex items-start gap-2 flex-wrap">
+          <Pill tone="warn">not known</Pill>
+          <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[8rem]">
+            {value?.error || emptyReason}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The public egress IP, at the top of the screen — now BOTH of them, side by
+ * side: the HOST's (today's `egress.ip`, the address this feature guarantees
+ * does NOT move) and the CONTAINERS' (`egress.containerEgress.ip`, the one a
+ * gate moves). The pair is the diagnostic — see the design note on the card
+ * that added this — so a widget collapsing them into one number, silently
+ * switched by state the reader cannot see, would be the exact "unlabelled
+ * number" mistake this screen is built to avoid, just for two numbers
+ * instead of one.
  *
- * WHOSE address it is renders next to it and is not optional — an
- * unlabelled number would repeat, in the most prominent place on the
- * screen, the exact mistake this screen is built to avoid.
- *
- * A measurement that failed shows "not known" and the reason, never a
+ * WHOSE address each one is renders next to it and is not optional. A
+ * measurement that failed shows "not known" and the reason, never a
  * remembered address — a stale one would answer "did it work" wrongly and
  * confidently.
  */
 function PublicIpBanner({ egress, loading, onRefresh }) {
+  const anyMeasured = !loading && !!(egress?.ip || egress?.containerEgress?.ip);
   return (
     <Section title="Public IP">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          {loading ? (
-            <div className="text-[12px] text-[var(--color-text-muted)]">Measuring…</div>
-          ) : egress?.ip ? (
-            <>
-              <code className="text-[18px] font-mono text-[var(--color-text-primary)] break-all">
-                {egress.ip}
-              </code>
-              {/* TEXT NODE, deliberately not its own <span>: an element whose
-                  whole content is a hostname would collide with the host
-                  row rendering the same string, and getByText would then
-                  match two elements. */}
-              <div className="text-[11px] text-[var(--color-text-muted)] mt-1 break-all">
-                measured on {egress.hostName || 'this workspace’s host'}
-                {egress.via && <> · via <code className="font-mono">{egress.via}</code></>}
-              </div>
-            </>
-          ) : (
-            <div className="flex items-start gap-2 flex-wrap">
-              <Pill tone="warn">not known</Pill>
-              <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-                {egress?.error || 'This host’s public IP could not be measured.'}
-              </span>
-            </div>
-          )}
+        <div className="flex items-start gap-6 flex-wrap min-w-0">
+          {/* Labelled "host/container egress", not the bare "host"/"containers"
+              `EgressDelta` already renders below in the applied-gate result —
+              rendering the same two words here, on a section that is always
+              on screen alongside it, would make `getByText('host')` and
+              `getByText('containers')` ambiguous for every reader of this
+              file, human or test. */}
+          <BannerEgress
+            label="host egress"
+            value={egress}
+            loading={loading}
+            emptyReason="This host’s public IP could not be measured."
+          />
+          <BannerEgress
+            label="container egress"
+            value={egress?.containerEgress}
+            loading={loading}
+            emptyReason="This host’s containers’ public IP could not be measured."
+          />
         </div>
         <button
           type="button"
@@ -253,7 +289,50 @@ function PublicIpBanner({ egress, loading, onRefresh }) {
           {loading ? 'Measuring…' : 'Re-measure'}
         </button>
       </div>
+      {anyMeasured && (
+        /* TEXT NODE, deliberately not its own <span>: an element whose whole
+           content is a hostname would collide with the host row rendering
+           the same string, and getByText would then match two elements.
+           Shown once, not once per address — it is the SAME host that
+           measured both, so the fact holds for either. */
+        <div className="text-[11px] text-[var(--color-text-muted)] mt-2 break-all">
+          measured on {egress.hostName || 'this workspace’s host'}
+        </div>
+      )}
     </Section>
+  );
+}
+
+/**
+ * One address's three states, in a host row's own compact inline form — the
+ * row-form counterpart to `BannerEgress` above, same honesty contract.
+ * `HostPublicIp` renders this once for the host's own egress and once for
+ * the containers', each independently: a missing container measurement is
+ * "not known" with its own reason here, never blank and never a repeat of
+ * the host's number.
+ */
+function RowEgress({ label, value, emptyReason }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[11px] text-[var(--color-text-muted)] w-[5.5rem] shrink-0">{label}</span>
+      {value?.ip ? (
+        <>
+          <code className="text-[12px] font-mono text-[var(--color-text-primary)] break-all">{value.ip}</code>
+          {value.via && (
+            <span className="text-[11px] text-[var(--color-text-muted)]">
+              via <code className="font-mono">{value.via}</code>
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <Pill tone="warn">not known</Pill>
+          <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[8rem]">
+            {value?.error || emptyReason}
+          </span>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -267,6 +346,13 @@ function PublicIpBanner({ egress, loading, onRefresh }) {
  *   'measured' — it answered, whether or not that answer carries an `ip`
  *                (a written `error` and no address is still a real result,
  *                never rendered as if nothing had been tried).
+ *
+ * 'loading' and 'offline' are facts about the ROW — one call
+ * (`fetchHostPublicIp`) measures both addresses together, so there is no
+ * state where one is in flight while the other already answered. Only once
+ * 'measured' arrives can the two differ, and from there each address gets
+ * its own `RowEgress` — the HOST's (`state.ip`) and the CONTAINERS'
+ * (`state.containerEgress`) — never one standing in for the other.
  *
  * `state` is `undefined` for one render before the effect above has seeded
  * it — treated the same as 'loading' rather than rendering nothing.
@@ -287,25 +373,22 @@ function HostPublicIp({ state }) {
       </div>
     );
   }
-  if (!state.ip) {
-    return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <Pill tone="warn">public IP not known</Pill>
-        <span className="text-[11px] text-[var(--color-text-muted)] flex-1 min-w-[12rem]">
-          {state.error || 'This host’s public IP could not be measured.'}
-        </span>
-      </div>
-    );
-  }
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[11px] text-[var(--color-text-muted)]">public IP</span>
-      <code className="text-[12px] font-mono text-[var(--color-text-primary)] break-all">{state.ip}</code>
-      {state.via && (
-        <span className="text-[11px] text-[var(--color-text-muted)]">
-          via <code className="font-mono">{state.via}</code>
-        </span>
-      )}
+    <div className="grid gap-1">
+      {/* "host/container egress", not the bare "host"/"containers" — see the
+          same note on `PublicIpBanner`, and this row is one of several
+          rendered at once, which would make the collision worse, not
+          better. */}
+      <RowEgress
+        label="host egress"
+        value={state}
+        emptyReason="This host’s public IP could not be measured."
+      />
+      <RowEgress
+        label="container egress"
+        value={state.containerEgress}
+        emptyReason="This host’s containers’ public IP could not be measured."
+      />
     </div>
   );
 }
