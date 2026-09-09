@@ -61,14 +61,20 @@ describe('attachSuppressedTextInput', () => {
     off();
   });
 
-  it('mounts a focusable, non-editable proxy carrying the SHARED proxy attribute', () => {
+  it('mounts a focusable READONLY INPUT proxy carrying the SHARED proxy attribute', () => {
     const proxy = proxyOf();
     expect(proxy).toBeTruthy();
-    expect(proxy.tagName).toBe('DIV');
+    // A real form control, not a div: real-device evidence showed WebKit never
+    // routes hardware key events to a non-editable element, so the old
+    // `<div tabindex=0>` could suppress the keyboard but never accept typing.
+    expect(proxy.tagName).toBe('INPUT');
     expect(proxy.getAttribute('tabindex')).toBe('0');
-    // Editability is the whole bug — iOS shows the keyboard only for these.
+    // readonly is what is meant to keep the on-screen keyboard down, and it is
+    // also what keeps both sibling modules from mistaking this for a field the
+    // user is typing in — hardwareKeyboardBridge's isEditableTarget and
+    // virtualKeyboardTrackpad's isWritableField both test `!el.readOnly`.
+    expect(proxy.readOnly).toBe(true);
     expect(proxy.hasAttribute('contenteditable')).toBe(false);
-    expect(proxy.isContentEditable).toBeFalsy();
     // Same attribute hardwareKeyboardBridge.js mints, so a terminal bridge
     // open behind the launcher recognises ours and stands down instead of
     // ping-ponging focus with it.

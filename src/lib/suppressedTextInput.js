@@ -2,12 +2,25 @@
  * Suppressed text input — a real `<input>` that never raises the iOS
  * on-screen keyboard, while hardware/Bluetooth keystrokes still reach it.
  *
- * Same mechanism as lib/hardwareKeyboardBridge.js, and for the same reason:
  * `inputmode="none"` is a confirmed no-op on iOS Safari (WebKit 193811), so
- * the only thing that keeps the soft keyboard down is never focusing an
- * editable element. While attached we park DOM focus on a plain, non-editable
- * `<div tabindex="0">` (the "focus proxy") and hand every keydown that lands
- * there to the caller's `onKey`, which owns all key semantics.
+ * the soft keyboard has to be kept down by never focusing the real field.
+ * While attached we park DOM focus on a hidden READONLY INPUT (the "focus
+ * proxy") and hand every keydown that lands there to the caller's `onKey`,
+ * which owns all key semantics.
+ *
+ * The proxy was a non-editable `<div tabindex="0">` — same shape
+ * lib/hardwareKeyboardBridge.js still uses — until a real iPhone disproved it.
+ * With the div correctly focused, the ring buffer recorded many taps and
+ * Bluetooth keystrokes and NOT ONE key event, from a listener bound at the
+ * document. WebKit does not route hardware keys to a non-editable element, so
+ * that design could suppress the keyboard but could never accept typing. A
+ * readonly input is a real form control (a legitimate key target) whose
+ * `readonly` is what keeps the on-screen keyboard down.
+ *
+ * NOTE for whoever touches hardwareKeyboardBridge.js next: its terminal proxy
+ * is still a div, so by this same evidence a Bluetooth keyboard cannot be
+ * reaching a suppressed terminal either. That is a separate card, deliberately
+ * not fixed here.
  *
  * Deliberately NOT sharing an abstraction with hardwareKeyboardBridge.js: the
  * ~30 lines that overlap are DOM boilerplate, while the parts that matter are
@@ -161,15 +174,37 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
   inputEl.setAttribute(UNTAPPABLE_ATTR, '1');
 
   // ── Focus proxy ────────────────────────────────────────────────────
-  // Focusable (tabindex) but NOT editable — that is the entire mechanism.
-  // Carries the same attribute hardwareKeyboardBridge.js mints its proxies
-  // with: a terminal bridge open behind us checks `isKbdFocusProxy` before
-  // bouncing focus back, so a shared attribute is what stops the two from
-  // ping-ponging focus at each other.
-  const proxy = doc.createElement('div');
+  // A READONLY INPUT, not a `<div tabindex=0>`. This was a plain div until
+  // real-device evidence killed that design: with the div focused correctly on
+  // a physical iPhone (iOS 18.7, Safari), the `window.__awKbd` ring buffer
+  // captured attach/focusin/activate/bounce entries across many taps and
+  // Bluetooth keystrokes, and NOT ONE `key` or `key-declined` entry. The
+  // document-level listener sees every keydown that reaches the page, so the
+  // conclusion is not "we listened in the wrong place" — WebKit simply does
+  // not route hardware key events to a non-editable element. No listener
+  // placement can fix that.
+  //
+  // A readonly input is a real form control, so it is a legitimate keyboard
+  // target, while `readonly` is what is meant to keep the on-screen keyboard
+  // down. Same trick `hardenXtermTextareas` in virtualKeyboardTrackpad.js
+  // already applies to xterm's textarea.
+  //
+  // It stays compatible with both sibling modules for free: their
+  // `isEditableTarget`/`isWritableField` both test `!el.readOnly`, so neither
+  // mistakes this for a field the user is typing in, while `isKbdFocusProxy`
+  // still matches on the shared attribute — so a terminal bridge open behind
+  // the launcher still recognises it and stands down instead of ping-ponging.
+  const proxy = doc.createElement('input');
+  proxy.type = 'text';
+  proxy.readOnly = true;
   proxy.setAttribute(KBD_FOCUS_PROXY_ATTR, '1');
   proxy.setAttribute('tabindex', '0');
   proxy.setAttribute('aria-hidden', 'true');
+  // Keep iOS from decorating it: no autofill bar, no autocorrect, no caps.
+  proxy.setAttribute('autocomplete', 'off');
+  proxy.setAttribute('autocorrect', 'off');
+  proxy.setAttribute('autocapitalize', 'off');
+  proxy.setAttribute('spellcheck', 'false');
   proxy.style.cssText =
     'position:absolute;left:0;top:0;width:1px;height:1px;padding:0;border:0;' +
     'opacity:0;outline:none;pointer-events:none;';
@@ -244,6 +279,12 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
 
   const onDocFocusIn = (ev) => logKbdEvent(win, doc, 'focusin', ev.target);
   const onTouchStart = (ev) => logKbdEvent(win, doc, 'touchstart', ev.target);
+  // The on-screen keyboard has no API, but it resizes the visual viewport when
+  // it animates in. Every log entry already carries `ih`/`vv`, so a 'vvresize'
+  // entry showing vv collapse right after a focus is the on-device proof that
+  // a keyboard came up — the one question a readonly proxy raises that cannot
+  // be answered from here. Same signal hardwareKeyboardBridge.js records.
+  const onVisualViewportResize = () => logKbdEvent(win, doc, 'vvresize', null);
 
   // ── Tap to activate ────────────────────────────────────────────────
   // The input is untappable, so the tap lands on containerEl. Focus the PROXY
@@ -276,6 +317,9 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
   doc.addEventListener('keydown', onKeyDown, true);
   doc.addEventListener('focusin', onDocFocusIn, true);
   containerEl.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+  if (win.visualViewport) {
+    win.visualViewport.addEventListener('resize', onVisualViewportResize);
+  }
 
   logKbdEvent(win, doc, 'attach', inputEl);
 
@@ -306,6 +350,9 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
     doc.removeEventListener('keydown', onKeyDown, true);
     doc.removeEventListener('focusin', onDocFocusIn, true);
     containerEl.removeEventListener('touchstart', onTouchStart, true);
+    if (win.visualViewport) {
+      win.visualViewport.removeEventListener('resize', onVisualViewportResize);
+    }
     inputEl.removeAttribute(ACTIVE_ATTR);
 
     const hadFocus = doc.activeElement === proxy;
