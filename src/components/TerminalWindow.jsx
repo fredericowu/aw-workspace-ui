@@ -5,7 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
-import { apiFetch, wsUrl } from '../auth';
+import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 import {
   attachHardwareKeyboardBridge,
   isKbdFocusProxy,
@@ -367,10 +367,20 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       }
     };
 
-    ws.onclose = () => {
-      console.debug('[DUPDBG] ws-close', sessionId, 'intentional=', intentionalClose, 't=', performance.now());
+    ws.onclose = (event) => {
+      console.debug('[DUPDBG] ws-close', sessionId, 'intentional=', intentionalClose, 'code=', event.code, 't=', performance.now());
       clearTimeout(stableTimer);
       if (intentionalClose) return;
+      // A bad/expired token gets 4401 forever — retrying just hot-loops
+      // silently against the auth wall for up to 8 attempts before finally
+      // giving up with a misleading "session ended". Skip straight to
+      // giving up, with the real reason, and surface it globally.
+      if (isAuthWsClose(event.code)) {
+        term.write('\r\n\x1b[90m[session expired — log in again]\x1b[0m\r\n');
+        notifyWsAuthFailed();
+        if (onExit) onExit();
+        return;
+      }
       // Auto-reconnect — handles restarts triggered from other browsers.
       // Back off: 1s, 2s, 3s... Give up after 8 attempts.
       if (reconnectAttemptsRef.current < 8) {

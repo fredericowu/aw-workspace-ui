@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { refreshGitHubPRs, getGitHubPRs, getAwConfig } from '../hooks/useComponentStatus';
-import { wsUrl } from '../auth';
+import { wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 import { GITHUB_STREAM_PATH } from '../lib/githubApi';
 
 const BADGE_STYLES = {
@@ -166,7 +166,14 @@ export default function GitHubSection({ collapsed, collapsedCategories, setColla
       } catch {}
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      // A bad/expired token gets 4401 forever — retrying just hot-loops
+      // silently against the auth wall. Stop, and surface it instead.
+      if (isAuthWsClose(event.code)) {
+        setData((prev) => ({ ...prev, error: 'Session expired — log in again' }));
+        notifyWsAuthFailed();
+        return;
+      }
       // Reconnect after 5s
       reconnectRef.current = setTimeout(connect, 5000);
     };

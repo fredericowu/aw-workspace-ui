@@ -206,6 +206,43 @@ describe('AppsMarketplace', () => {
     expect(screen.queryByRole('button', { name: 'Installing…' })).not.toBeInTheDocument();
   });
 
+  it('stops reconnecting and signals a session-expired state on a 4401 close, instead of hot-looping forever', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const onFail = vi.fn();
+    window.addEventListener('aw-auth-failed', onFail);
+    render(<AppsMarketplace installedApps={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('Git + GitHub CLI');
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    const ws = FakeWebSocket.instances.at(-1);
+
+    // IdentityGuard closed the socket because this workspace session's
+    // token is bad/expired — the fix must NOT open a new WebSocket to
+    // retry against that same wall, and must tell the rest of the app.
+    ws.onclose({ code: 4401 });
+
+    expect(onFail).toHaveBeenCalledTimes(1);
+    // Give the old fixed 5s retry a chance to fire if the fix regressed.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    window.removeEventListener('aw-auth-failed', onFail);
+  });
+
+  it('still reconnects on an ordinary transport close (not an auth code)', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    vi.useFakeTimers();
+    render(<AppsMarketplace installedApps={[]} onInstalled={vi.fn()} onClose={() => {}} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+
+    const ws = FakeWebSocket.instances.at(-1);
+    ws.onclose({ code: 1006 });
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
+    vi.useRealTimers();
+  });
+
   it('shows an Update button (not "Installed") when the installed version is behind the catalog', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     render(<AppsMarketplace installedApps={[{ slug: 'git', version: '0.1.0' }, { slug: 'essentials', version: '0.1.0' }]} onInstalled={vi.fn()} onClose={() => {}} />);

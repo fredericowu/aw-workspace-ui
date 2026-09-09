@@ -229,4 +229,30 @@ describe('Auth module', () => {
     expect(assign).toHaveBeenCalledWith('https://console.aw.tekflox.com/logout');
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('isAuthWsClose is true for the codes IdentityGuard actually closes with (4401/4403/4426)', async () => {
+    const { isAuthWsClose } = await import('../auth');
+    expect(isAuthWsClose(4401)).toBe(true);
+    expect(isAuthWsClose(4403)).toBe(true);
+    expect(isAuthWsClose(4426)).toBe(true);
+  });
+
+  it('isAuthWsClose is false for an ordinary transport close', async () => {
+    const { isAuthWsClose } = await import('../auth');
+    expect(isAuthWsClose(1000)).toBe(false);
+    expect(isAuthWsClose(1006)).toBe(false);
+    expect(isAuthWsClose(4404)).toBe(false);
+    expect(isAuthWsClose(undefined)).toBe(false);
+  });
+
+  it('notifyWsAuthFailed fires the same window-scoped aw-auth-failed event apiFetch uses', async () => {
+    const { notifyWsAuthFailed } = await import('../auth');
+    const onFail = vi.fn();
+    window.addEventListener('aw-auth-failed', onFail);
+
+    notifyWsAuthFailed();
+
+    expect(onFail).toHaveBeenCalledTimes(1);
+    window.removeEventListener('aw-auth-failed', onFail);
+  });
 });

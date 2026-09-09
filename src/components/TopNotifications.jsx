@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiFetch, wsUrl } from '../auth';
+import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 
 /**
  * Top-right floating notification stack. Consumes the `/ws/notifications`
@@ -47,7 +47,13 @@ export default function TopNotifications() {
           }
         } catch (_) { /* ignore malformed */ }
       };
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        // A bad/expired token gets 4401 forever — retrying just hot-loops
+        // silently against the auth wall. Stop, and surface it instead.
+        if (isAuthWsClose(event.code)) {
+          notifyWsAuthFailed();
+          return;
+        }
         if (!closed) setTimeout(connect, 5000);
       };
       ws.onerror = () => { try { ws.close(); } catch {} };

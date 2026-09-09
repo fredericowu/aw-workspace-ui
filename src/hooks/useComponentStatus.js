@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiFetch, wsUrl } from '../auth';
+import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 import { asArray } from '../lib/asArray';
 import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH } from '../lib/githubApi';
 
@@ -129,8 +129,15 @@ export function useComponentStatus() {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       wsRef.current = null;
+      // A bad/expired token gets 4401 forever — retrying just hot-loops
+      // silently against the auth wall. Stop, and let the top-level
+      // aw-auth-failed listener (App.jsx) put the user back at login.
+      if (isAuthWsClose(event.code)) {
+        notifyWsAuthFailed();
+        return;
+      }
       reconnectTimeout.current = setTimeout(connect, 2000);
     };
 

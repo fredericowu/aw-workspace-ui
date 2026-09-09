@@ -19,7 +19,7 @@ import {
   appWindowKey, isAppWindowKey, identityForKey, persistAppWindows, readPersistedAppWindows,
 } from './apps/appWindowKeys';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
-import { apiFetch, wsUrl, getAuthStatus, logout, initAuth } from './auth';
+import { apiFetch, wsUrl, getAuthStatus, logout, initAuth, isAuthWsClose, notifyWsAuthFailed } from './auth';
 import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keyboardMode';
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
 import { isWorkspaceSpa, consoleLoginUrl } from './apiBase';
@@ -384,7 +384,15 @@ function AuthenticatedApp() {
           }
         } catch { /* ignore malformed */ }
       };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 5000); };
+      ws.onclose = (event) => {
+        // A bad/expired token gets 4401 forever — retrying just hot-loops
+        // silently against the auth wall. Stop, and surface it instead.
+        if (isAuthWsClose(event.code)) {
+          notifyWsAuthFailed();
+          return;
+        }
+        if (!closed) setTimeout(connect, 5000);
+      };
       ws.onerror = () => { try { ws.close(); } catch {} };
     };
     connect();
@@ -500,8 +508,14 @@ function AuthenticatedApp() {
             } catch { clearInterval(heartbeatTimer); }
           }, 25000);
         };
-        ws.onclose = () => {
+        ws.onclose = (event) => {
           clearInterval(heartbeatTimer);
+          // A bad/expired token gets 4401 forever — retrying just hot-loops
+          // silently against the auth wall. Stop, and surface it instead.
+          if (isAuthWsClose(event.code)) {
+            notifyWsAuthFailed();
+            return;
+          }
           if (!closed) reconnectTimer = setTimeout(connect, 3000);
         };
         ws.onerror = () => { try { ws.close(); } catch {} };

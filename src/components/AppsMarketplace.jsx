@@ -6,7 +6,7 @@
 // has_config app, opens its config window.
 import { useEffect, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
-import { wsUrl } from '../auth';
+import { wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 import { fetchCatalog, installApp, updateApp, getInstallStatus } from '../apps/appsApi';
 import { semverGt } from '../apps/semver';
 import { readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
@@ -187,7 +187,15 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
           setError(describeActionError('Install', app.name, new Error(jobError || 'unknown error')));
         }
       };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 5000); };
+      ws.onclose = (event) => {
+        // A bad/expired token gets 4401 forever — retrying just hot-loops
+        // silently against the auth wall. Stop, and surface it instead.
+        if (isAuthWsClose(event.code)) {
+          notifyWsAuthFailed();
+          return;
+        }
+        if (!closed) setTimeout(connect, 5000);
+      };
       ws.onerror = () => { try { ws.close(); } catch {} };
     };
     connect();

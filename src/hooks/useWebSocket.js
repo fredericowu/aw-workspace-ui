@@ -1,10 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { wsUrl } from '../auth';
+import { wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 
 export function useWebSocket(key, onMessage) {
   const wsRef = useRef(null);
   const onMessageRef = useRef(onMessage);
   const [connected, setConnected] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const reconnectTimeout = useRef(null);
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -12,6 +13,7 @@ export function useWebSocket(key, onMessage) {
 
   useEffect(() => {
     if (!key) return;
+    setSessionExpired(false);
 
     const connect = () => {
       const ws = new WebSocket(wsUrl(`/ws/logs/${key}`));
@@ -23,9 +25,16 @@ export function useWebSocket(key, onMessage) {
         if (onMessageRef.current) onMessageRef.current(event.data);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnected(false);
         wsRef.current = null;
+        // A bad/expired token gets 4401 forever — retrying just hot-loops
+        // silently against the auth wall. Stop, and surface it instead.
+        if (isAuthWsClose(event.code)) {
+          setSessionExpired(true);
+          notifyWsAuthFailed();
+          return;
+        }
         reconnectTimeout.current = setTimeout(connect, 2000);
       };
 
@@ -54,5 +63,5 @@ export function useWebSocket(key, onMessage) {
     setConnected(false);
   }, []);
 
-  return { connected, close };
+  return { connected, sessionExpired, close };
 }

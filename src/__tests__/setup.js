@@ -10,7 +10,10 @@ class MockWebSocket {
     setTimeout(() => this.onopen?.(), 0);
   }
   send() {}
-  close() { this.readyState = 3; this.onclose?.(); }
+  // A real WebSocket always delivers a CloseEvent-shaped object with a
+  // `.code` to onclose — mirror that instead of calling it bare, or any
+  // handler that reads event.code (e.g. the 4401 auth-close check) throws.
+  close(code = 1000, reason = '') { this.readyState = 3; this.onclose?.({ code, reason }); }
 }
 global.WebSocket = MockWebSocket;
 global.fetch = vi.fn(() =>

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { wsUrl } from '../auth';
+import { wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 
 /**
  * AndroidViewerPanel — the reusable live-view + controls, no window chrome
@@ -55,9 +55,16 @@ export function AndroidViewerPanel({ toolbarPortalRef }) {
 
     ws.onerror = () => setStatus('error');
 
-    ws.onclose = () => {
-      setStatus('closed');
+    ws.onclose = (event) => {
       wsRef.current = null;
+      // A bad/expired token gets 4401 forever — retrying just hot-loops
+      // silently against the auth wall. Stop, and surface it instead.
+      if (isAuthWsClose(event.code)) {
+        setStatus('unauthorized');
+        notifyWsAuthFailed();
+        return;
+      }
+      setStatus('closed');
       // Auto-reconnect after a short delay, same spirit as RemoteDesktop's
       // reconnect toolbar action but automatic since there's no toolbar UI here.
       clearTimeout(reconnectTimerRef.current);
@@ -201,6 +208,7 @@ export function AndroidViewerPanel({ toolbarPortalRef }) {
     live: 'Live',
     error: 'Connection error',
     closed: 'Disconnected — reconnecting…',
+    unauthorized: 'Session expired — log in again',
   }[status];
 
   const statusColor = {
@@ -208,6 +216,7 @@ export function AndroidViewerPanel({ toolbarPortalRef }) {
     live: 'bg-green-400',
     error: 'bg-red-400',
     closed: 'bg-red-400 animate-pulse',
+    unauthorized: 'bg-red-400',
   }[status];
 
   return (

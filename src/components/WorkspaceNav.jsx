@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import StatusDot from './StatusDot';
 import SidebarPreview from './SidebarPreview';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
-import { apiFetch, wsUrl } from '../auth';
+import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 import { apiUrl } from '../apiBase';
 import AppSlot from '../apps/AppSlot';
 import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH, GITHUB_STREAM_PATH } from '../lib/githubApi';
@@ -230,7 +230,16 @@ export default function WorkspaceNav({
             }
           } catch {}
         };
-        ws.onclose = () => { if (!closed) reconnectTimer = setTimeout(connect, 5000); };
+        ws.onclose = (event) => {
+          // A bad/expired token gets 4401 forever — retrying just hot-loops
+          // silently against the auth wall. Stop, and surface it instead.
+          if (isAuthWsClose(event.code)) {
+            setReposError('Session expired — log in again');
+            notifyWsAuthFailed();
+            return;
+          }
+          if (!closed) reconnectTimer = setTimeout(connect, 5000);
+        };
         ws.onerror = () => ws.close();
       } catch {
         if (!closed) reconnectTimer = setTimeout(connect, 5000);

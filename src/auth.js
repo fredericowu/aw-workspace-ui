@@ -178,6 +178,32 @@ export function wsUrl(path) {
   return `${proto}//${host}${path}`;
 }
 
+// Close codes that mean "your identity is no longer valid" per
+// docs/standards/app-backend-websocket-messaging.md §5. Unlike an HTTP 401
+// (which can come from an app's OWN unrelated auth surface — see the
+// isAppRoute carve-out above), every one of these always originates from
+// IdentityGuard, on core AND app sockets alike, so it always means the
+// workspace session itself is invalid — there is no per-app ambiguity to
+// account for on the WS path.
+const AUTH_WS_CLOSE_CODES = new Set([4401, 4403, 4426]);
+
+export function isAuthWsClose(code) {
+  return AUTH_WS_CLOSE_CODES.has(code);
+}
+
+// A reconnecting client must call this instead of scheduling another
+// connect() when isAuthWsClose() is true — otherwise it retries forever
+// against an auth wall, silently, with no visible "logged out" state (the
+// 2026-09-09 infinite-reconnect-loop bug). Reuses the exact same
+// window-scoped signal apiFetch fires on a confirmed HTTP 401: dispatched on
+// `window`, so it is scoped to THIS TAB/workspace session only and never
+// leaks a logged-out state into another tab or a different tenant's
+// workspace — do not swap this for localStorage or any other cross-tab
+// store, that is precisely what the card ruled out.
+export function notifyWsAuthFailed() {
+  window.dispatchEvent(new Event('aw-auth-failed'));
+}
+
 // ---- Legacy stubs (kept so old callers compile) ----
 export function getApiKey() { return ''; }
 export function setApiKey() {}
