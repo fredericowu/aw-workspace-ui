@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../apps/appsApi', () => ({
   listInstalledApps: vi.fn(),
@@ -23,6 +23,7 @@ import {
   listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp, getInstallStatus,
   installApp, getAppVersions,
 } from '../apps/appsApi';
+import { setSuppressKbd } from '../lib/keyboardMode';
 import AppLauncher from '../components/AppLauncher';
 import ErrorBoundary from '../components/ErrorBoundary';
 
@@ -424,5 +425,158 @@ describe('AppLauncher — F5 Apps view', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(onOpenInstalledApp).toHaveBeenCalledWith('git');
+  });
+});
+
+// ── iPhone keyboard suppression (Kanban 3d65bf3b) ──────────────────────────
+// Opening the launcher used to autofocus the search field, which on a real
+// iPhone raises the OS keyboard over the app grid unasked. While the top-bar
+// suppress toggle is on, the field is now never focused and never tappable —
+// Frederico's rule is absolute ("enquanto aquele ícone de suppress estiver
+// ativo, o teclado do iPhone nunca deve aparecer"), so there is deliberately
+// no tap-to-type exception. A non-editable focus proxy takes that focus and
+// forwards hardware keystrokes into setQuery.
+//
+// jsdom proves the MECHANISM is wired — that focus lands on a non-editable
+// element, that the field is marked untappable, and that typing still filters.
+// It cannot prove the iOS keyboard stays down; only a real device (or a
+// Simulator with "Connect Hardware Keyboard" unchecked) can.
+describe('AppLauncher — iPhone keyboard suppression', () => {
+  function setDevice({ maxTouchPoints, width, height }) {
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: maxTouchPoints, configurable: true });
+    Object.defineProperty(window.screen, 'width', { value: width, configurable: true });
+    Object.defineProperty(window.screen, 'height', { value: height, configurable: true });
+  }
+  const IPHONE = { maxTouchPoints: 5, width: 430, height: 932 };
+  const DESKTOP = { maxTouchPoints: 0, width: 2560, height: 1440 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    setDevice(IPHONE);
+    setSuppressKbd(true);
+    listInstalledApps.mockResolvedValue(INSTALLED);
+  });
+  afterEach(() => {
+    setSuppressKbd(false);
+    setDevice(DESKTOP);
+  });
+
+  it('mount does not focus the search input — the non-editable proxy takes it instead', async () => {
+    // Every element that receives focus from mount onwards. Asserting only the
+    // FINAL activeElement is not enough: the focusout bounce would put focus
+    // back on the proxy a tick later even if the input had been focused in
+    // between — and on a real iPhone that window is long enough for the
+    // keyboard to come up. The input must never be focused at all.
+    const focused = [];
+    const spy = (e) => focused.push(e.target);
+    document.addEventListener('focusin', spy, true);
+    try {
+      renderLauncher();
+      await screen.findByTestId('installed-list');
+
+      const input = screen.getByLabelText('Search apps');
+      expect(focused).not.toContain(input);
+      expect(input).not.toHaveFocus();
+      expect(document.activeElement).toHaveAttribute('data-aw-kbd-proxy');
+      // …and the field is untappable while suppressed, so a native tap can't
+      // hit-test it and focus it behind our back.
+      expect(input).toHaveAttribute('data-aw-kbd-untappable', '1');
+    } finally {
+      document.removeEventListener('focusin', spy, true);
+    }
+  });
+
+  it('typing on the proxy filters the results, exactly as typing in the field would', async () => {
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    const proxy = document.querySelector('[data-aw-kbd-proxy]');
+    'git'.split('').forEach((key) => fireEvent.keyDown(proxy, { key }));
+
+    const results = await screen.findByTestId('search-results');
+    expect(results).toHaveTextContent('Git + GitHub CLI');
+    expect(results).not.toHaveTextContent('Essentials');
+    // The controlled input's own value tracked setQuery — nothing wrote
+    // input.value behind React's back.
+    expect(screen.getByLabelText('Search apps')).toHaveValue('git');
+    // Backspace drops the last character.
+    fireEvent.keyDown(proxy, { key: 'Backspace' });
+    await waitFor(() => expect(screen.getByLabelText('Search apps')).toHaveValue('gi'));
+  });
+
+  it('Enter on the proxy opens the arrow-selected result via the existing handler', async () => {
+    const onOpenInstalledApp = vi.fn();
+    render(
+      <AppLauncher
+        workspaceApps={[]}
+        components={[]}
+        onOpenApp={vi.fn()}
+        onOpenInstalledApp={onOpenInstalledApp}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByTestId('installed-list');
+
+    const proxy = document.querySelector('[data-aw-kbd-proxy]');
+    'git'.split('').forEach((key) => fireEvent.keyDown(proxy, { key }));
+    await screen.findByRole('button', { name: 'Open Git + GitHub CLI' });
+
+    fireEvent.keyDown(proxy, { key: 'ArrowDown' });
+    fireEvent.keyDown(proxy, { key: 'Enter' });
+
+    expect(onOpenInstalledApp).toHaveBeenCalledWith('git');
+  });
+
+  // Frederico's correction to the original design, which had granted focus to
+  // the real input on a deliberate tap: while suppression is on there is NO
+  // exception. A tap must leave focus on the proxy.
+  it('a deliberate tap on the search box does NOT yield focus to the real input', async () => {
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    const wrap = document.querySelector('.applt-search');
+    fireEvent.touchStart(wrap);
+    fireEvent.pointerDown(wrap);
+    fireEvent.click(wrap);
+
+    const input = screen.getByLabelText('Search apps');
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-aw-kbd-proxy'));
+    expect(input).not.toHaveFocus();
+    // Still untappable, still proxied — nothing about the tap changed state.
+    expect(input).toHaveAttribute('data-aw-kbd-untappable', '1');
+  });
+
+  // Even a direct focus() call on the field — whatever triggers it — is
+  // intercepted, which is what covers the mount autofocus and anything added
+  // later that reaches for the input.
+  it('focusing the input directly is intercepted and lands on the proxy', async () => {
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    const input = screen.getByLabelText('Search apps');
+    input.focus();
+    expect(input).not.toHaveFocus();
+    expect(document.activeElement).toHaveAttribute('data-aw-kbd-proxy');
+  });
+
+  it('with the suppress toggle OFF, the field behaves normally — autofocus and all', async () => {
+    setSuppressKbd(false);
+    renderLauncher();
+    await screen.findByTestId('installed-list');
+
+    const input = screen.getByLabelText('Search apps');
+    expect(input).toHaveFocus();
+    expect(input).not.toHaveAttribute('data-aw-kbd-untappable');
+    expect(document.querySelector('[data-aw-kbd-proxy]')).toBeNull();
+  });
+
+  it('unmounting the launcher takes the proxy with it', async () => {
+    const { unmount } = renderLauncher();
+    await screen.findByTestId('installed-list');
+    expect(document.querySelector('[data-aw-kbd-proxy]')).not.toBeNull();
+
+    unmount();
+    expect(document.querySelector('[data-aw-kbd-proxy]')).toBeNull();
   });
 });

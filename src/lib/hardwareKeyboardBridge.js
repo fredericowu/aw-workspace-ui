@@ -48,7 +48,14 @@
 
 import { getSuppressKbd } from './keyboardMode';
 
-const PROXY_ATTR = 'data-aw-kbd-proxy';
+/**
+ * Marks a focus proxy. Exported because it is a contract between mechanisms,
+ * not an internal detail: `onProxyFocusOut` below bounces focus back unless
+ * the next target is *also* a proxy, so any other suppressed-input mechanism
+ * on the page (lib/suppressedTextInput.js) has to mint its proxies with this
+ * exact attribute or the two fight over focus.
+ */
+export const KBD_FOCUS_PROXY_ATTR = 'data-aw-kbd-proxy';
 // Marks the events we dispatch ourselves. The synthetic is dispatched on the
 // textarea, which lives *inside* containerEl, so our own capture-phase listener
 // on containerEl sees it on the way down — without this flag that is a loop.
@@ -145,7 +152,7 @@ export function shouldAttachHardwareKeyboardBridge() {
  * TerminalWindow.jsx).
  */
 export function isKbdFocusProxy(el) {
-  return !!(el && el.nodeType === 1 && el.hasAttribute && el.hasAttribute(PROXY_ATTR));
+  return !!(el && el.nodeType === 1 && el.hasAttribute && el.hasAttribute(KBD_FOCUS_PROXY_ATTR));
 }
 
 /**
@@ -196,7 +203,7 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
   // focused *editable* element. `pointer-events:none` keeps taps going to
   // xterm's own screen element, which is what drives text selection.
   const proxy = doc.createElement('div');
-  proxy.setAttribute(PROXY_ATTR, '1');
+  proxy.setAttribute(KBD_FOCUS_PROXY_ATTR, '1');
   proxy.setAttribute('tabindex', '0');
   proxy.setAttribute('aria-hidden', 'true');
   proxy.style.cssText =

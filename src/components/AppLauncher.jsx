@@ -11,6 +11,9 @@ import { markUiRefreshNeeded } from '../apps/uiRefresh';
 import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
 import { buildSearchIndex, matchesQuery, sortByRelevance } from '../apps/appSearch';
 import { colorForApp } from '../apps/appColor';
+import { getSuppressKbd, onSuppressKbdChange } from '../lib/keyboardMode';
+import { isPhoneClassTouchDevice } from '../lib/hardwareKeyboardBridge';
+import { attachSuppressedTextInput } from '../lib/suppressedTextInput';
 
 function catalogVersionsFrom(catalog) {
   const versions = {};
@@ -117,10 +120,89 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
+  // ── iPhone: while suppression is on, the OS keyboard NEVER appears ───────
+  // Frederico's rule, verbatim: "enquanto aquele ícone de suppress estiver
+  // ativo, o teclado do iPhone nunca deve aparecer, essa é a regra." So while
+  // the top-bar suppress toggle is on, the search field is kept unfocusable
+  // AND untappable (lib/suppressedTextInput.js): mount-autofocus below lands
+  // on a non-editable focus proxy, and a deliberate tap on the field does
+  // nothing — there is deliberately no tap-to-type escape hatch. Hardware /
+  // Bluetooth keystrokes on that proxy are the only way to type while
+  // suppressed, which is the setup the toggle exists for.
+  //
+  // A touch-only user turns the toggle off (top bar, outside the launcher) to
+  // get the normal field back — that is the intended and only escape.
+  //
+  // Same gate as the terminal bridge: the toggle AND a phone-class screen.
+  // Desktop, iPad and everything else: zero behaviour change.
+  const [phoneClass] = useState(isPhoneClassTouchDevice);
+  const [suppressKbd, setSuppressKbdState] = useState(getSuppressKbd);
+  // The toggle lives in the top bar, behind this overlay — but it persists in
+  // localStorage and can flip between launcher opens, and subscribing costs
+  // one listener, so track it live rather than snapshotting at mount.
+  useEffect(() => onSuppressKbdChange(setSuppressKbdState), []);
+  const suppressed = phoneClass && suppressKbd;
+
+  const searchInputRef = useRef(null);
+  const searchWrapRef = useRef(null);
+  // `handleSearchKeyDown` is rebuilt every render and closes over the current
+  // results/selection, while the DOM keydown listener below is installed once
+  // per attach — so it reaches the latest one through a ref instead of
+  // capturing a stale copy.
+  const searchKeyDownRef = useRef(null);
+
+  // Key semantics for the focus proxy. Never touches `input.value`: this is a
+  // React controlled input, so the only correct write path is `setQuery`, and
+  // it has to be the FUNCTIONAL updater — this closure is installed once and
+  // would otherwise append to a stale `query` and drop characters.
+  const handleProxyKey = useCallback((ev) => {
+    const key = ev.key;
+    if (!key) return;
+    // Paste. With a non-editable element focused iOS offers no paste menu and
+    // Cmd+V maps to nothing, so read the clipboard ourselves — which puts a
+    // one-time "Paste" confirmation in front of the user on iOS Safari.
+    if (key.toLowerCase() === 'v' && ((ev.metaKey && !ev.ctrlKey) || (ev.ctrlKey && ev.shiftKey))) {
+      ev.preventDefault();
+      try {
+        navigator.clipboard?.readText?.()
+          .then((text) => { if (text) setQuery((prev) => prev + text); })
+          .catch(() => {});
+      } catch { /* clipboard unavailable */ }
+      return;
+    }
+    // Selection and open go through the existing handler, so there is exactly
+    // one implementation of what an arrow or Enter means here.
+    if (key === 'Enter' || key === 'ArrowUp' || key === 'ArrowDown') {
+      searchKeyDownRef.current?.(ev);
+      return;
+    }
+    if (key === 'Backspace') {
+      setQuery((prev) => prev.slice(0, -1));
+      return;
+    }
+    // Escape is the document-level listener's (it closes overlays first).
+    if (key === 'Escape') return;
+    if (key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      setQuery((prev) => prev + key);
+    }
+  }, []);
+
+  // Declared ABOVE the autofocus effect on purpose: effects in one component
+  // run in declaration order, and the focus shadow has to be installed before
+  // `searchInputRef.current.focus()` runs — otherwise the keyboard flashes up
+  // on open before being dismissed.
+  useEffect(() => {
+    if (!suppressed) return undefined;
+    return attachSuppressedTextInput(searchInputRef.current, searchWrapRef.current, {
+      onKey: handleProxyKey,
+    });
+  }, [suppressed, handleProxyKey]);
+
   // AppsNav only mounts this component while `open` is true, so a mount
   // here IS the launcher becoming visible — autofocus the search field so
-  // typing works immediately, no click required.
-  const searchInputRef = useRef(null);
+  // typing works immediately, no click required. On a phone-class device this
+  // focus is deliberately intercepted by the suppressor above and lands on its
+  // non-editable proxy: the field never focuses and no keyboard appears.
   useEffect(() => { searchInputRef.current?.focus(); }, []);
   // Reset the keyboard selection whenever the search text itself changes —
   // adjusted during render (React's recommended pattern for "state derived
@@ -350,6 +432,9 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
       if (entry.openable) openSearchResult(entry);
     }
   };
+  // Keep the proxy's key handler pointing at the current closure (see
+  // `searchKeyDownRef` above). Runs on every render, deliberately undeped.
+  useEffect(() => { searchKeyDownRef.current = handleSearchKeyDown; });
 
   return (
     <>
@@ -414,7 +499,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
               </button>
             ))}
           </div>
-          <div className="applt-search">
+          <div className="applt-search" ref={searchWrapRef}>
             <svg className="applt-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="7" />
               <path d="m20 20-3.5-3.5" />
@@ -428,6 +513,12 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
+              /* Marker for the injected `pointer-events:none` rule that keeps a
+                 native tap from focusing this field before any JS can redirect
+                 it — the tap simply does nothing while suppressed. Declared
+                 here so React owns it across the re-render every keystroke
+                 causes. */
+              data-aw-kbd-untappable={suppressed ? '1' : undefined}
             />
             {query && (
               <button
