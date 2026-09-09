@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useComponentStatus, getAwConfig, startComponent } from '../hooks/useComponentStatus';
 import { asArray } from '../lib/asArray';
+import { installAppIframeKbdSync, postSuppressState } from '../lib/appIframeKbd';
+import { getSuppressKbd } from '../lib/keyboardMode';
 import { GITHUB_PRS_PATH } from '../lib/githubApi';
 import { apiFetch, wsUrl } from '../auth';
 import LogWindow from './LogWindow';
@@ -135,6 +137,22 @@ export default function MobileApp() {
     if (iframeRef.current) {
       iframeRef.current.src = iframeRef.current.src;
     }
+  }, []);
+
+  // Keep a Tier-2 app iframe in step with the "suppress on-screen keyboard"
+  // toggle. Those iframes are cross-origin (`<app-id>.app.<apex>` vs this
+  // shell at `<apex>`), so we cannot suppress anything inside them ourselves —
+  // we can only tell a cooperating app what the toggle says and let it apply
+  // its own suppressor. See lib/appIframeKbd.js.
+  //
+  // Three legs, all three needed: the iframe's `onLoad` below, the app's
+  // inbound hello (handled here), and every toggle change.
+  useEffect(() => installAppIframeKbdSync(() => iframeRef.current), []);
+
+  // The load leg. Kept as a named callback rather than inline so the two
+  // send paths (load and hello) read as the one contract they are.
+  const onAppIframeLoad = useCallback(() => {
+    postSuppressState(iframeRef.current, getSuppressKbd());
   }, []);
 
   const closeActiveWindow = useCallback(() => {
@@ -1122,6 +1140,7 @@ export default function MobileApp() {
             <iframe
               ref={iframeRef}
               src={activeWindow.url}
+              onLoad={onAppIframeLoad}
               style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: 'black' }}
               title={activeWindow.title}
               allow="clipboard-read; clipboard-write; microphone; autoplay"
