@@ -168,6 +168,38 @@ describe('attachSuppressedTextInput', () => {
     expect(input.getAttribute('data-aw-kbd-untappable')).toBe('1');
   });
 
+  // Real-device regression: "eu pressiono a tecla focado no campo da busca mas
+  // nao funciona". On iOS a tap lands on the non-focusable wrapper, so WebKit
+  // drops focus to <body> once the gesture ends, and every hardware keystroke
+  // then targets <body> — outside containerEl, where the old container-scoped
+  // listener could never see it.
+  it('forwards keys after a tap even when focus has drifted to <body> (iOS post-tap)', () => {
+    container.dispatchEvent(new Event('touchstart', { bubbles: true }));
+    expect(document.activeElement).toBe(proxyOf());
+
+    // What WebKit does when the gesture ends on a non-focusable node: focus
+    // goes to <body>. The keystroke then targets <body>, not the proxy.
+    proxyOf().blur();
+    expect(document.activeElement).toBe(document.body);
+
+    keys = [];
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true }));
+    expect(keys).toEqual(['g']);
+  });
+
+  it('does NOT steal keys from a genuinely editable field elsewhere on the page', () => {
+    const other = document.createElement('input');
+    other.type = 'text';
+    document.body.appendChild(other);
+    other.focus();
+
+    keys = [];
+    other.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true }));
+    expect(keys).toEqual([]);
+
+    other.remove();
+  });
+
   it('marks the input active while the proxy holds focus, so a tap does not look dead', () => {
     input.focus(); // shadowed → proxy
     expect(input.getAttribute('data-aw-kbd-active')).toBe('1');

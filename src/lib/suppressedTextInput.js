@@ -207,9 +207,37 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
   };
 
   // ── Forward keydown ────────────────────────────────────────────────
-  // On containerEl, capture phase — not on the proxy alone: focus can land on
-  // a sibling (the clear button) and then keydown targets that, not the proxy.
+  // On the DOCUMENT, capture phase. Scoping this to containerEl was a real
+  // bug: a keydown is delivered to the focused element, and on iOS the focus
+  // does not reliably stay on our proxy. A tap lands on the wrapper, which is
+  // not focusable, so WebKit drops focus to <body> once the gesture ends —
+  // after which every hardware keystroke targets <body>, outside containerEl,
+  // and a container-scoped listener never sees it. That is exactly the
+  // reported symptom: tap the field, then the Bluetooth keyboard does nothing.
+  //
+  // Listening at the document means the guard below is what decides ownership,
+  // rather than where the event happened to land.
+  const ownsKeyboard = () => {
+    const active = doc.activeElement;
+    // Someone is genuinely typing somewhere else — never steal from them.
+    if (isEditableTarget(active, inputEl)) return false;
+    if (isKbdFocusProxy(active)) return true;
+    // The clear button and anything else inside the search box.
+    if (active && containerEl.contains(active)) return true;
+    // Focus drifted to nothing (the iOS post-tap case above). While attached,
+    // the suppressed field is still what the user is aiming at.
+    return !active || active === doc.body || active === doc.documentElement;
+  };
+
   const onKeyDown = (ev) => {
+    if (!ownsKeyboard()) {
+      // Logged, not silent: on the next real-device report this is what
+      // separates "the key never reached the page at all" (no entry) from
+      // "it arrived and we handed it to someone else" (this entry). Guessing
+      // between those two has already cost several round-trips.
+      logKbdEvent(win, doc, 'key-declined', ev.target);
+      return;
+    }
     logKbdEvent(win, doc, 'key', ev.target);
     if (typeof onKey === 'function') onKey(ev);
   };
@@ -239,8 +267,13 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
   proxy.addEventListener('blur', onProxyBlurActive);
   containerEl.addEventListener('pointerdown', onActivatePointer, true);
   containerEl.addEventListener('touchstart', onActivatePointer, true);
+  // Also on click: iOS blurs to <body> when the gesture ends on a
+  // non-focusable element, and a re-focus from the focusout bounce runs in a
+  // setTimeout, i.e. outside the user gesture, where WebKit is far less
+  // willing to honour it. Re-asserting here is still inside the gesture.
+  containerEl.addEventListener('click', onActivatePointer, true);
   proxy.addEventListener('focusout', onProxyFocusOut);
-  containerEl.addEventListener('keydown', onKeyDown, true);
+  doc.addEventListener('keydown', onKeyDown, true);
   doc.addEventListener('focusin', onDocFocusIn, true);
   containerEl.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
 
@@ -269,7 +302,8 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
     proxy.removeEventListener('blur', onProxyBlurActive);
     containerEl.removeEventListener('pointerdown', onActivatePointer, true);
     containerEl.removeEventListener('touchstart', onActivatePointer, true);
-    containerEl.removeEventListener('keydown', onKeyDown, true);
+    containerEl.removeEventListener('click', onActivatePointer, true);
+    doc.removeEventListener('keydown', onKeyDown, true);
     doc.removeEventListener('focusin', onDocFocusIn, true);
     containerEl.removeEventListener('touchstart', onTouchStart, true);
     inputEl.removeAttribute(ACTIVE_ATTR);
