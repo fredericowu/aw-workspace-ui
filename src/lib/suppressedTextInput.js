@@ -31,6 +31,14 @@
  *      takes it back — moving focus away is not the same as ending WebKit's
  *      editing session.
  *
+ * Suppressing the keyboard is only half the job: the field still has to be
+ * usable. An earlier cut stopped at (a)-(c) and shipped a field that a
+ * touch-only user could not enter at all ("ele nem deixa eu entrar no campo de
+ * busca"). So a tap on `containerEl` focuses the proxy and calls `onActivate`,
+ * leaving the caller to offer a way to type that is not the OS keyboard, and
+ * the input is marked active (see ACTIVE_ATTR) so the tap visibly did
+ * something.
+ *
  * Scope: iPhone-class touch devices only. Desktop, iPad and everything else
  * get an immediate no-op detach and zero behaviour change.
  */
@@ -51,6 +59,9 @@ import {
 // to track its own inputmode bookkeeping, and an attribute-selector rule would
 // silently reach those too.
 const UNTAPPABLE_ATTR = 'data-aw-kbd-untappable';
+// Set while the proxy holds focus, so CSS can render the field as active —
+// `:focus` can never match a field we deliberately keep unfocused.
+const ACTIVE_ATTR = 'data-aw-kbd-active';
 const STYLE_ID = 'aw-kbd-untappable-style';
 const MAX_LOG_ENTRIES = 200;
 
@@ -124,14 +135,21 @@ function isEditableTarget(el, inputEl) {
  * @param {HTMLElement} containerEl      element the proxy is appended to and
  *                                       keydown is captured on — must be
  *                                       positioned (the proxy is absolute)
- * @param {{onKey?: (ev: KeyboardEvent) => void}} [opts]
+ * @param {{onKey?: (ev: KeyboardEvent) => void,
+ *          onActivate?: (ev: Event) => void}} [opts]
  *        `onKey` receives every keydown reaching the proxy, raw. This module
  *        writes no key mapping of its own: the caller owns what a key means,
  *        because against a React controlled input the only correct write path
  *        is the caller's own state setter, never `input.value`.
+ *
+ *        `onActivate` fires when the user taps anywhere in `containerEl`. The
+ *        proxy is focused first, so the field is *active* — the caller's job is
+ *        to put up a way to type that is not the OS keyboard. Without this a
+ *        touch-only user can tap the field and nothing whatsoever happens,
+ *        which is exactly what Frederico hit on a real iPhone.
  * @returns {() => void} detach — always safe to call, idempotent
  */
-export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) {
+export function attachSuppressedTextInput(inputEl, containerEl, { onKey, onActivate } = {}) {
   const noop = () => {};
   if (!inputEl || !containerEl) return noop;
   if (!isPhoneClassTouchDevice()) return noop;
@@ -200,6 +218,29 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
   const onDocFocusIn = (ev) => logKbdEvent(win, doc, 'focusin', ev.target);
   const onTouchStart = (ev) => logKbdEvent(win, doc, 'touchstart', ev.target);
 
+  // ── Tap to activate ────────────────────────────────────────────────
+  // The input is untappable, so the tap lands on containerEl. Focus the PROXY
+  // — never the input, which is what would raise the OS keyboard — and tell
+  // the caller, so it can offer a non-OS way to type. No preventDefault: the
+  // tap must still complete as a normal click for anything else in the box
+  // (a clear button, say).
+  const onActivatePointer = (ev) => {
+    logKbdEvent(win, doc, 'activate', ev.target);
+    try { proxy.focus({ preventScroll: true }); } catch { /* ignore */ }
+    if (typeof onActivate === 'function') onActivate(ev);
+  };
+
+  // ── Active styling ─────────────────────────────────────────────────
+  // While the proxy holds focus the field IS the thing receiving keys, but
+  // `:focus` cannot match — it genuinely is not focused. Mark it so the CSS
+  // can show it as active; otherwise a tap looks like it did nothing.
+  const onProxyFocusActive = () => inputEl.setAttribute(ACTIVE_ATTR, '1');
+  const onProxyBlurActive = () => inputEl.removeAttribute(ACTIVE_ATTR);
+
+  proxy.addEventListener('focus', onProxyFocusActive);
+  proxy.addEventListener('blur', onProxyBlurActive);
+  containerEl.addEventListener('pointerdown', onActivatePointer, true);
+  containerEl.addEventListener('touchstart', onActivatePointer, true);
   proxy.addEventListener('focusout', onProxyFocusOut);
   containerEl.addEventListener('keydown', onKeyDown, true);
   doc.addEventListener('focusin', onDocFocusIn, true);
@@ -226,9 +267,14 @@ export function attachSuppressedTextInput(inputEl, containerEl, { onKey } = {}) 
     if (detached) return;
     detached = true;
     proxy.removeEventListener('focusout', onProxyFocusOut);
+    proxy.removeEventListener('focus', onProxyFocusActive);
+    proxy.removeEventListener('blur', onProxyBlurActive);
+    containerEl.removeEventListener('pointerdown', onActivatePointer, true);
+    containerEl.removeEventListener('touchstart', onActivatePointer, true);
     containerEl.removeEventListener('keydown', onKeyDown, true);
     doc.removeEventListener('focusin', onDocFocusIn, true);
     containerEl.removeEventListener('touchstart', onTouchStart, true);
+    inputEl.removeAttribute(ACTIVE_ATTR);
 
     const hadFocus = doc.activeElement === proxy;
     if (hadOwnFocus) {

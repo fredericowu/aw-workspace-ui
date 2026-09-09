@@ -24,6 +24,7 @@ import {
   installApp, getAppVersions,
 } from '../apps/appsApi';
 import { setSuppressKbd } from '../lib/keyboardMode';
+import { isVirtualKeyboardTrackpadOpen, closeVirtualKeyboardTrackpad } from '../lib/virtualKeyboardTrackpad';
 import AppLauncher from '../components/AppLauncher';
 import ErrorBoundary from '../components/ErrorBoundary';
 
@@ -528,23 +529,80 @@ describe('AppLauncher — iPhone keyboard suppression', () => {
     expect(onOpenInstalledApp).toHaveBeenCalledWith('git');
   });
 
-  // Frederico's correction to the original design, which had granted focus to
-  // the real input on a deliberate tap: while suppression is on there is NO
-  // exception. A tap must leave focus on the proxy.
-  it('a deliberate tap on the search box does NOT yield focus to the real input', async () => {
+  // Real-device regression (Frederico, on the first cut): suppression made the
+  // field completely inert — "ele nem deixa eu entrar no campo de busca, nao
+  // consigo buscar". A tap must ACTIVATE search without ever focusing the real
+  // input (which is what would raise the OS keyboard), and must put up the
+  // in-app keyboard so a touch-only user can actually type.
+  it('a tap on the search box activates search and opens the in-app keyboard, never focusing the real input', async () => {
     renderLauncher();
     await screen.findByTestId('installed-list');
 
-    const wrap = document.querySelector('.applt-search');
-    fireEvent.touchStart(wrap);
-    fireEvent.pointerDown(wrap);
-    fireEvent.click(wrap);
+    expect(isVirtualKeyboardTrackpadOpen()).toBe(false);
+    fireEvent.touchStart(document.querySelector('.applt-search'));
 
     const input = screen.getByLabelText('Search apps');
+    // Focus is on the proxy — the field is active…
     await waitFor(() => expect(document.activeElement).toHaveAttribute('data-aw-kbd-proxy'));
     expect(input).not.toHaveFocus();
-    // Still untappable, still proxied — nothing about the tap changed state.
     expect(input).toHaveAttribute('data-aw-kbd-untappable', '1');
+    // …it renders as active rather than looking dead…
+    expect(input).toHaveAttribute('data-aw-kbd-active', '1');
+    // …and there is now a way to type that is not the OS keyboard.
+    expect(isVirtualKeyboardTrackpadOpen()).toBe(true);
+
+    closeVirtualKeyboardTrackpad();
+  });
+
+  it('the in-app keyboard types into the search box, not into a terminal behind it', async () => {
+    // Two things at once. Primarily: the in-app keyboard must actually type
+    // into the search box — without the proxy branch in routeText it finds a
+    // non-editable div, isWritableField says no, and NOTHING happens, which is
+    // the bug Frederico hit.
+    //
+    // Secondarily it pins the routing order. resolveTerminalSessionId() falls
+    // back to the frontmost terminal window even when nothing terminal-ish has
+    // focus, so if the proxy were checked second these keystrokes would be
+    // POSTed into whatever shell is open behind the launcher. That fallback
+    // needs a [data-aw-session-id] ancestor, which this repo does not render
+    // today (it is inherited from the monolith), so the window below is
+    // synthetic — it arms a hazard that is currently latent rather than live,
+    // and keeps it armed if that attribute ever comes back.
+    const termWin = document.createElement('div');
+    termWin.setAttribute('data-aw-session-id', 'sess-1');
+    const ta = document.createElement('textarea');
+    ta.className = 'xterm-helper-textarea';
+    termWin.appendChild(ta);
+    document.body.appendChild(termWin);
+    const writes = [];
+    const realFetch = global.fetch;
+    global.fetch = (url, opts) => { writes.push([url, opts?.body]); return Promise.resolve({ ok: true }); };
+
+    try {
+      renderLauncher();
+      await screen.findByTestId('installed-list');
+      fireEvent.touchStart(document.querySelector('.applt-search'));
+      await waitFor(() => expect(isVirtualKeyboardTrackpadOpen()).toBe(true));
+
+      // Tap g, i, t on the in-app keyboard.
+      const root = document.getElementById('aw-virtual-keyboard-trackpad');
+      ['g', 'i', 't'].forEach((ch) => {
+        const key = [...root.querySelectorAll('button')].find((b) => b.textContent === ch);
+        expect(key, `key "${ch}" not found on the in-app keyboard`).toBeTruthy();
+        // The in-app keyboard acts on pointerup, not click (makeKey).
+        fireEvent.pointerUp(key);
+      });
+
+      const results = await screen.findByTestId('search-results');
+      expect(results).toHaveTextContent('Git + GitHub CLI');
+      expect(screen.getByLabelText('Search apps')).toHaveValue('git');
+      // Nothing was written to the terminal session.
+      expect(writes.filter(([u]) => String(u).includes('/write'))).toEqual([]);
+    } finally {
+      global.fetch = realFetch;
+      closeVirtualKeyboardTrackpad();
+      termWin.remove();
+    }
   });
 
   // Even a direct focus() call on the field — whatever triggers it — is

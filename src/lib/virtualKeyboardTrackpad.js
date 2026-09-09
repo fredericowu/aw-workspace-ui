@@ -1,3 +1,5 @@
+import { isKbdFocusProxy } from './hardwareKeyboardBridge';
+
 const ROOT_ID = 'aw-virtual-keyboard-trackpad';
 const SUPPRESS_EVENT = 'aw-suppress-kbd-change';
 let previousSuppressValue = null;
@@ -13,6 +15,24 @@ const ROW_SYMBOLS = [
   ['-', '/', ':', ';', '(', ')', '$', '&', '@', '"'],
   ['.', ',', '?', '!', "'", '`', '*', '#'],
 ];
+
+/**
+ * This keyboard speaks terminal escape sequences (see the special row below).
+ * A focus proxy is not a terminal — it wants DOM key names, which its owner
+ * turns into application state. Anything not in this table that is still a
+ * control sequence is dropped rather than typed, so a key with no DOM
+ * equivalent can't land in a text field as literal "\x1b[5~".
+ */
+const PROXY_KEY_FROM_TEXT = {
+  '\r': 'Enter',
+  '\n': 'Enter',
+  '\t': 'Tab',
+  '\x1b': 'Escape',
+  '\x1b[A': 'ArrowUp',
+  '\x1b[B': 'ArrowDown',
+  '\x1b[C': 'ArrowRight',
+  '\x1b[D': 'ArrowLeft',
+};
 
 const SHIFT_MAP = {
   '1': '!', '2': '@', '3': '#', '4': '$', '5': '%',
@@ -272,6 +292,23 @@ export function openVirtualKeyboardTrackpad() {
     return !!el.isContentEditable;
   }
 
+  /**
+   * A focus proxy that is NOT inside a terminal window — i.e. a suppressed
+   * text input like the App Launcher's search field (lib/suppressedTextInput.js),
+   * which holds focus on a non-editable div so iOS never raises its keyboard.
+   * There is no `.value` to inject into; keys go as a plain keydown and the
+   * proxy's owner turns them into state.
+   *
+   * Terminal proxies are deliberately excluded, so the hardware-keyboard
+   * bridge keeps the existing write-by-session-id path — that one works and
+   * was expensive to get right.
+   */
+  function nonTerminalFocusProxy() {
+    const el = activeElementDeep();
+    if (!isKbdFocusProxy(el)) return null;
+    return el.closest?.('[data-aw-session-id]') ? null : el;
+  }
+
   function fireKey(el, type, key) {
     const keyCode = key === 'Backspace' ? 8 : key === 'Enter' ? 13 : key.length === 1 ? key.charCodeAt(0) : 0;
     try {
@@ -339,6 +376,22 @@ export function openVirtualKeyboardTrackpad() {
   }
 
   function routeText(text) {
+    // Checked BEFORE the terminal fallback on purpose: resolveTerminalSessionId
+    // below falls back to the frontmost terminal window even when nothing
+    // terminal-ish has focus, so without this a keystroke aimed at the App
+    // Launcher's search box would be POSTed into whatever shell happens to be
+    // open behind it.
+    const proxy = nonTerminalFocusProxy();
+    if (proxy) {
+      const mapped = PROXY_KEY_FROM_TEXT[text];
+      if (mapped) { fireKey(proxy, 'keydown', mapped); return; }
+      for (const ch of text) {
+        const c = ch.charCodeAt(0);
+        if (c < 0x20 || c === 0x7f) continue;
+        fireKey(proxy, 'keydown', ch);
+      }
+      return;
+    }
     const sid = resolveTerminalSessionId();
     if (sid) {
       writeTerminal(sid, text);
@@ -350,6 +403,8 @@ export function openVirtualKeyboardTrackpad() {
   }
 
   function routeBackspace() {
+    const proxy = nonTerminalFocusProxy();
+    if (proxy) { fireKey(proxy, 'keydown', 'Backspace'); return; }
     const sid = resolveTerminalSessionId();
     if (sid) {
       writeTerminal(sid, '\x7f');

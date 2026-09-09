@@ -601,7 +601,12 @@ button, [role="button"] { cursor: pointer; }
   transition: border-color .12s, background .12s;
 }
 .applt-search-input::placeholder { color: var(--color-text-muted); }
-.applt-search-input:focus {
+.applt-search-input:focus,
+/* Suppressed-but-active (iPhone, suppress icon on): the proxy holds focus, so
+   :focus can never match even though this field IS receiving the keystrokes.
+   Without this a tap reads as "nothing happened". Same treatment as :focus on
+   purpose — it is the same state to the user. */
+.applt-search-input[data-aw-kbd-active] {
   outline: none; border-color: var(--color-accent); background: rgba(255,255,255,.08);
 }
 .applt-search-clear {

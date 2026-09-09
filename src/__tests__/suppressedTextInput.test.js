@@ -149,6 +149,39 @@ describe('attachSuppressedTextInput', () => {
     expect(document.activeElement).toBe(input);
   });
 
+  // Regression, real-device report: the first cut left the field completely
+  // inert under suppression — "ele nem deixa eu entrar no campo de busca".
+  // A tap must ACTIVATE the field (focus the proxy, never the input) and tell
+  // the caller to offer a non-OS way to type.
+  it('a tap on the container focuses the PROXY and fires onActivate', () => {
+    detach();
+    const activations = [];
+    detach = attachSuppressedTextInput(input, container, {
+      onKey: () => {},
+      onActivate: (ev) => activations.push(ev.type),
+    });
+    // Move focus off the proxy first, so the assertion proves the tap did it.
+    const button = document.createElement('button');
+    container.appendChild(button);
+    button.focus();
+
+    container.dispatchEvent(new Event('touchstart', { bubbles: true }));
+
+    expect(activations).toEqual(['touchstart']);
+    expect(document.activeElement).toBe(proxyOf());
+    // The whole point: never the real input, which is what raises the keyboard.
+    expect(document.activeElement).not.toBe(input);
+    // And the field stays untappable — the tap is handled, not permitted.
+    expect(input.getAttribute('data-aw-kbd-untappable')).toBe('1');
+  });
+
+  it('marks the input active while the proxy holds focus, so a tap does not look dead', () => {
+    input.focus(); // shadowed → proxy
+    expect(input.getAttribute('data-aw-kbd-active')).toBe('1');
+    detach();
+    expect(input.hasAttribute('data-aw-kbd-active')).toBe(false);
+  });
+
   it('writes into the same window.__awKbd ring buffer the terminal bridge uses', () => {
     proxyOf().dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true }));
     const entries = (window.__awKbd?.log || []).filter((e) => e.src === 'suppressed-input');
