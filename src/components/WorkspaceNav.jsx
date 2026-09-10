@@ -6,6 +6,7 @@ import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
 import { apiUrl } from '../apiBase';
 import AppSlot from '../apps/AppSlot';
 import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH, GITHUB_STREAM_PATH } from '../lib/githubApi';
+import { installWindowKbdSync, originForIframeSrc } from '../lib/appIframeKbd';
 
 /**
  * Top-bar nav entry for "Workspace". A hover popover that consolidates
@@ -141,6 +142,17 @@ export default function WorkspaceNav({
   const [submenu, setSubmenu] = useState(null); // 'repos' | 'components' | null
   const rootRef = useRef(null);
   const closeTimer = useRef(null);
+
+  // Keep the "Open <repo> in VSCode" popup (window.open, not an iframe — see
+  // openRepoInCodeServer below) in sync with the "suppress on-screen
+  // keyboard" toggle, same contract as the iframe-app windows in
+  // WindowManager.jsx. Both refs start empty: nothing has been opened yet.
+  const codeServerWinRef = useRef(null);
+  const codeServerOriginRef = useRef(null);
+  useEffect(() => installWindowKbdSync(
+    () => codeServerWinRef.current,
+    () => codeServerOriginRef.current,
+  ), []);
   // CLOSE_DELAY_MS must comfortably outlast the time it takes to move the
   // pointer across the dead-zone gaps between the button and the popover
   // (mt-2) and between a row and its submenu (ml-1) — those gaps aren't
@@ -388,7 +400,9 @@ export default function WorkspaceNav({
   const openRepoInCodeServer = (r) => {
     const payload = JSON.stringify([['openFile', `vscode-remote:${r.path}`]]);
     const url = `/api/apps/code-server/?folder=${encodeURIComponent(r.path)}&payload=${encodeURIComponent(payload)}`;
-    window.open(apiUrl(url), 'aw-vscode-file', 'popup=1,width=1400,height=900');
+    const fullUrl = apiUrl(url);
+    codeServerWinRef.current = window.open(fullUrl, 'aw-vscode-file', 'popup=1,width=1400,height=900');
+    codeServerOriginRef.current = originForIframeSrc(fullUrl);
     setOpen(false);
   };
 

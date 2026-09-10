@@ -11,6 +11,8 @@ import SettingsPanelNew from './SettingsPanelNew';
 import { startComponent } from '../hooks/useComponentStatus';
 import { apiFetch } from '../auth';
 import { appChrome } from '../apps/appWindowChrome';
+import { installAppIframeKbdSync, postSuppressState } from '../lib/appIframeKbd';
+import { getSuppressKbd } from '../lib/keyboardMode';
 
 // Same convention as App.jsx / MobileApp.jsx — relative URLs work
 // because the AW SPA is served from the same origin as the API.
@@ -206,6 +208,7 @@ function AppIframe({ appId, label, url, componentKey, bringToFront, isFocused, r
   //   the timeout is the only reliable cross-origin failure signal we have.
   const LOAD_TIMEOUT_MS = 15000;
   const [status, setStatus] = useState('loading'); // 'loading' | 'loaded' | 'timeout'
+  const iframeRef = useRef(null);
 
   // Reset to 'loading' whenever we remount the iframe (src or reloadKey
   // change). The matching setStatus('loaded') runs from onLoad below.
@@ -217,16 +220,26 @@ function AppIframe({ appId, label, url, componentKey, bringToFront, isFocused, r
     return () => clearTimeout(t);
   }, [src, reloadKey]);
 
+  // Keep this iframe in step with the "suppress on-screen keyboard" toggle,
+  // same contract as MobileApp.jsx's quick-launch tile — see lib/appIframeKbd.js.
+  useEffect(() => installAppIframeKbdSync(() => iframeRef.current), []);
+
+  const onAppIframeLoad = useCallback(() => {
+    setStatus('loaded');
+    postSuppressState(iframeRef.current, getSuppressKbd());
+  }, []);
+
   return (
     <div className="flex-1 relative" onMouseDown={bringToFront}>
       {!isFocused && <div className="absolute inset-0 z-10" onMouseDown={bringToFront} />}
       <iframe
         key={reloadKey}
+        ref={iframeRef}
         src={src}
         className="absolute inset-0 w-full h-full border-0"
         title={label}
         allow="camera; microphone; clipboard-read; clipboard-write; autoplay"
-        onLoad={() => setStatus('loaded')}
+        onLoad={onAppIframeLoad}
       />
       {/* Centered loading overlay — shown immediately while the iframe is
           still starting, so the window never sits blank. Disappears as

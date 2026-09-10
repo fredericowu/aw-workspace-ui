@@ -96,3 +96,59 @@ export function installAppIframeKbdSync(getIframe) {
     offToggle();
   };
 }
+
+/**
+ * Post the current suppress state to a captured `window.open()` popup
+ * rather than an `<iframe>`'s contentWindow. A cross-origin popup's
+ * `.location` cannot be read back, so — unlike postSuppressState, which
+ * derives the origin from the iframe's own `src` — the caller must supply
+ * `origin` itself (normally the same URL it just passed to `window.open`).
+ */
+export function postSuppressStateToWindow(win, origin, on) {
+  if (!win || !origin) return false;
+  try {
+    win.postMessage({ type: APP_KBD_MSG, on: !!on }, origin);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Keep a `window.open()` popup (as opposed to an iframe — see
+ * installAppIframeKbdSync) in sync with the toggle for as long as the
+ * caller holds a reference to it. Both the handle and its origin are
+ * getters, evaluated on every send/message, because — unlike an iframe
+ * that exists for the life of its parent component — the popup may not
+ * exist yet when this is installed (nothing has been opened) and can later
+ * be reused or re-navigated (same window `name`) by a fresh `window.open`
+ * call.
+ *
+ * @param {() => Window|null} getWin  reads the CURRENT popup handle
+ * @param {() => string|null} getOrigin  reads the popup's CURRENT origin
+ * @returns {() => void} cleanup
+ */
+export function installWindowKbdSync(getWin, getOrigin) {
+  const send = () => postSuppressStateToWindow(getWin(), getOrigin(), getSuppressKbd());
+
+  // The app asking. Checked against the known origin AND the popup's own
+  // window object, so another window on the page cannot impersonate it.
+  const onMessage = (ev) => {
+    const d = ev.data;
+    if (!d || typeof d !== 'object' || d.type !== APP_KBD_HELLO) return;
+    const win = getWin();
+    if (!win) return;
+    const origin = getOrigin();
+    if (!origin || ev.origin !== origin) return;
+    if (ev.source !== win) return;
+    postSuppressStateToWindow(win, origin, getSuppressKbd());
+  };
+
+  window.addEventListener('message', onMessage);
+  const offToggle = onSuppressKbdChange(send);
+
+  return () => {
+    window.removeEventListener('message', onMessage);
+    offToggle();
+  };
+}

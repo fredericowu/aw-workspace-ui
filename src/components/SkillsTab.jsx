@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../auth';
 import { apiUrl } from '../apiBase';
+import { installWindowKbdSync, originForIframeSrc } from '../lib/appIframeKbd';
 
 /**
  * Workspace > Skills tab.
@@ -22,6 +23,17 @@ export default function SkillsTab() {
   const [busy, setBusy] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
   const [creating, setCreating] = useState(false);
+
+  // Keep the "open in code-server" popup (window.open, not an iframe — see
+  // handleOpen below) in sync with the "suppress on-screen keyboard" toggle,
+  // same contract as the iframe-app windows in WindowManager.jsx. Both refs
+  // start empty: nothing has been opened yet.
+  const codeServerWinRef = useRef(null);
+  const codeServerOriginRef = useRef(null);
+  useEffect(() => installWindowKbdSync(
+    () => codeServerWinRef.current,
+    () => codeServerOriginRef.current,
+  ), []);
 
   const refresh = useCallback(async () => {
     try {
@@ -94,7 +106,9 @@ export default function SkillsTab() {
       }
       // Open in a separate browser window — code-server's bind mount writes
       // back to disk, the file watcher re-syncs automatically.
-      window.open(apiUrl(data.url), `aw-skill-${name}`, 'popup=1,width=1400,height=900');
+      const fullUrl = apiUrl(data.url);
+      codeServerWinRef.current = window.open(fullUrl, `aw-skill-${name}`, 'popup=1,width=1400,height=900');
+      codeServerOriginRef.current = originForIframeSrc(fullUrl);
     } catch (e) {
       setError(`Open failed: ${e.message}`);
     }
