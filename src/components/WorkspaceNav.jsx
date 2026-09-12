@@ -451,7 +451,10 @@ export default function WorkspaceNav({
 
           {/* Repos */}
           <div className="relative" onMouseEnter={enterSub('repos')}>
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer">
+            <div
+              onClick={() => setSubmenu((s) => (s === 'repos' ? null : 'repos'))}
+              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer"
+            >
               <ReposIcon />
               <span className="flex-1 text-[13px] text-[var(--color-text-primary)]">Repos</span>
               {repos.length > 0 && (
