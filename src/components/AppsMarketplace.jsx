@@ -109,7 +109,7 @@ export function pollInstallStatus(appId, alive) {
   });
 }
 
-export default function AppsMarketplace({ installedApps, onInstalled, onUninstall, onClose, initialAppId = null, onOtherReleases }) {
+export default function AppsMarketplace({ installedApps, onInstalled, onUninstall, onClose, initialAppId = null, onOtherReleases, onConfig }) {
   // Seeded from the last-known cached catalog (stale-while-revalidate, same
   // cache AppLauncher writes) so opening the Marketplace panel paints the
   // catalog immediately instead of a blank panel while GET
@@ -388,6 +388,18 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
               ) : null}
 
               <div className="appmkt-detail-actions">
+                {(() => {
+                  const installedApp = (installedApps || []).find((a) => installedAppId(a) === detailApp.id);
+                  return installedApp?.has_config && onConfig ? (
+                    <button
+                      type="button"
+                      className="appmkt-other-releases"
+                      onClick={(e) => { e.stopPropagation(); onConfig(installedApp); }}
+                    >
+                      Settings
+                    </button>
+                  ) : null;
+                })()}
                 {installed.has(detailApp.id) && onOtherReleases && (
                   <button
                     type="button"

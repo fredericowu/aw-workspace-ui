@@ -390,6 +390,60 @@ describe('AppsMarketplace', () => {
     expect(screen.queryByRole('button', { name: 'Other Releases' })).toBeNull();
   });
 
+  it('shows a Settings button for an installed app with has_config and calls onConfig with the installed app row', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    const onConfig = vi.fn();
+    const installedGit = { slug: 'git', version: '0.2.0', has_config: true };
+    render(
+      <AppsMarketplace
+        installedApps={[installedGit]}
+        onInstalled={vi.fn()}
+        onClose={() => {}}
+        onConfig={onConfig}
+      />,
+    );
+    await screen.findByText('Git + GitHub CLI');
+    fireEvent.click(screen.getByText('Git + GitHub CLI'));
+
+    const btn = await screen.findByRole('button', { name: 'Settings' });
+    fireEvent.click(btn);
+    expect(onConfig).toHaveBeenCalledWith(installedGit);
+  });
+
+  it('omits the Settings button for an installed app without has_config', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(
+      <AppsMarketplace
+        installedApps={[{ slug: 'essentials', version: '0.1.0', has_config: false }]}
+        onInstalled={vi.fn()}
+        onClose={() => {}}
+        onConfig={vi.fn()}
+      />,
+    );
+    await screen.findByText('Essentials');
+    fireEvent.click(screen.getByText('Essentials'));
+
+    await screen.findByRole('button', { name: 'Uninstall Essentials' });
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull();
+  });
+
+  it('omits the Settings button for a catalog app that is not installed', async () => {
+    fetchCatalog.mockResolvedValue(CATALOG);
+    render(
+      <AppsMarketplace
+        installedApps={[]}
+        onInstalled={vi.fn()}
+        onClose={() => {}}
+        onConfig={vi.fn()}
+      />,
+    );
+    await screen.findByText('Git + GitHub CLI');
+    fireEvent.click(screen.getByText('Git + GitHub CLI'));
+
+    await screen.findByRole('button', { name: 'Install' });
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull();
+  });
+
   it('calls onUninstall from the installed app detail action', async () => {
     fetchCatalog.mockResolvedValue(CATALOG);
     const onUninstall = vi.fn().mockResolvedValue({});

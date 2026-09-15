@@ -641,6 +641,7 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
           onUninstall={onMarketplaceUninstall}
           onClose={() => { setShowMarketplace(false); setMarketplaceAppId(null); }}
           initialAppId={marketplaceAppId}
+          onConfig={setConfigApp}
           onOtherReleases={(catalogApp) => {
             const inst = (installed || []).find((a) => installedAppId(a) === catalogApp.id)
               || { slug: catalogApp.id, name: catalogApp.name, version: catalogApp.version };
