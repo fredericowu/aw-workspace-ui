@@ -874,8 +874,34 @@ function AuthenticatedApp() {
           : t
       );
     };
-    setTerminals(updateFn);
-    setAgentSessions(updateFn);
+    let renamedTarget = null;
+    setTerminals((prev) => {
+      renamedTarget = renamedTarget || prev.find((t) => t.id === sessionId);
+      return updateFn(prev);
+    });
+    setAgentSessions((prev) => {
+      renamedTarget = renamedTarget || prev.find((t) => t.id === sessionId);
+      return updateFn(prev);
+    });
+    // This PTY-level rename only persists the name keyed by the terminal's
+    // own session id (TerminalManager, Redis-backed) — the code-agent-clis
+    // app's "Agents > Claude" flyout shows the SAME conversation under a
+    // different id (agent_session_id, the CLI's own jsonl/resume id) and
+    // computes its own display name independently (transcript-derived),
+    // with no knowledge of this rename. Best-effort mirror it into that
+    // app's own override store too, so the flyout stops reverting to the
+    // transcript-derived name once it re-fetches. Silently no-ops if the
+    // app isn't installed (404) — this workspace doesn't require it.
+    if (renamedTarget?.agent_session_id) {
+      apiFetch(
+        `${API_BASE}/api/apps/code-agent-clis/agent-sessions/${encodeURIComponent(renamedTarget.agent_session_id)}?type=${encodeURIComponent(renamedTarget.type || 'claude')}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName }),
+        }
+      ).catch(() => {});
+    }
   }, []);
 
   const toggleTerminal = useCallback((sessionId) => {
