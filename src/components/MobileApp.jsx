@@ -203,7 +203,13 @@ export default function MobileApp() {
     { type: 'copilot', label: 'Copilot', command: 'copilot', color: '#2ea043' },
     { type: 'codex',   label: 'Codex',   command: 'codex',   color: '#0ea5e9' },
   ]);
-  const agentTypes = aiAgents.map(a => a.type);
+  // useMemo, not a plain map: a fresh array identity on every render made
+  // applyTerminalUpdate's useCallback dep churn every render too, which
+  // re-fired its effect, fetched, always set a fresh object, re-rendered,
+  // and repeated — an unbounded ~9-15 req/s self-sustaining loop with no
+  // setInterval anywhere. App.jsx's equivalent uses a `[]` dep and does not
+  // storm, which is why this was mobile-only.
+  const agentTypes = useMemo(() => aiAgents.map(a => a.type), [aiAgents]);
 
   // Picker state for the "+" button: which agent the user wants to start
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
