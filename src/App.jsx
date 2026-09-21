@@ -1543,7 +1543,7 @@ function AuthenticatedApp() {
               openWindows={openWindows}
               onToggleWindow={toggleWindow}
               onAction={refetch}
-              onOpenSettings={openSettingsPanel}
+              onOpenSettings={openSettingsPanelNew}
               workspaceApps={enabledApps}
               onOpenApp={openApp}
             />

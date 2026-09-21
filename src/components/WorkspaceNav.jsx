@@ -125,6 +125,23 @@ function StackIcon() {
   );
 }
 
+function ConsoleIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="2" y="4" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" />
+    </svg>
+  );
+}
+
+function AgentsPlatformIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="11" width="18" height="10" rx="2" /><circle cx="12" cy="5" r="2" />
+      <path d="M12 7v4M8 16h.01M16 16h.01" />
+    </svg>
+  );
+}
+
 // Clipboard-with-checkmark — reads as "test/verification record".
 // ---- Component --------------------------------------------------------------
 
@@ -443,6 +460,33 @@ export default function WorkspaceNav({
             <GearIcon />
             <span className="text-[13px] text-[var(--color-text-primary)]">Settings</span>
           </button>
+
+          {/* Console + Agents Platform: external cross-plane links, same
+              hosts as the profile drawer's "Console" entry — account admin
+              (control-plane) and the multi-tenant agents runtime, both live
+              outside this workspace SPA so they open in a new tab. */}
+          <a
+            href="https://console.aw.tekflox.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            onMouseEnter={closeSub}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
+          >
+            <ConsoleIcon />
+            <span className="text-[13px] text-[var(--color-text-primary)]">Console</span>
+          </a>
+          <a
+            href="https://agents-platform.aw.tekflox.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            onMouseEnter={closeSub}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
+          >
+            <AgentsPlatformIcon />
+            <span className="text-[13px] text-[var(--color-text-primary)]">Agents Platform</span>
+          </a>
 
           {/* Decoupled-apps (F6 Cap 2): nav entries an installed app registers
               into core.nav.workspace render here (e.g. the Repos migration's
