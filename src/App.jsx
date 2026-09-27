@@ -505,7 +505,10 @@ function AuthenticatedApp() {
   // DAP server WebSocket — track debug stopped state for the Debugger button.
   // Reconnect uses exponential backoff (1s, 2s, 4s, 8s, then capped at 10s)
   // so a missing dap-server doesn't fill the console with retry errors.
-  // Backoff resets to 1s once a connection lands successfully.
+  // Backoff resets to 1s once a connection proves itself healthy — on its
+  // first inbound message, not on onopen (aw-ws/1 §7.1: a socket that
+  // accepts and closes immediately must not look like a successful
+  // connection, or the backoff never actually grows).
   //
   // The DAP server only listens on localhost:15050 — when AW is
   // accessed over the LAN (e.g. http://192.168.1.x:9123) the
@@ -523,12 +526,10 @@ function AuthenticatedApp() {
     const connectDap = () => {
       try {
         ws = new WebSocket('ws://127.0.0.1:15050/ws/events');
-        ws.onopen = () => {
-          // Successful connection — reset the backoff so a future drop starts
-          // retrying quickly again.
-          backoff = 1000;
-        };
         ws.onmessage = (event) => {
+          // A real inbound message proves the connection is healthy — reset
+          // the backoff so a future drop starts retrying quickly again.
+          backoff = 1000;
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'init') {
