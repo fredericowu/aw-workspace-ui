@@ -15,6 +15,7 @@ import * as ReactDOM from 'react-dom';
 import { slotRegistry as defaultRegistry } from './slotRegistry';
 import { makeSdk, PLUGIN_API_VERSION } from './sdk';
 import { wsBaseUrl, apiUrl as absoluteApiUrl } from '../apiBase';
+import { createSharedSocket } from '../hooks/useSharedSocket';
 
 // Default fetch used by the SDK — relative `/api/*` is rewritten to the BYOD
 // workspace API by the apiBase.js global shim, so a plain fetch is correct.
@@ -28,7 +29,7 @@ export function installPluginHost({ registry = defaultRegistry, apiFetch = defau
   if (typeof window !== 'undefined' && window.__AW_PLUGIN_HOST__) {
     return window.__AW_PLUGIN_HOST__;
   }
-  const sdk = makeSdk({ React, ReactDOM, apiFetch, wsUrl });
+  const sdk = makeSdk({ React, ReactDOM, apiFetch, wsUrl, createSharedSocket });
   const host = {
     version: PLUGIN_API_VERSION,
     React,

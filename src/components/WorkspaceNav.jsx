@@ -2,7 +2,8 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import StatusDot from './StatusDot';
 import SidebarPreview from './SidebarPreview';
 import { startComponent, stopComponent, restartComponent } from '../hooks/useComponentStatus';
-import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
+import { createSharedSocket } from '../hooks/useSharedSocket';
+import { apiFetch, wsUrl, notifyWsAuthFailed } from '../auth';
 import { apiUrl } from '../apiBase';
 import AppSlot from '../apps/AppSlot';
 import { GITHUB_PRS_PATH, GITHUB_REFRESH_PATH, GITHUB_STREAM_PATH } from '../lib/githubApi';
@@ -244,43 +245,25 @@ export default function WorkspaceNav({
   const [flash, setFlash] = useState({});
 
   useEffect(() => {
-    let ws;
-    let reconnectTimer;
-    let closed = false;
-    const connect = () => {
-      try {
-        ws = new WebSocket(wsUrl(GITHUB_STREAM_PATH));
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'github_init' || msg.type === 'github_update') {
-              setRepos(msg.repos || []);
-              setReposError(msg.error || null);
-            }
-          } catch {}
-        };
-        ws.onclose = (event) => {
-          // A bad/expired token gets 4401 forever — retrying just hot-loops
-          // silently against the auth wall. Stop, and surface it instead.
-          if (isAuthWsClose(event.code)) {
-            setReposError('Session expired — log in again');
-            notifyWsAuthFailed();
-            return;
-          }
-          if (!closed) reconnectTimer = setTimeout(connect, 5000);
-        };
-        ws.onerror = () => ws.close();
-      } catch {
-        if (!closed) reconnectTimer = setTimeout(connect, 5000);
-      }
-    };
+    // Reconnect/backoff/close-code handling all live in the shared aw-ws/1
+    // client (§7/§9.1) — see hooks/useSharedSocket.js.
+    const socket = createSharedSocket({
+      url: () => wsUrl(GITHUB_STREAM_PATH),
+      initType: 'github_init',
+      onFrame: (msg) => {
+        if (msg.type === 'github_init' || msg.type === 'github_update') {
+          setRepos(msg.repos || []);
+          setReposError(msg.error || null);
+        }
+      },
+      onStatus: ({ state }) => {
+        if (state !== 'fatal') return;
+        setReposError('Session expired — log in again');
+        notifyWsAuthFailed();
+      },
+    });
     apiFetch(GITHUB_PRS_PATH).then((r) => r.json()).then((d) => setRepos(d.repos || [])).catch(() => {});
-    connect();
-    return () => {
-      closed = true;
-      clearTimeout(reconnectTimer);
-      if (ws) { ws.onclose = null; try { ws.close(); } catch {} }
-    };
+    return socket.retain();
   }, []);
 
   const flashFor = (path, kind, ms = 2000) => {

@@ -6,7 +6,8 @@
 // has_config app, opens its config window.
 import { useEffect, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
-import { wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
+import { wsUrl, notifyWsAuthFailed } from '../auth';
+import { createSharedSocket } from '../hooks/useSharedSocket';
 import { fetchCatalog, installApp, updateApp, getInstallStatus } from '../apps/appsApi';
 import { semverGt } from '../apps/semver';
 import { readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
@@ -164,13 +165,11 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
   const notified = useRef(new Set());
   useEffect(() => {
     if (!catalog) return;
-    let closed = false;
-    const connect = () => {
-      if (closed) return;
-      const ws = new WebSocket(wsUrl('/ws/apps/install-status'));
-      ws.onmessage = (event) => {
-        let msg;
-        try { msg = JSON.parse(event.data); } catch { return; }
+    // Reconnect/backoff/close-code handling all live in the shared aw-ws/1
+    // client (§7/§9.1) — see hooks/useSharedSocket.js.
+    const socket = createSharedSocket({
+      url: () => wsUrl('/ws/apps/install-status'),
+      onFrame: (msg) => {
         if (msg.type !== 'app_install_status' || !msg.job) return;
         const { app_id, status, error: jobError } = msg.job;
         const app = (catalog.apps || []).find((a) => a.id === app_id);
@@ -186,20 +185,12 @@ export default function AppsMarketplace({ installedApps, onInstalled, onUninstal
         } else if (status === 'failed') {
           setError(describeActionError('Install', app.name, new Error(jobError || 'unknown error')));
         }
-      };
-      ws.onclose = (event) => {
-        // A bad/expired token gets 4401 forever — retrying just hot-loops
-        // silently against the auth wall. Stop, and surface it instead.
-        if (isAuthWsClose(event.code)) {
-          notifyWsAuthFailed();
-          return;
-        }
-        if (!closed) setTimeout(connect, 5000);
-      };
-      ws.onerror = () => { try { ws.close(); } catch {} };
-    };
-    connect();
-    return () => { closed = true; };
+      },
+      onStatus: ({ state }) => {
+        if (state === 'fatal') notifyWsAuthFailed();
+      },
+    });
+    return socket.retain();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog]);
 

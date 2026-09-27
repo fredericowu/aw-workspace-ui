@@ -4,7 +4,8 @@ import { asArray } from '../lib/asArray';
 import { installAppIframeKbdSync, postSuppressState } from '../lib/appIframeKbd';
 import { getSuppressKbd } from '../lib/keyboardMode';
 import { GITHUB_PRS_PATH } from '../lib/githubApi';
-import { apiFetch, wsUrl } from '../auth';
+import { apiFetch, wsUrl, notifyWsAuthFailed } from '../auth';
+import { createSharedSocket } from '../hooks/useSharedSocket';
 import LogWindow from './LogWindow';
 import TerminalWindow from './TerminalWindow';
 import AppSlot from '../apps/AppSlot';
@@ -408,34 +409,40 @@ export default function MobileApp() {
     return () => window.removeEventListener('aw-terminals-update', handler);
   }, [applyTerminalUpdate]);
 
-  // Presentations via WebSocket
+  // Presentations via WebSocket — aw-app-presentations owns this —
+  // /api/apps/presentations/ws. Reconnect/backoff/close-code handling lives
+  // in the shared aw-ws/1 client (§7/§9.1).
   const [presentations, setPresentations] = useState([]);
   useEffect(() => {
-    // aw-app-presentations owns this — /api/apps/presentations/ws.
-    const ws = new WebSocket(wsUrl('/api/apps/presentations/ws'));
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'presentation_init') {
-        setPresentations(msg.presentations);
-      } else if (msg.type === 'presentation_update') {
-        if (msg.action === 'create') {
-          setPresentations(prev => [...prev.filter(c => c.id !== msg.presentation.id), msg.presentation]);
-          setActiveWindow(prev => {
-            if (prev) previousWindowRef.current = prev;
-            return { type: 'presentation', key: `presentation:${msg.presentation.id}`, id: msg.presentation.id, name: msg.presentation.title };
-          });
-        } else if (msg.action === 'update') {
-          setPresentations(prev => prev.map(c => c.id === msg.presentation.id ? msg.presentation : c));
-          setActiveWindow(prev => {
-            if (prev) previousWindowRef.current = prev;
-            return { type: 'presentation', key: `presentation:${msg.presentation.id}`, id: msg.presentation.id, name: msg.presentation.title };
-          });
-        } else if (msg.action === 'delete') {
-          setPresentations(prev => prev.filter(c => c.id !== msg.id));
+    const socket = createSharedSocket({
+      url: () => wsUrl('/api/apps/presentations/ws'),
+      initType: 'presentation_init',
+      onFrame: (msg) => {
+        if (msg.type === 'presentation_init') {
+          setPresentations(msg.presentations);
+        } else if (msg.type === 'presentation_update') {
+          if (msg.action === 'create') {
+            setPresentations(prev => [...prev.filter(c => c.id !== msg.presentation.id), msg.presentation]);
+            setActiveWindow(prev => {
+              if (prev) previousWindowRef.current = prev;
+              return { type: 'presentation', key: `presentation:${msg.presentation.id}`, id: msg.presentation.id, name: msg.presentation.title };
+            });
+          } else if (msg.action === 'update') {
+            setPresentations(prev => prev.map(c => c.id === msg.presentation.id ? msg.presentation : c));
+            setActiveWindow(prev => {
+              if (prev) previousWindowRef.current = prev;
+              return { type: 'presentation', key: `presentation:${msg.presentation.id}`, id: msg.presentation.id, name: msg.presentation.title };
+            });
+          } else if (msg.action === 'delete') {
+            setPresentations(prev => prev.filter(c => c.id !== msg.id));
+          }
         }
-      }
-    };
-    return () => ws.close();
+      },
+      onStatus: ({ state }) => {
+        if (state === 'fatal') notifyWsAuthFailed();
+      },
+    });
+    return socket.retain();
   }, []);
 
   // Diffs via WebSocket — aw-app-diff-tool owns this — /api/apps/diff-tool/ws.

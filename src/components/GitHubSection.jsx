@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { refreshGitHubPRs, getGitHubPRs, getAwConfig } from '../hooks/useComponentStatus';
-import { wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
+import { createSharedSocket } from '../hooks/useSharedSocket';
+import { wsUrl, notifyWsAuthFailed } from '../auth';
 import { GITHUB_STREAM_PATH } from '../lib/githubApi';
 
 const BADGE_STYLES = {
@@ -141,8 +142,6 @@ export default function GitHubSection({ collapsed, collapsedCategories, setColla
   const [data, setData] = useState({ my_prs: [], team_prs: [], review_prs: [], repos: [], error: null });
   const [loading, setLoading] = useState(false);
   const [promptTemplate, setPromptTemplate] = useState('');
-  const wsRef = useRef(null);
-  const reconnectRef = useRef(null);
 
   // Load prompt template from config
   useEffect(() => {
@@ -152,45 +151,31 @@ export default function GitHubSection({ collapsed, collapsedCategories, setColla
     }).catch(() => {});
   }, []);
 
-  // WebSocket connection for live updates
-  const connect = useCallback(() => {
-    const ws = new WebSocket(wsUrl(GITHUB_STREAM_PATH));
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'github_init' || msg.type === 'github_update') {
-          setData({ my_prs: msg.my_prs || [], team_prs: msg.team_prs || [], review_prs: msg.review_prs || [], repos: msg.repos || [], error: msg.error, last_poll: msg.last_poll });
-        }
-      } catch {}
-    };
-
-    ws.onclose = (event) => {
-      // A bad/expired token gets 4401 forever — retrying just hot-loops
-      // silently against the auth wall. Stop, and surface it instead.
-      if (isAuthWsClose(event.code)) {
-        setData((prev) => ({ ...prev, error: 'Session expired — log in again' }));
-        notifyWsAuthFailed();
-        return;
+  // WebSocket connection for live updates — reconnect/backoff/close-code
+  // handling all live in the shared aw-ws/1 client (§7/§9.1). Lazy useState
+  // initializer, not a ref checked in the render body, so it's created
+  // exactly once without touching `.current` during render.
+  const [socket] = useState(() => createSharedSocket({
+    url: () => wsUrl(GITHUB_STREAM_PATH),
+    initType: 'github_init',
+    onFrame: (msg) => {
+      if (msg.type === 'github_init' || msg.type === 'github_update') {
+        setData({ my_prs: msg.my_prs || [], team_prs: msg.team_prs || [], review_prs: msg.review_prs || [], repos: msg.repos || [], error: msg.error, last_poll: msg.last_poll });
       }
-      // Reconnect after 5s
-      reconnectRef.current = setTimeout(connect, 5000);
-    };
-
-    ws.onerror = () => ws.close();
-  }, []);
+    },
+    onStatus: ({ state }) => {
+      if (state !== 'fatal') return;
+      setData((prev) => ({ ...prev, error: 'Session expired — log in again' }));
+      notifyWsAuthFailed();
+    },
+  }));
 
   useEffect(() => {
     // Initial REST fetch (for cached data on page load)
     getGitHubPRs().then((d) => setData(d)).catch(() => {});
-    // Then open WebSocket for live updates
-    connect();
-    return () => {
-      clearTimeout(reconnectRef.current);
-      if (wsRef.current) wsRef.current.close();
-    };
-  }, [connect]);
+    // Then open the shared WebSocket for live updates
+    return socket.retain();
+  }, [socket]);
 
   const handleRefresh = useCallback(async () => {
     setLoading(true);

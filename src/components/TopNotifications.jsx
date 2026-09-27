@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiFetch, wsUrl, isAuthWsClose, notifyWsAuthFailed } from '../auth';
+import { useState, useEffect, useCallback } from 'react';
+import { apiFetch, wsUrl, notifyWsAuthFailed } from '../auth';
+import { createSharedSocket } from '../hooks/useSharedSocket';
 
 /**
  * Top-right floating notification stack. Consumes the `/ws/notifications`
@@ -24,45 +25,30 @@ const LEVEL_STYLES = {
 export default function TopNotifications() {
   const [notifications, setNotifications] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
-  const wsRef = useRef(null);
 
   useEffect(() => {
-    let closed = false;
-    const connect = () => {
-      if (closed) return;
-      const ws = new WebSocket(wsUrl('/ws/notifications'));
-      wsRef.current = ws;
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'ninja_init' && msg.notifications?.length > 0) {
-            setNotifications((prev) => [...prev, ...msg.notifications]);
-          } else if (msg.type === 'ninja_notification' && msg.notification) {
-            const superseded = new Set(msg.superseded_ids || []);
-            setNotifications((prev) => {
-              const filtered = superseded.size > 0 ? prev.filter((n) => !superseded.has(n.id)) : prev;
-              // Cap the stack at 5; newest at the top.
-              return [msg.notification, ...filtered].slice(0, 5);
-            });
-          }
-        } catch (_) { /* ignore malformed */ }
-      };
-      ws.onclose = (event) => {
-        // A bad/expired token gets 4401 forever — retrying just hot-loops
-        // silently against the auth wall. Stop, and surface it instead.
-        if (isAuthWsClose(event.code)) {
-          notifyWsAuthFailed();
-          return;
+    // Reconnect/backoff/close-code handling all live in the shared aw-ws/1
+    // client (§7/§9.1) — see hooks/useSharedSocket.js.
+    const socket = createSharedSocket({
+      url: () => wsUrl('/ws/notifications'),
+      initType: 'ninja_init',
+      onFrame: (msg) => {
+        if (msg.type === 'ninja_init' && msg.notifications?.length > 0) {
+          setNotifications((prev) => [...prev, ...msg.notifications]);
+        } else if (msg.type === 'ninja_notification' && msg.notification) {
+          const superseded = new Set(msg.superseded_ids || []);
+          setNotifications((prev) => {
+            const filtered = superseded.size > 0 ? prev.filter((n) => !superseded.has(n.id)) : prev;
+            // Cap the stack at 5; newest at the top.
+            return [msg.notification, ...filtered].slice(0, 5);
+          });
         }
-        if (!closed) setTimeout(connect, 5000);
-      };
-      ws.onerror = () => { try { ws.close(); } catch {} };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (wsRef.current) { try { wsRef.current.close(); } catch {} }
-    };
+      },
+      onStatus: ({ state }) => {
+        if (state === 'fatal') notifyWsAuthFailed();
+      },
+    });
+    return socket.retain();
   }, []);
 
   // Accept locally-dispatched notifications (client-side errors, constraint

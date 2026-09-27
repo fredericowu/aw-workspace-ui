@@ -19,7 +19,8 @@ import {
   appWindowKey, isAppWindowKey, identityForKey, persistAppWindows, readPersistedAppWindows,
 } from './apps/appWindowKeys';
 import { useComponentStatus, startComponent, getAwConfig } from './hooks/useComponentStatus';
-import { apiFetch, wsUrl, getAuthStatus, logout, initAuth, isAuthWsClose, notifyWsAuthFailed } from './auth';
+import { createSharedSocket } from './hooks/useSharedSocket';
+import { apiFetch, wsUrl, getAuthStatus, logout, initAuth, notifyWsAuthFailed } from './auth';
 import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keyboardMode';
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
 import { isWorkspaceSpa, consoleLoginUrl } from './apiBase';
@@ -370,33 +371,20 @@ function AuthenticatedApp() {
     apiFetch(`${API_BASE}/api/notify/pending`).then(r => r.json())
       .then(d => setNotifUnreadCount((d.notifications || []).length))
       .catch(() => {});
-    let closed = false;
-    let ws;
-    const connect = () => {
-      if (closed) return;
-      ws = new WebSocket(wsUrl('/ws/notifications'));
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'ninja_notification') {
-            const supersededCount = (msg.superseded_ids || []).length;
-            setNotifUnreadCount((n) => Math.max(0, n - supersededCount) + 1);
-          }
-        } catch { /* ignore malformed */ }
-      };
-      ws.onclose = (event) => {
-        // A bad/expired token gets 4401 forever — retrying just hot-loops
-        // silently against the auth wall. Stop, and surface it instead.
-        if (isAuthWsClose(event.code)) {
-          notifyWsAuthFailed();
-          return;
+    const socket = createSharedSocket({
+      url: () => wsUrl('/ws/notifications'),
+      initType: 'ninja_init',
+      onFrame: (msg) => {
+        if (msg.type === 'ninja_notification') {
+          const supersededCount = (msg.superseded_ids || []).length;
+          setNotifUnreadCount((n) => Math.max(0, n - supersededCount) + 1);
         }
-        if (!closed) setTimeout(connect, 5000);
-      };
-      ws.onerror = () => { try { ws.close(); } catch {} };
-    };
-    connect();
-    return () => { closed = true; if (ws) { try { ws.close(); } catch {} } };
+      },
+      onStatus: ({ state }) => {
+        if (state === 'fatal') notifyWsAuthFailed();
+      },
+    });
+    return socket.retain();
   }, []);
   const [view, setView] = useState('home');
   // Decoupled-apps (F6 Cap 2): declarative windows (contributes.windows,
@@ -475,72 +463,42 @@ function AuthenticatedApp() {
   // /api/tests/state test-runner integration has no working backend push
   // in aw-workspace at all right now.
   useEffect(() => {
-    let ws;
-    let reconnectTimer;
-    let heartbeatTimer;
-    let closed = false;
+    // Reconnect/backoff/close-code handling all live in the shared aw-ws/1
+    // client (aw-ws/1 §7/§9.1) — see hooks/useSharedSocket.js. keepAliveMs
+    // preserves this socket's own 25s heartbeat, which detects a
+    // silently-dropped TCP connection the browser/OS won't always surface
+    // as onclose.
+    const socket = createSharedSocket({
+      url: () => wsUrl('/api/apps/presentations/ws'),
+      initType: 'presentation_init',
+      keepAliveMs: 25000,
+      onFrame: (msg) => {
+        if (msg.type === 'test_finished') {
+          // Automation terminal process exited — update shared state
+          apiFetch('/api/tests/state', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ running: false }),
+          }).catch(() => {});
+        }
+      },
+      onStatus: ({ state }) => {
+        if (state === 'fatal') notifyWsAuthFailed();
+      },
+    });
+    const release = socket.retain();
 
-    const handleMessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'test_finished') {
-        // Automation terminal process exited — update shared state
-        apiFetch('/api/tests/state', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ running: false }),
-        }).catch(() => {});
-      }
-    };
-
-    const connect = () => {
-      if (closed) return;
-      try {
-        ws = new WebSocket(wsUrl('/api/apps/presentations/ws'));
-        ws.onmessage = handleMessage;
-        ws.onopen = () => {
-          // Heartbeat every 25s to detect silently-dropped TCP connections
-          // (browser/OS won't always fire onclose on network failures)
-          clearInterval(heartbeatTimer);
-          heartbeatTimer = setInterval(() => {
-            try {
-              if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping');
-              else { clearInterval(heartbeatTimer); try { ws && ws.close(); } catch {} }
-            } catch { clearInterval(heartbeatTimer); }
-          }, 25000);
-        };
-        ws.onclose = (event) => {
-          clearInterval(heartbeatTimer);
-          // A bad/expired token gets 4401 forever — retrying just hot-loops
-          // silently against the auth wall. Stop, and surface it instead.
-          if (isAuthWsClose(event.code)) {
-            notifyWsAuthFailed();
-            return;
-          }
-          if (!closed) reconnectTimer = setTimeout(connect, 3000);
-        };
-        ws.onerror = () => { try { ws.close(); } catch {} };
-      } catch {
-        if (!closed) reconnectTimer = setTimeout(connect, 3000);
-      }
-    };
-
-    connect();
-
-    // Reconnect immediately when the tab becomes visible again after sleep
+    // Skip the rest of the current backoff wait when the tab becomes
+    // visible again after sleep — the OS often suspends the connection
+    // without ever firing onclose, so nothing else would notice.
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && (!ws || ws.readyState > WebSocket.OPEN)) {
-        clearTimeout(reconnectTimer);
-        connect();
-      }
+      if (document.visibilityState === 'visible') socket.kick();
     };
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      closed = true;
-      clearTimeout(reconnectTimer);
-      clearInterval(heartbeatTimer);
       document.removeEventListener('visibilitychange', onVisible);
-      if (ws) { ws.onclose = null; try { ws.close(); } catch {} }
+      release();
     };
   }, []);
 
