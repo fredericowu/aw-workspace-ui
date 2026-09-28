@@ -2,6 +2,7 @@ import { useState } from 'react';
 import AwConfigTab from './AwConfigTab';
 import TcpProxyTab from './TcpProxyTab';
 import VpnTab from './VpnTab';
+import LocalDnsTab from './LocalDnsTab';
 import SkillsTab from './SkillsTab';
 import McpServersTab from './McpServersTab';
 import ProxyTab from './ProxyTab';
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'users', label: 'Users' },
   { id: 'tcp-proxy', label: 'TCP Proxy' },
   { id: 'vpn', label: 'VPN' },
+  { id: 'local-dns', label: 'Local Network' },
   { id: 'proxy', label: 'Cookies' },
   { id: 'feed-subscriber', label: 'Feed Subscriber' },
   { id: 'backup', label: 'Backup' },
@@ -52,6 +54,7 @@ export default function SettingsPanel() {
         {activeTab === 'users' && <UsersTab />}
         {activeTab === 'tcp-proxy' && <TcpProxyTab />}
         {activeTab === 'vpn' && <VpnTab />}
+        {activeTab === 'local-dns' && <LocalDnsTab />}
         {activeTab === 'proxy' && <ProxyTab />}
         {activeTab === 'feed-subscriber' && <FeedSubscriberTab />}
         {activeTab === 'backup' && <BackupTab />}

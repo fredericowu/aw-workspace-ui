@@ -31,15 +31,14 @@ function deriveBases() {
     const proto = window.location.protocol; // https:
     return {
       api: `${proto}//api.${slug}.workspace.${apex}`, // BYOD workspace API (via /link tunnel)
-      // LAN fast-path (case a): same-apex `local.<slug>.workspace` name that
-      // resolves — via a public route53 A record — to the workspace machine's
-      // LAN IP when the browser is on that LAN, served by aw-remote-host's
-      // local TLS terminator on :8443 with the same per-workspace wildcard
-      // cert. Off-LAN the name still resolves to the (unreachable) LAN IP, so
-      // the probe below fails fast and we stay on the tunnel API. Same origin
-      // family / same cert / same cookie scope → no mixed content, no new
-      // CORS. See docs/architecture/aw-workspace-lan-fastpath.md.
-      local: `${proto}//local.${slug}.workspace.${apex}:${LAN_FASTPATH_PORT}`,
+      // LAN fast-path (case a) origin — populated asynchronously by
+      // fetchLocalOrigin() below, NOT derived here. It used to be
+      // `local.<slug>.workspace.<apex>`, built straight from the slug; that
+      // made the name enumerable (any slug guess resolves to a real
+      // workspace's LAN IP) and is exactly what the opaque-ID migration
+      // (dns_publication.py's kind="lan") replaces. `local` starts
+      // undefined and probeLanFastPath() is already a no-op until it's set.
+      local: undefined,
       slug, // e.g. fredericowu — used to derive per-app subdomains
       apex, // aw.tekflox.com — used to derive the console login host
     };
@@ -60,6 +59,40 @@ const BASES = deriveBases();
 // mutated in place so the already-installed fetch/WebSocket shims pick up the
 // change without reinstalling.
 let activeApi = BASES.api;
+
+/** Discovers this workspace's opaque local-DNS name from the control plane
+ *  and fills in BASES.local — the local origin can no longer be
+ *  CONSTRUCTED (see deriveBases' comment on why), only discovered. Reads
+ *  the member-gated `GET /api/workspaces/{slug}/dns-publications` (the
+ *  same identity JWT every other call on this origin already carries) and
+ *  picks the enabled "lan" row's `name`. A no-op — BASES.local stays
+ *  undefined, probeLanFastPath() stays a no-op — when the workspace has no
+ *  such row yet (never enabled) or the fetch fails (off-LAN with no route
+ *  to the tunnel API yet, a transient hiccup): the tunnel path already
+ *  covers that case, there is nothing to recover here. Uses the raw
+ *  `fetch` with an ABSOLUTE url (BASES.api + path), not `apiUrl()` — this
+ *  runs from `installApiBaseShims()` and must not depend on the shim it is
+ *  part of installing. */
+export async function fetchLocalOrigin() {
+  if (!BASES.api || !BASES.slug) return;
+  try {
+    const resp = await fetch(`${BASES.api}/api/workspaces/${BASES.slug}/dns-publications`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const lan = (data.publications || []).find((p) => p.kind === 'lan' && p.enabled && p.name);
+    if (lan) {
+      BASES.local = `${window.location.protocol}//${lan.name}:${LAN_FASTPATH_PORT}`;
+    }
+  } catch {
+    // Network hiccup or off-LAN with the tunnel API itself unreachable —
+    // stay without a local origin, same fallback probeLanFastPath already
+    // provides for an unreachable one.
+  }
+}
 
 /** True when the LAN fast-path is currently active (local origin reachable).
  *  Drives the "on LAN / unmetered" UI badge and the tunnel-metering exclusion. */
@@ -237,10 +270,13 @@ export function installApiBaseShims() {
   PatchedWS.CLOSED = OrigWS.CLOSED;
   window.WebSocket = PatchedWS;
 
-  // Kick off the LAN fast-path probe (non-blocking — the tunnel API works
-  // regardless) and re-evaluate whenever the network changes, so moving on/off
-  // the workspace LAN switches the active origin without a reload.
-  probeLanFastPath();
-  window.addEventListener('online', probeLanFastPath);
-  window.addEventListener('focus', probeLanFastPath);
+  // Discover the local origin, THEN probe it (non-blocking — the tunnel API
+  // works regardless either way). fetchLocalOrigin must resolve first: it's
+  // what fills in BASES.local, which probeLanFastPath is a no-op without.
+  // Re-evaluate whenever the network changes, so moving on/off the
+  // workspace LAN — or enabling/rotating the "lan" publication in another
+  // tab — switches the active origin without a reload.
+  fetchLocalOrigin().then(() => probeLanFastPath());
+  window.addEventListener('online', () => fetchLocalOrigin().then(() => probeLanFastPath()));
+  window.addEventListener('focus', () => fetchLocalOrigin().then(() => probeLanFastPath()));
 }
