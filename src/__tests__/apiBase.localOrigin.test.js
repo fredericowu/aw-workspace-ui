@@ -8,6 +8,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // control plane for it (GET .../dns-publications) the same way it already
 // asks for everything else identity-gated. These tests assert that
 // discovery, not the construction it replaces.
+//
+// dns-publications is mounted on the CENTRAL aw-backend host (api.<apex>)
+// only — the per-workspace BYOD tunnel host (api.<slug>.workspace.<apex>)
+// never had this route and 404s. The discovery fetch must go through
+// centralApiUrl(), not the tunnel origin.
 
 const ORIGINAL_LOCATION = window.location;
 
@@ -48,10 +53,13 @@ describe('apiBase — local origin is discovered, never derived from the slug', 
     const { fetchLocalOrigin, isLanFastPath, probeLanFastPath } = await import('../apiBase');
     await fetchLocalOrigin();
 
-    // The discovery call itself: absolute, on the TUNNEL api origin, never
-    // relative (which would resolve against the SPA's own static host).
+    // The discovery call itself: absolute, on the CENTRAL api host
+    // (api.<apex> — no slug prefix), never the per-workspace tunnel host
+    // (api.<slug>.workspace.<apex>, which never mounts this route and 404s)
+    // and never relative (which would resolve against the SPA's own static
+    // host).
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.fredericowu.workspace.aw.tekflox.com/api/workspaces/fredericowu/dns-publications',
+      'https://api.aw.tekflox.com/api/workspaces/fredericowu/dns-publications',
       expect.objectContaining({ credentials: 'include' }),
     );
 
@@ -67,6 +75,26 @@ describe('apiBase — local origin is discovered, never derived from the slug', 
     expect(probedUrl).toBe(
       'https://qz3f8vN0pXyZ1a2b3c4d5e6f7g.local.workspace.aw.tekflox.com:8443/api/health',
     );
+  });
+
+  it('never asks the per-workspace tunnel host — dns-publications is central-plane only and 404s there', async () => {
+    setLocation('fredericowu.workspace.aw.tekflox.com');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        publications: [{ kind: 'lan', enabled: true, name: 'abc123.local.workspace.aw.tekflox.com' }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fetchLocalOrigin } = await import('../apiBase');
+    await fetchLocalOrigin();
+
+    const requestedUrl = fetchMock.mock.calls[0][0];
+    expect(requestedUrl).not.toBe(
+      'https://api.fredericowu.workspace.aw.tekflox.com/api/workspaces/fredericowu/dns-publications',
+    );
+    expect(requestedUrl.startsWith('https://api.fredericowu.workspace.')).toBe(false);
   });
 
   it('never falls back to constructing local.<slug>.workspace... — the opaque name only ever comes from the API response', async () => {

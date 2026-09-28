@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../auth';
+import { centralApiUrl } from '../apiBase';
 import { currentWorkspaceSlug } from '../lib/networkingApi';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +120,12 @@ function CopyButton({ text }) {
 }
 
 // ── API helpers ────────────────────────────────────────────────────────────
+//
+// dns-publications lives on the CENTRAL aw-backend plane (dns_publication.py's
+// DnsRoutes), not this workspace's own BYOD data-plane API — same reason
+// networkingApi.js routes remote-hosts/public-ip/mesh-status through
+// centralApiUrl(). A bare relative path resolves against the per-workspace
+// tunnel host instead, which never had this route and 404s.
 
 async function api(method, path, body) {
   const opts = { method };
@@ -126,7 +133,7 @@ async function api(method, path, body) {
     opts.headers = { 'Content-Type': 'application/json' };
     opts.body = JSON.stringify(body);
   }
-  const res = await apiFetch(path, opts);
+  const res = await apiFetch(centralApiUrl(path), opts);
   if (!res.ok) {
     let detail;
     try {

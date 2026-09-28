@@ -63,20 +63,22 @@ let activeApi = BASES.api;
 /** Discovers this workspace's opaque local-DNS name from the control plane
  *  and fills in BASES.local — the local origin can no longer be
  *  CONSTRUCTED (see deriveBases' comment on why), only discovered. Reads
- *  the member-gated `GET /api/workspaces/{slug}/dns-publications` (the
- *  same identity JWT every other call on this origin already carries) and
- *  picks the enabled "lan" row's `name`. A no-op — BASES.local stays
- *  undefined, probeLanFastPath() stays a no-op — when the workspace has no
- *  such row yet (never enabled) or the fetch fails (off-LAN with no route
- *  to the tunnel API yet, a transient hiccup): the tunnel path already
- *  covers that case, there is nothing to recover here. Uses the raw
- *  `fetch` with an ABSOLUTE url (BASES.api + path), not `apiUrl()` — this
- *  runs from `installApiBaseShims()` and must not depend on the shim it is
- *  part of installing. */
+ *  the member-gated `GET /api/workspaces/{slug}/dns-publications` — this
+ *  route lives on the CENTRAL aw-backend plane (dns_publication.py's
+ *  DnsRoutes), not this workspace's own BYOD tunnel API, so it goes through
+ *  `centralApiUrl()` like every other central-plane call (see
+ *  networkingApi.js) — and picks the enabled "lan" row's `name`. A no-op —
+ *  BASES.local stays undefined, probeLanFastPath() stays a no-op — when the
+ *  workspace has no such row yet (never enabled) or the fetch fails (off-LAN
+ *  with no route to the central API yet, a transient hiccup): the tunnel
+ *  path already covers that case, there is nothing to recover here. Uses the
+ *  raw `fetch` with an ABSOLUTE url, not `apiUrl()` — this runs from
+ *  `installApiBaseShims()` and must not depend on the shim it is part of
+ *  installing. */
 export async function fetchLocalOrigin() {
   if (!BASES.api || !BASES.slug) return;
   try {
-    const resp = await fetch(`${BASES.api}/api/workspaces/${BASES.slug}/dns-publications`, {
+    const resp = await fetch(centralApiUrl(`/api/workspaces/${encodeURIComponent(BASES.slug)}/dns-publications`), {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
