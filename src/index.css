@@ -1090,6 +1090,31 @@ button, [role="button"] { cursor: pointer; }
 .mcpgw-cfg-field input:focus { outline: none; border-color: var(--color-accent); }
 .mcpgw-cfg-field.is-warn input { border-color: rgba(245,166,35,.4); }
 .mcpgw-cfg-field.is-ok input { border-color: rgba(74,222,128,.35); }
+.mcpgw-cfg-field select {
+  padding: 6px 9px; border-radius: 6px; border: 1px solid var(--color-border);
+  background: var(--color-bg-primary); color: var(--color-text-primary); font-size: 12px;
+}
+.mcpgw-cfg-field select:focus { outline: none; border-color: var(--color-accent); }
+
+/* External upstreams (hand-registered stdio/http MCP servers) */
+.mcpgw-badge.is-ok { color: #86efac; background: rgba(74,222,128,.12); border-color: rgba(74,222,128,.28); }
+.mcpgw-badge.is-err { color: #fca5a5; background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.28); }
+.mcpgw-ext-kv { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+.mcpgw-ext-kv input {
+  padding: 6px 9px; border-radius: 6px; border: 1px solid var(--color-border);
+  background: var(--color-bg-primary); color: var(--color-text-primary); font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-ext-kv input:focus { outline: none; border-color: var(--color-accent); }
+.mcpgw-ext-kv-key { width: 160px; }
+.mcpgw-ext-kv-value { flex: 1; min-width: 140px; }
+.mcpgw-ext-kv-ref {
+  flex: 1; min-width: 140px; padding: 6px 9px; font-size: 11px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted);
+  background: rgba(255,255,255,.04); border-radius: 6px; border: 1px solid var(--color-border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.mcpgw-ext-kv-label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
 
 @media (max-width: 680px) {
   .mcpgw-head { flex-direction: column; }

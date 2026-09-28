@@ -10,6 +10,7 @@ import { SOURCES, resolveOptions } from '../lib/configOptions';
 import AppWindow from './AppWindow';
 import McpGatewayConfigEditor from './McpGatewayConfigEditor';
 import McpGatewayNamedConfigs from './McpGatewayNamedConfigs';
+import McpGatewayExternalUpstreams from './McpGatewayExternalUpstreams';
 import JsonConfigEditor from './JsonConfigEditor';
 
 function fieldType(spec) {
@@ -267,6 +268,7 @@ export default function AppConfigBody({ app, onSaved }) {
       )}
       {isMcpGateway && (
         <>
+          <McpGatewayExternalUpstreams />
           <McpGatewayConfigEditor onSaved={onSaved} />
           <McpGatewayNamedConfigs />
         </>
