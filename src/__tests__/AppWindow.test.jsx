@@ -541,3 +541,90 @@ describe('AppWindow cross-widget refresh + hide_when_logged_in', () => {
     expect(screen.queryByText('Sign in instructions')).not.toBeInTheDocument();
   });
 });
+
+describe('AppWindow toggle widget', () => {
+  const SPEC = {
+    regions: [
+      {
+        id: 'settings',
+        widgets: [
+          {
+            type: 'toggle',
+            bind: 'GET /api/apps/kali-linux/leaf-tool/proxy_status',
+            field: 'enabled',
+            action: { call: 'POST /api/apps/kali-linux/leaf-tool/proxy_set' },
+            label: 'Route Chrome through aw-app-proxy',
+            on_text: 'Traffic goes via {proxy_url}.',
+            off_text: 'Chrome connects directly.',
+            offline_field: 'offline',
+            offline_text: 'The Kali container is off — start it to change this setting.',
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders the switch off and shows off_text', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, result: { enabled: false, proxy_url: 'http://x:9124' } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByText('Chrome connects directly.')).toBeInTheDocument();
+  });
+
+  it('flips the switch, POSTs the new value, then re-fetches bind for the new status', async () => {
+    const fetchMock = vi
+      .fn()
+      // initial bind — off
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true, result: { enabled: false } }) })
+      // POST proxy_set — body isn't trusted, just awaited
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true, result: { enabled: true } }) })
+      // re-fetch bind, triggered by the shared RefreshContext bump
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { enabled: true, proxy_url: 'http://x:9124' } }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() => expect(screen.getByRole('checkbox')).not.toBeChecked());
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/apps/kali-linux/leaf-tool/proxy_set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeChecked());
+    expect(screen.getByText('Traffic goes via http://x:9124.')).toBeInTheDocument();
+  });
+
+  it('renders offline_text instead of the switch when the bind reports offline', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ offline: true, message: 'container is stopped' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AppWindow spec={SPEC} />);
+    await waitFor(() =>
+      expect(
+        screen.getByText('The Kali container is off — start it to change this setting.'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+});

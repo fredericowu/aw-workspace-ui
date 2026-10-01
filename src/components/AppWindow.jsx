@@ -81,6 +81,22 @@
 //   revoked, wrong scope), distinct from never having configured one at
 //   all. Omit it and behavior is unchanged: only `logged_out_text` (static,
 //   no interpolation) is shown for both cases, as before.
+//
+//   toggle { bind, field, action: { call }, label?, on_text?, off_text?,
+//   offline_field?, offline_text?, loading_text? } — a bind-backed switch.
+//   Fetches `bind` (a "METHOD /path" GET) on mount and on the shared
+//   RefreshContext bump, same lifecycle as `auth_status`. The bound
+//   response may come wrapped as `{ ok, result }` (the leaf-tool bridge's
+//   shape) — `result` is unwrapped automatically when present. If the
+//   (unwrapped) response's `offline_field` (default "offline") is truthy,
+//   `offline_text` (markdown) renders INSTEAD of the switch — the bridge
+//   answers this way when the backing app's container isn't running, so a
+//   stopped app shows an explanation rather than a dead control. Otherwise
+//   a checkbox renders bound to `field` (default "enabled"); flipping it
+//   POSTs `action.call` with body `{ <field>: <newValue> }`, applies the
+//   (unwrapped) response as the new state, and bumps the shared refresh
+//   counter. `on_text`/`off_text` render below the switch, {field}-
+//   interpolated against the current response like `auth_status`'s texts.
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
 import { apiUrl, appSubdomainUrl } from '../apiBase';
@@ -356,6 +372,9 @@ function WidgetBody({ widget }) {
     case 'auth_status':
       return <AuthStatus widget={widget} />;
 
+    case 'toggle':
+      return <Toggle widget={widget} />;
+
     default:
       return (
         <div className="appwin-unknown">Unsupported widget: {widget.type}</div>
@@ -547,6 +566,98 @@ function AuthStatus({ widget }) {
     );
   }
   return null;
+}
+
+// The leaf-tool bridge wraps a successful call as { ok, result } — unwrap
+// when present so the widget always works off the plain status object,
+// whether it came from the bind GET or a toggle action's POST response.
+function unwrapResult(body) {
+  return body && body.result !== undefined ? body.result : body;
+}
+
+function Toggle({ widget }) {
+  const { counter, bump } = useContext(RefreshContext);
+  const [state, setState] = useState({ loading: true, data: null, error: null });
+  const [busy, setBusy] = useState(false);
+
+  const bindCall = parseCall(widget.bind);
+  const actionCall = parseCall(widget.action && widget.action.call);
+  const field = widget.field || 'enabled';
+  const offlineField = widget.offline_field || 'offline';
+
+  const refresh = async () => {
+    if (!bindCall) return;
+    setState((prev) => ({ ...prev, loading: true }));
+    try {
+      const res = await fetch(bindCall.path, { method: bindCall.method });
+      const body = await res.json().catch(() => ({}));
+      setState({ loading: false, data: unwrapResult(body), error: null });
+    } catch (err) {
+      setState({ loading: false, data: null, error: String(err) });
+    }
+  };
+
+  // Re-fetches on mount AND whenever another widget in this window completes
+  // an action (shared `counter`) — same reasoning as `auth_status`.
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counter]);
+
+  const onToggle = async () => {
+    if (!actionCall || !state.data || busy) return;
+    const next = !state.data[field];
+    setBusy(true);
+    try {
+      const res = await fetch(actionCall.path, {
+        method: actionCall.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: next }),
+      });
+      await res.json().catch(() => ({}));
+      // Re-fetch `bind` for the up-to-date status (e.g. `effective` /
+      // `proxy_reachable`, not just the field we flipped) rather than
+      // trusting the action response — `bump()` drives this widget's own
+      // refetch via the `counter` effect below, same as any sibling widget.
+      bump();
+    } catch (err) {
+      setState((prev) => ({ ...prev, error: String(err) }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (state.loading) {
+    return <p className="appwin-toggle" data-testid="appwin-toggle">{widget.loading_text || 'Checking…'}</p>;
+  }
+  if (state.error || !state.data) {
+    return null;
+  }
+  if (state.data[offlineField]) {
+    return (
+      <div className="appwin-toggle appwin-toggle-offline" data-testid="appwin-toggle">
+        {widget.label && <p className="appwin-toggle-label">{widget.label}</p>}
+        <p
+          className="appwin-toggle-offline-text"
+          dangerouslySetInnerHTML={{
+            __html: renderMarkdown(widget.offline_text || 'This setting is unavailable right now.', true),
+          }}
+        />
+      </div>
+    );
+  }
+
+  const checked = !!state.data[field];
+  const text = checked ? widget.on_text : widget.off_text;
+  return (
+    <div className="appwin-toggle" data-testid="appwin-toggle">
+      <label className="appwin-toggle-row">
+        <input type="checkbox" checked={checked} disabled={busy} onChange={onToggle} />
+        <span>{widget.label || ''}</span>
+      </label>
+      {text && <p className="appwin-toggle-text">{interpolate(text, state.data)}</p>}
+    </div>
+  );
 }
 
 // Replaces {key} placeholders with the matching scalar field off `data`.
