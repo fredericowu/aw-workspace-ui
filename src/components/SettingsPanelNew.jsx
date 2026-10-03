@@ -53,7 +53,6 @@ const GENERAL_SECTIONS = [
   { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
   { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
   { key: 'skills', label: 'Skills', ready: true, description: 'Author and manage native and app-contributed skills.' },
-  { key: 'mcp', label: 'MCP Servers', ready: false, description: 'Configure Model Context Protocol server connections.' },
 ];
 
 function ChevronDown({ open }) {
