@@ -99,17 +99,24 @@ export default function AppConfigBody({ app, onSaved }) {
   // config_schema, render THAT window here instead of the generated form.
   // Falls back to the schema form when no window.
   const [settingsWindowSpec, setSettingsWindowSpec] = useState(null);
+  // When the app's settings_panel contribution carries `"schema_form":
+  // "advanced"`, the generated config_schema form below renders collapsed
+  // behind an "Advanced" details element, with the declarative window
+  // first — opt-in, so every other app's settings body is unaffected.
+  const [advancedSchemaForm, setAdvancedSchemaForm] = useState(false);
   const [fieldOptions, setFieldOptions] = useState({});
   const [resolving, setResolving] = useState(true);
   useEffect(() => {
     let alive = true;
     setResolving(true);
     setSettingsWindowSpec(null);
+    setAdvancedSchemaForm(false);
     const contributionsDone = fetchContributions()
       .then((c) => {
         if (!alive) return;
         const panel = (c.settings || []).find((s) => s.app === app.slug && s.window);
         if (!panel) return;
+        setAdvancedSchemaForm(panel.schema_form === 'advanced');
         const win = (c.windows || []).find((w) => w.app === app.slug && w.id === panel.window);
         const spec = win?.body?.spec_data;
         if (spec) setSettingsWindowSpec(spec);
@@ -186,9 +193,7 @@ export default function AppConfigBody({ app, onSaved }) {
     return <p className="appcfg-empty">This app has no configurable settings.</p>;
   }
 
-  return (
-    <>
-      {fields.length > 0 && !isMcpTools && (
+  const formBlock = fields.length > 0 && !isMcpTools && (
         <form className="appcfg-form" onSubmit={submit}>
           {fields.map(([key, spec]) => {
             const type = fieldType(spec);
@@ -262,9 +267,29 @@ export default function AppConfigBody({ app, onSaved }) {
             </button>
           </div>
         </form>
-      )}
-      {settingsWindowSpec && (
-        <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} /></div>
+  );
+
+  const windowBlock = settingsWindowSpec && (
+    <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} appId={app.slug} /></div>
+  );
+
+  return (
+    <>
+      {advancedSchemaForm ? (
+        <>
+          {windowBlock}
+          {formBlock && (
+            <details className="appwin-collapsible">
+              <summary className="appwin-collapsible-title">Advanced: server configuration</summary>
+              <div className="appwin-collapsible-body">{formBlock}</div>
+            </details>
+          )}
+        </>
+      ) : (
+        <>
+          {formBlock}
+          {windowBlock}
+        </>
       )}
       {isMcpGateway && (
         <>

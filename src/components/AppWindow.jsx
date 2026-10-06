@@ -100,6 +100,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
 import { apiUrl, appSubdomainUrl } from '../apiBase';
+import { subscribeAppEvents } from '../lib/appEventsSocket';
 
 // Parse a declarative action "GET /api/apps/hello/" into { method, path }.
 function parseCall(call) {
@@ -679,10 +680,20 @@ function interpolate(template, data, fallbackKey, fallbackValue) {
 // nested arbitrarily deep (e.g. inside a "collapsible") can reach them
 // without prop-drilling every level — see the iframe/app_iframe cases
 // below, the ones that actually need it.
-export default function AppWindow({ spec, onFocus, isFocused = true }) {
+// appId: optional — when set, this window listens for `app_event` WS frames
+// (ctx.notify.event() on the app's backend, e.g. an OAuth connect completing
+// out-of-band) and bumps the same shared counter a button/poll action would,
+// so a bind-backed widget like auth_status re-fetches without a full remount.
+export default function AppWindow({ spec, onFocus, isFocused = true, appId = null }) {
   const [counter, setCounter] = useState(0);
   const [loggedIn, setLoggedIn] = useState(null);
   const bump = () => setCounter((c) => c + 1);
+
+  useEffect(() => {
+    if (!appId) return;
+    return subscribeAppEvents(appId, () => bump());
+  }, [appId]);
+
   if (!spec) return null;
   const regions = spec.regions || [];
   return (
