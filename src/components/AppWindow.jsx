@@ -319,6 +319,14 @@ function WidgetBody({ widget }) {
       // absolute/non-/api srcs untouched. Lets a container app embed its own UI
       // (e.g. the AW Browser's noVNC screen at /api/apps/browser/…).
       //
+      // Empty src guard, mirroring app_iframe's own `if (!base) return null`
+      // below: a declarative window can resolve its src from a managed
+      // config field (e.g. `${config.web_ui_url}`) that is legitimately
+      // unset until an operator fills it in — rendering an <iframe> with an
+      // empty src loads the SPA's own document into itself instead of
+      // showing nothing.
+      if (!widget.src) return null;
+      //
       // The invisible overlay (only present while !isFocused) is what makes
       // a click land on the window at all — mousedown INSIDE an iframe's own
       // document never reaches the parent page's listeners (separate
