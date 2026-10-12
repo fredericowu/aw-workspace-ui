@@ -4,7 +4,7 @@
 # backend in this container. AUTORELOAD=1 (set in aw.json) flips
 # `vite --host` into watch mode (it always watches; this just documents intent).
 
-FROM node:20-slim
+FROM node:24-slim
 
 WORKDIR /app
 
