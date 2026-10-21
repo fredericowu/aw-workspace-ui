@@ -16,6 +16,7 @@ let socket = null;
 
 function dispatch(msg) {
   if (msg.type !== 'app_event') return;
+  if (msg.version !== undefined && msg.version !== 1) return;
   const data = (msg.data && typeof msg.data === 'object') ? msg.data : {};
   const set = listeners.get(data.app);
   if (!set) return;

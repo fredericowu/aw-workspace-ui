@@ -23,6 +23,7 @@ import { useEffect, useRef } from 'react';
 import { installPluginHost } from './pluginHost';
 import { fetchContributions } from './appsApi';
 import { wireContributions } from './wireContributions';
+import { wireAppEventHooks } from './appEventHooks';
 
 // The slot registry is a process-wide singleton, so wiring it twice would
 // double-mount every contribution. Only one shell is ever mounted at a time
@@ -71,6 +72,7 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
     installPluginHost();
     let disposed = false;
     let dispose = null;
+    let disposeEventHooks = null;
     let signature = null;
 
     const run = async (isFirstLoad) => {
@@ -103,7 +105,17 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
         onOpenWindow: (...args) => onOpenWindowRef.current?.(...args),
         replace: previous || undefined,
       });
-      if (disposed) { try { next(); } catch { /* nothing left to keep */ } return; }
+      const previousEventHooks = disposeEventHooks;
+      const nextEventHooks = wireAppEventHooks(contributions, (action) => {
+        onOpenWindowRef.current?.(action.window, action.app, action);
+      });
+      if (disposed) {
+        try { next(); } catch { /* nothing left to keep */ }
+        try { nextEventHooks(); } catch { /* nothing left to keep */ }
+        return;
+      }
+      try { previousEventHooks?.(); } catch { /* replacement still proceeds */ }
+      disposeEventHooks = nextEventHooks;
       dispose = next;
       // Only now, and only if every app made it in — an app whose bundle failed
       // to load must not have its absence frozen in as the steady state, or the
@@ -141,6 +153,7 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
       window.removeEventListener('aw-apps-changed', onChanged);
       window.removeEventListener('focus', onChanged);
       if (dispose) { try { dispose(); } catch { /* tearing down anyway */ } }
+      if (disposeEventHooks) { try { disposeEventHooks(); } catch { /* tearing down anyway */ } }
     };
   }, []);
 

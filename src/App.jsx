@@ -668,8 +668,11 @@ function AuthenticatedApp() {
   };
 
   const contributionsRef = usePluginContributions({
-    onOpenWindow: (windowId) => {
-      const found = findWindowSpec(contributionsRef.current, windowId);
+    onOpenWindow: (windowId, _appId, eventAction) => {
+      let found = findWindowSpec(contributionsRef.current, windowId);
+      if (found && eventAction?.url) {
+        found = { ...found, body: { ...found.body, url: eventAction.url } };
+      }
       if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
     },
     onFirstLoad: rehydrateAppWindows,

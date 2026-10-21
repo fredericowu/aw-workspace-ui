@@ -54,6 +54,17 @@ describe('appEventsSocket — shared app_event dispatch', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
+  it('ignores a future app_event envelope version', async () => {
+    const { subscribeAppEvents } = await import('../lib/appEventsSocket');
+    const fn = vi.fn();
+    subscribeAppEvents('some-app', fn);
+    FakeWebSocket.instances[0].fire({
+      type: 'app_event', version: 2,
+      data: { app: 'some-app', event: 'open_file' },
+    });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
   it('unsubscribe stops further delivery to that listener', async () => {
     const { subscribeAppEvents } = await import('../lib/appEventsSocket');
     const fn = vi.fn();
