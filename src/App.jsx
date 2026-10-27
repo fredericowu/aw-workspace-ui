@@ -25,6 +25,7 @@ import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keybo
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
 import { isWorkspaceSpa, consoleLoginUrl } from './apiBase';
 import { isVirtualKeyboardTrackpadOpen, toggleVirtualKeyboardTrackpad } from './lib/virtualKeyboardTrackpad';
+import { buildAntigravityCommand, withAntigravityAgent } from './lib/agentClis';
 const API_BASE = '';
 
 function isMobileDevice() {
@@ -404,16 +405,16 @@ function AuthenticatedApp() {
   // rehydrate is about to read (contributions are fetched async on mount).
   const appWindowsHydratedRef = useRef(false);
   const [terminals, setTerminals] = useState([]);
-  const [aiAgents, setAiAgents] = useState([
+  const [aiAgents, setAiAgents] = useState(withAntigravityAgent([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
     { type: 'copilot', label: 'Copilot', command: 'copilot', color: '#2ea043', icon: 'copilot' },
     { type: 'codex', label: 'Codex', command: 'codex', color: '#0ea5e9', icon: 'codex' },
-  ]);
+  ]));
 
   // Load aw config to check feature flags and agent list
   useEffect(() => {
     getAwConfig().then(cfg => {
-      if (cfg.ai_agents?.length) setAiAgents(cfg.ai_agents);
+      if (cfg.ai_agents?.length) setAiAgents(withAntigravityAgent(cfg.ai_agents));
       if (cfg.log_tail_lines) setMaxLines(Number(cfg.log_tail_lines));
     }).catch(() => {});
   }, []);
@@ -423,7 +424,7 @@ function AuthenticatedApp() {
     const handler = () => {
       getAwConfig().then(cfg => {
         if (cfg.log_tail_lines) setMaxLines(Number(cfg.log_tail_lines));
-        if (cfg.ai_agents?.length) setAiAgents(cfg.ai_agents);
+        if (cfg.ai_agents?.length) setAiAgents(withAntigravityAgent(cfg.ai_agents));
       }).catch(() => {});
     };
     window.addEventListener('aw-config-changed', handler);
@@ -1043,6 +1044,10 @@ function AuthenticatedApp() {
       const sessionId = crypto.randomUUID();
       name = `${label} - ${sessionId.slice(-4)}`;
       command = _buildAgentCommand('gemini', null, false, name, sessionId);
+    } else if (agentType === 'antigravity') {
+      const sessionId = crypto.randomUUID();
+      name = `${label} - ${sessionId.slice(-4)}`;
+      command = buildAntigravityCommand();
     } else {
       const sessionId = crypto.randomUUID();
       name = `${label} - ${sessionId.slice(-4)}`;
@@ -1161,6 +1166,9 @@ function AuthenticatedApp() {
       }
       if (isInsecure) cmd += ' --yolo';
       return cmd;
+    }
+    if (agentType === 'antigravity') {
+      return buildAntigravityCommand(resumeSessionId, isInsecure);
     }
     // Generic agent — use configured command
     const agentDef = aiAgents.find(a => a.type === agentType);

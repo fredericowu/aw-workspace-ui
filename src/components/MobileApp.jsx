@@ -20,6 +20,7 @@ import SettingsPanel from './SettingsPanel';
 import SettingsPanelNew from './SettingsPanelNew';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
+import { buildAntigravityCommand, withAntigravityAgent } from '../lib/agentClis';
 
 const API_BASE = '';
 // NOTE: any category not listed here is silently dropped from the mobile
@@ -199,11 +200,11 @@ export default function MobileApp() {
   // with the desktop launcher and the Tasks tab.  Defaults match the
   // desktop App.jsx defaults so the UI works even if the config call
   // hasn't returned yet.
-  const [aiAgents, setAiAgents] = useState([
+  const [aiAgents, setAiAgents] = useState(withAntigravityAgent([
     { type: 'claude',  label: 'Claude',  command: 'claude',  color: '#d97706' },
     { type: 'copilot', label: 'Copilot', command: 'copilot', color: '#2ea043' },
     { type: 'codex',   label: 'Codex',   command: 'codex',   color: '#0ea5e9' },
-  ]);
+  ]));
   // useMemo, not a plain map: a fresh array identity on every render made
   // applyTerminalUpdate's useCallback dep churn every render too, which
   // re-fired its effect, fetched, always set a fresh object, re-rendered,
@@ -224,7 +225,7 @@ export default function MobileApp() {
 
   useEffect(() => {
     const load = (cfg) => {
-      if (cfg.ai_agents?.length) setAiAgents(cfg.ai_agents);
+      if (cfg.ai_agents?.length) setAiAgents(withAntigravityAgent(cfg.ai_agents));
       const apps = (cfg.workspace_apps || []).filter(a => a.id && !a.hidden);
       setWorkspaceApps(apps);
     };
@@ -504,6 +505,7 @@ export default function MobileApp() {
     let command = agentDef.command || agentType;
     if (agentType === 'claude') command = `claude --session-id ${newId}`;
     else if (agentType === 'gemini') command = `gemini --session-id ${newId}`;
+    else if (agentType === 'antigravity') command = buildAntigravityCommand();
     const res = await apiFetch(`${API_BASE}/api/terminals`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -718,6 +720,9 @@ export default function MobileApp() {
       }
       if (isInsecure) cmd += ' --yolo';
       return cmd;
+    }
+    if (agentType === 'antigravity') {
+      return buildAntigravityCommand(resumeId, isInsecure);
     }
     const def = aiAgents.find(a => a.type === agentType);
     return def?.command || agentType;
