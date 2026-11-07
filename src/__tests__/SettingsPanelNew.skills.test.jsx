@@ -1,5 +1,6 @@
-// Proves the 'skills' General section actually renders SkillsTab instead of
-// the ComingSoon placeholder it showed before this section was wired up.
+// Proves the 'skills' General section actually renders SkillsSection
+// (registry iframe primary + local SkillsTab sub-view) instead of the
+// ComingSoon placeholder it showed before this section was wired up.
 import { render, screen, fireEvent } from '@testing-library/react';
 import { it, expect, vi, beforeEach } from 'vitest';
 
@@ -20,11 +21,22 @@ beforeEach(() => {
   }));
 });
 
-it('Skills opens SkillsTab, not the coming-soon placeholder', async () => {
+it('Skills opens the registry pane by default, not the coming-soon placeholder', async () => {
   render(<SettingsPanelNew />);
 
   fireEvent.click(screen.getByRole('button', { name: /Skills/ }));
 
-  expect(await screen.findByText(/No skills yet/)).toBeInTheDocument();
+  expect(await screen.findByTestId('skills-registry-pane')).toBeInTheDocument();
   expect(screen.queryByText(/coming soon/)).not.toBeInTheDocument();
+});
+
+it('Skills: switching to the Local sub-view renders SkillsTab', async () => {
+  render(<SettingsPanelNew />);
+
+  fireEvent.click(screen.getByRole('button', { name: /Skills/ }));
+  await screen.findByTestId('skills-registry-pane');
+
+  fireEvent.click(screen.getByTestId('skills-view-local'));
+
+  expect(await screen.findByText(/No skills yet/)).toBeInTheDocument();
 });

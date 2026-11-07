@@ -27,7 +27,7 @@ import NetworkingTab from './NetworkingTab';
 import VpnsTab from './VpnsTab';
 import RemoteHostsTab from './RemoteHostsTab';
 import ObservabilityTab from './ObservabilityTab';
-import SkillsTab from './SkillsTab';
+import SkillsSection from './SkillsSection';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
@@ -363,7 +363,7 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
                   <RemoteHostsTab onNavigateToNetworking={() => select('general', 'networking')} />
                 )) ||
                 (selectedSection.key === 'observability' && <ObservabilityTab />) ||
-                (selectedSection.key === 'skills' && <SkillsTab />)
+                (selectedSection.key === 'skills' && <SkillsSection />)
               )
               : <ComingSoon label={selectedSection.label} />
           )}
