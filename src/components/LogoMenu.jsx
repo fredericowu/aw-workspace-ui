@@ -29,7 +29,7 @@ export default function LogoMenu({ onOpenSettings, onOpenSettingsOld, onLogout }
     <div className="relative flex items-center gap-1 shrink-0" ref={rootRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 px-1 rounded transition-colors hover:bg-white/5 cursor-pointer"
+        className="flex items-center gap-1 px-1 rounded border border-[var(--color-border)] bg-white/[0.03] transition-colors hover:bg-white/5 cursor-pointer"
         aria-label="Account menu"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -39,7 +39,7 @@ export default function LogoMenu({ onOpenSettings, onOpenSettingsOld, onLogout }
           <text x="44" y="50" fontFamily="Inter" fontSize="46" fontWeight="800" fill="var(--color-text-primary)" letterSpacing="-1">aw</text>
         </svg>
         <svg
-          className={`w-3 h-3 shrink-0 text-[var(--color-text-muted)] transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`w-3 h-3 shrink-0 text-[var(--color-text-secondary)] transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
         >
           <path d="M6 9l6 6 6-6" />
