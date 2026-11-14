@@ -1231,7 +1231,7 @@ function GeneralSection({ config, onChange }) {
 // ---------------------------------------------------------------------------
 const EMPTY_APP = { id: '', label: '', url: '', component: '', menu: 'apps', icon: '', auth_required: true, public: false };
 
-// Named icon set — kept in sync with WorkspaceNav.jsx WORKSPACE_APP_ICONS
+// Named icon set — kept in sync with LogoMenu.jsx WORKSPACE_APP_ICONS
 // and app_proxy.py _ICON_SVGS (splash page).
 const NAMED_ICONS_PICKER = [
   { key: 'bolt',     label: 'Bolt',     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg> },
