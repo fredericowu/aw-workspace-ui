@@ -3,6 +3,7 @@ import WindowManager from './components/WindowManager';
 // SettingsPanel is now rendered inside WindowManager as a floating panel
 import WorkspaceNav from './components/WorkspaceNav';
 import AppsNav from './components/AppsNav';
+import LogoMenu from './components/LogoMenu';
 import VpnNav from './components/VpnNav';
 import StatusDot from './components/StatusDot';
 import AuthScreen from './components/AuthScreen';
@@ -1463,13 +1464,14 @@ function AuthenticatedApp() {
           9998/9999 notification + modal overlays. */}
       <div className="relative z-[9990] flex items-center px-3 py-1.5 bg-[var(--color-bg-header)] border-b border-[var(--color-border)] shrink-0">
         <div className="flex items-center gap-4 shrink-0">
-          {/* Logo — "❯ aw" wordmark (Direção B: Signal Amber identity). */}
-          <div className="flex items-center gap-1 shrink-0">
-            <svg width="72" height="21" viewBox="0 0 240 70" className="shrink-0" style={{ marginTop: 3 }}>
-              <text x="0" y="50" fontFamily="ui-monospace, Menlo, monospace" fontSize="46" fontWeight="700" fill="var(--color-accent)">&#10095;</text>
-              <text x="44" y="50" fontFamily="Inter" fontSize="46" fontWeight="800" fill="var(--color-text-primary)" letterSpacing="-1">aw</text>
-            </svg>
-          </div>
+          {/* Logo — "❯ aw ⌄" wordmark + account dropdown (Direção B: Signal
+              Amber identity). Console/Settings/Log Out moved here from the
+              profile drawer, which is now notifications-only. */}
+          <LogoMenu
+            onOpenSettings={openSettingsPanelNew}
+            onOpenSettingsOld={openSettingsPanel}
+            onLogout={async () => { await logout(); window.location.reload(); }}
+          />
 
           {/* Navigation tabs */}
           <div className="flex items-center gap-1">
@@ -1654,7 +1656,10 @@ function AuthenticatedApp() {
               </svg>
             </button>
           )}
-          {/* Camera button — stream webcam to server (/dev/video10 + MJPEG) */}
+          {/* Camera button — stream webcam to server (/dev/video10 + MJPEG).
+              Hidden for now (moving into Settings NEW, separate future
+              card) — toggleCamera/cameraActive/JSX kept, just not rendered. */}
+          {false && (
           <button
             onClick={toggleCamera}
             className={`p-1.5 rounded transition-colors ${
@@ -1670,6 +1675,7 @@ function AuthenticatedApp() {
               {cameraActive && <circle cx="12" cy="13" r="2" fill="currentColor" stroke="none"/>}
             </svg>
           </button>
+          )}
 
           {/* Layout buttons — only on Home. Collapsed to the last-picked
               one via IconStack; hover reveals all three, and picking any
@@ -1723,10 +1729,10 @@ function AuthenticatedApp() {
             <VpnNav onOpenSettings={() => openSettingsPanelNew({ group: 'general', key: 'vpn' })} />
           </ErrorBoundary>
 
-          {/* Profile — top-right icon opening the account drawer (Console,
-              Settings, Notifications). Replaces the standalone bell; the
-              unread badge now lives here. Kept last so the slide-in panel
-              anchored to the right edge sits naturally under it. */}
+          {/* Notifications — top-right bell, notifications-only (Console/
+              Settings/Log Out moved to the "❯ aw ⌄" dropdown next to the
+              logo). Unread badge unchanged. Kept last so the slide-in
+              panel anchored to the right edge sits naturally under it. */}
           <button
             onClick={() => {
               setProfileDrawerOpen((p) => {
@@ -1740,11 +1746,11 @@ function AuthenticatedApp() {
               });
             }}
             className={`relative p-1.5 rounded transition-colors hover:bg-white/10 cursor-pointer before:content-[''] before:absolute before:inset-[-8px] ${profileDrawerOpen ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
-            title="Profile"
-            aria-label={notifUnreadCount > 0 ? `Profile — ${notifUnreadCount} unread notification${notifUnreadCount === 1 ? '' : 's'}` : 'Profile'}
+            title="Notifications"
+            aria-label={notifUnreadCount > 0 ? `Notifications — ${notifUnreadCount} unread` : 'Notifications'}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
             </svg>
             {notifUnreadCount > 0 && (
               <span
@@ -1792,8 +1798,9 @@ function AuthenticatedApp() {
         </div>
       </div>
 
-      {/* Profile drawer — slides in from right. Console + Settings actions
-          on top, Notifications (moved from the old standalone bell) below. */}
+      {/* Notifications drawer — slides in from right. Console/Settings/Log
+          Out moved out to the "❯ aw ⌄" dropdown (LogoMenu); this is now
+          notifications-only, same list as before. */}
       <div
         className="fixed top-0 right-0 bottom-0 w-96 bg-[var(--color-bg-sidebar)] border-l border-[var(--color-border)] z-[9998] flex flex-col shadow-2xl transition-transform duration-300"
         style={{ transform: profileDrawerOpen ? 'translateX(0)' : 'translateX(100%)' }}
@@ -1801,77 +1808,21 @@ function AuthenticatedApp() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
             </svg>
-            <span className="text-sm font-bold text-[var(--color-text-primary)]">Profile</span>
+            <span className="text-sm font-bold text-[var(--color-text-primary)]">Notifications</span>
+            <span className="text-[10px] text-[var(--color-text-muted)]">{notifHistory.length}</span>
           </div>
           <button
             onClick={() => setProfileDrawerOpen(false)}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-white/10"
             title="Close"
-            aria-label="Close profile drawer"
+            aria-label="Close notifications drawer"
           >
             <svg className="w-4 h-4 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
           </button>
         </div>
 
-        <div className="flex flex-col gap-2 px-4 py-3 border-b border-[var(--color-border)]">
-          <a
-            href="https://console.aw.tekflox.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors"
-            aria-label="Open Console (account admin) in a new tab"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-            </svg>
-            Console
-          </a>
-          <button
-            onClick={() => { openSettingsPanelNew(); setProfileDrawerOpen(false); }}
-            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors text-left"
-            aria-label="Open Settings NEW"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-            </svg>
-            Settings NEW
-            <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-semibold">NEW</span>
-          </button>
-          <button
-            onClick={() => { openSettingsPanel(); setProfileDrawerOpen(false); }}
-            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-primary)] hover:bg-white/10 transition-colors text-left"
-            aria-label="Open Settings"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-            </svg>
-            Settings
-          </button>
-          <button
-            onClick={async () => {
-              setProfileDrawerOpen(false);
-              await logout();
-              window.location.reload();
-            }}
-            className="flex items-center gap-2 min-h-[44px] px-3 rounded text-sm text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-white/10 transition-colors text-left"
-            aria-label="Log out"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>
-            </svg>
-            Log Out
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)]">
-          <svg className="w-4 h-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
-          </svg>
-          <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Notifications</span>
-          <span className="text-[10px] text-[var(--color-text-muted)]">{notifHistory.length}</span>
-        </div>
         <div className="flex-1 overflow-y-auto">
           {notifHistory.length === 0 && (
             <div className="p-6 text-center text-[var(--color-text-muted)] text-sm">No notifications yet</div>
