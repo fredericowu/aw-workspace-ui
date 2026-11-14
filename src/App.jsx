@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import WindowManager from './components/WindowManager';
 // SettingsPanel is now rendered inside WindowManager as a floating panel
-import WorkspaceNav from './components/WorkspaceNav';
 import AppsNav from './components/AppsNav';
 import LogoMenu from './components/LogoMenu';
 import VpnNav from './components/VpnNav';
@@ -1466,12 +1465,24 @@ function AuthenticatedApp() {
         <div className="flex items-center gap-4 shrink-0">
           {/* Logo — "❯ aw ⌄" wordmark + account dropdown (Direção B: Signal
               Amber identity). Console/Settings/Log Out moved here from the
-              profile drawer, which is now notifications-only. */}
+              profile drawer, which is now notifications-only; the former
+              "Workspace" nav button's contents (Repos/Components/apps) are
+              folded in too, so this ErrorBoundary now covers both — same
+              fault isolation the old separate WorkspaceNav mount had. */}
+          <ErrorBoundary label="Logo menu">
           <LogoMenu
             onOpenSettings={openSettingsPanelNew}
             onOpenSettingsOld={openSettingsPanel}
             onLogout={async () => { await logout(); window.location.reload(); }}
+            setView={setView}
+            components={components}
+            openWindows={openWindows}
+            onToggleWindow={toggleWindow}
+            onAction={refetch}
+            workspaceApps={enabledApps}
+            onOpenApp={openApp}
           />
+          </ErrorBoundary>
 
           {/* Navigation tabs */}
           <div className="flex items-center gap-1">
@@ -1508,18 +1519,10 @@ function AuthenticatedApp() {
                 into the SAME core.nav slot as "Agents" above (2026-08-05
                 decoupling) — the AppSlot call above already renders it,
                 nothing extra needed here. */}
-            <ErrorBoundary label="Workspace">
-            <WorkspaceNav
-              setView={setView}
-              components={components}
-              openWindows={openWindows}
-              onToggleWindow={toggleWindow}
-              onAction={refetch}
-              onOpenSettings={openSettingsPanelNew}
-              workspaceApps={enabledApps}
-              onOpenApp={openApp}
-            />
-            </ErrorBoundary>
+            {/* The "Workspace" popover is gone — its contents (Settings,
+                Console, Agents Platform, core.nav.workspace AppSlot, Repos,
+                workspace apps, Components) now render inside the "❯ aw ⌄"
+                LogoMenu dropdown above. */}
             {/* Apps menu — popover next to Workspace. Lists every
                 workspace_apps entry whose `menu` is "apps". */}
             <ErrorBoundary label="Apps">

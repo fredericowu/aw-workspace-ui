@@ -1,6 +1,6 @@
 /**
  * Shared workspace-app icon set — same 12 named icons production has always
- * shipped (see WorkspaceNav.jsx WORKSPACE_APP_ICONS), factored out so both
+ * shipped (see LogoMenu.jsx WORKSPACE_APP_ICONS), factored out so both
  * the Apps nav button (AppsNav.jsx, 14px) and the Mission Control App
  * Launcher (AppLauncher.jsx, 16-40px) render identical glyphs at whatever
  * size their layout needs, instead of drifting copies of the same SVG path
