@@ -732,7 +732,7 @@ export default function MobileApp() {
     setInsecureMap(prev => ({ ...prev, [ptySessionId]: newInsecure }));
     const session = agentSessions.find(t => t.id === ptySessionId);
     const agentType = session?.type || 'claude';
-    const resumeId = claudeResumeMap[ptySessionId];
+    const resumeId = claudeResumeMap[ptySessionId] ?? session?.agent_session_id ?? null;
     const cmd = buildAgentCommand(agentType, resumeId, newInsecure);
     await apiFetch(`${API_BASE}/api/terminals/${ptySessionId}/restart`, {
       method: 'POST',
@@ -1336,6 +1336,7 @@ export default function MobileApp() {
               {(activeWindow.agentType === 'claude'
                 || activeWindow.agentType === 'copilot'
                 || activeWindow.agentType === 'codex'
+                || activeWindow.agentType === 'antigravity'
                 || activeWindow.isClaude) && (
                 <button
                   onClick={() => toggleInsecure(activeWindow.id, !insecureMap[activeWindow.id])}
