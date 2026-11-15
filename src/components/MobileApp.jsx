@@ -20,7 +20,12 @@ import SettingsPanel from './SettingsPanel';
 import SettingsPanelNew from './SettingsPanelNew';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
-import { buildAntigravityCommand, withAntigravityAgent } from '../lib/agentClis';
+import {
+  buildAgentCommand as buildDecoupledAgentCommand,
+  buildAntigravityCommand,
+  supportsInsecureMode,
+  withAntigravityAgent,
+} from '../lib/agentClis';
 
 const API_BASE = '';
 // NOTE: any category not listed here is silently dropped from the mobile
@@ -674,58 +679,11 @@ export default function MobileApp() {
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [sessionPickerOpen]);
 
-  // Build the restart command for an agent terminal, applying the
-  // agent-specific "insecure" flag.  Mirrors `_buildAgentCommand` in
-  // App.jsx — keep these two in sync if either side changes.
-  //   claude  → --dangerously-skip-permissions
-  //   copilot → --allow-all
-  //   codex   → --dangerously-bypass-approvals-and-sandbox
-  //   cursor  → (no insecure flag — toggle is hidden in the UI)
+  // Build the restart command for an agent terminal, delegating to
+  // aw-app-code-agent-clis via src/lib/agentClis.js.
   const buildAgentCommand = useCallback((agentType, resumeId, isInsecure, sessionName = null, preGeneratedId = null) => {
-    if (agentType === 'claude') {
-      let cmd = 'claude';
-      if (resumeId) {
-        cmd += ` --resume ${resumeId}`;
-      } else {
-        const newId = preGeneratedId || crypto.randomUUID();
-        cmd += ` --session-id ${newId}`;
-      }
-      if (isInsecure) cmd += ' --dangerously-skip-permissions';
-      return cmd;
-    }
-    if (agentType === 'copilot') {
-      let cmd = 'copilot';
-      if (resumeId) cmd += ` --resume ${resumeId}`;
-      if (isInsecure) cmd += ' --allow-all';
-      return cmd;
-    }
-    if (agentType === 'codex') {
-      let cmd = 'codex';
-      if (resumeId) cmd += ` resume ${resumeId}`;
-      if (isInsecure) cmd += ' --dangerously-bypass-approvals-and-sandbox';
-      return cmd;
-    }
-    if (agentType === 'cursor') {
-      let cmd = 'cursor-agent';
-      if (resumeId) cmd += ` --resume ${resumeId}`;
-      return cmd;
-    }
-    if (agentType === 'gemini') {
-      let cmd = 'gemini';
-      if (resumeId) {
-        cmd += ` --resume ${resumeId}`;
-      } else {
-        const newId = preGeneratedId || crypto.randomUUID();
-        cmd += ` --session-id ${newId}`;
-      }
-      if (isInsecure) cmd += ' --yolo';
-      return cmd;
-    }
-    if (agentType === 'antigravity') {
-      return buildAntigravityCommand(resumeId, isInsecure);
-    }
     const def = aiAgents.find(a => a.type === agentType);
-    return def?.command || agentType;
+    return buildDecoupledAgentCommand(agentType, resumeId, isInsecure, sessionName, preGeneratedId, def?.command);
   }, [aiAgents]);
 
   const toggleInsecure = useCallback(async (ptySessionId, newInsecure) => {
@@ -1327,16 +1285,9 @@ export default function MobileApp() {
               )}
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {/* Insecure / secure toggle for agent terminals.
-                  Claude, Copilot, and Codex each have their own
-                  "skip permissions / allow-all / bypass approvals"
-                  flag (see buildAgentCommand).  Cursor has no such
-                  flag, so we hide the button for cursor sessions —
-                  matching the desktop App.jsx behavior. */}
-              {(activeWindow.agentType === 'claude'
-                || activeWindow.agentType === 'copilot'
-                || activeWindow.agentType === 'codex'
-                || activeWindow.isClaude) && (
+              {/* Insecure / secure toggle for agent terminals, driven by
+                  aw-app-code-agent-clis metadata (supportsInsecureMode). */}
+              {supportsInsecureMode(activeWindow.agentType || (activeWindow.isClaude ? 'claude' : null)) && (
                 <button
                   onClick={() => toggleInsecure(activeWindow.id, !insecureMap[activeWindow.id])}
                   className={`px-3 py-2 text-[12px] rounded-md transition-colors ${

@@ -25,7 +25,7 @@ import { getSuppressKbd, setSuppressKbd, onSuppressKbdChange } from './lib/keybo
 import { getDesktopWidth, setDesktopWidth, WIDTH_OPTIONS, isPhoneSized } from './lib/desktopWidth';
 import { isWorkspaceSpa, consoleLoginUrl } from './apiBase';
 import { isVirtualKeyboardTrackpadOpen, toggleVirtualKeyboardTrackpad } from './lib/virtualKeyboardTrackpad';
-import { buildAntigravityCommand, withAntigravityAgent } from './lib/agentClis';
+import { buildAgentCommand, buildAntigravityCommand, withAntigravityAgent } from './lib/agentClis';
 const API_BASE = '';
 
 function isMobileDevice() {
@@ -1121,58 +1121,8 @@ function AuthenticatedApp() {
   }, []);
 
   const _buildAgentCommand = (agentType, resumeSessionId, isInsecure, sessionName, preGeneratedId = null) => {
-    if (agentType === 'claude') {
-      let cmd = 'claude';
-      if (resumeSessionId) {
-        cmd += ` --resume ${resumeSessionId}`;
-      } else {
-        const newId = preGeneratedId || crypto.randomUUID();
-        cmd += ` --session-id ${newId}`;
-      }
-      if (isInsecure) cmd += ' --dangerously-skip-permissions';
-      return cmd;
-    }
-    if (agentType === 'copilot') {
-      let cmd = 'copilot';
-      if (resumeSessionId) cmd += ` --resume ${resumeSessionId}`;
-      if (isInsecure) cmd += ' --allow-all';
-      return cmd;
-    }
-    if (agentType === 'cursor') {
-      let cmd = 'cursor-agent';
-      if (resumeSessionId) cmd += ` --resume ${resumeSessionId}`;
-      if (isInsecure) cmd += ' --approve-mcps --yolo';
-      return cmd;
-    }
-    if (agentType === 'codex') {
-      let cmd = 'codex';
-      if (resumeSessionId) cmd += ` resume ${resumeSessionId}`;
-      if (isInsecure) cmd += ' --dangerously-bypass-approvals-and-sandbox';
-      return cmd;
-    }
-    if (agentType === 'gemini') {
-      // Gemini accepts --resume <number|uuid|latest>. We always pass a UUID
-      // (the sessionId from the picker) so the resume target is unambiguous
-      // — index-based --resume is order-dependent and changes as sessions
-      // are added. On fresh launches we pre-seed --session-id with a new
-      // UUID so the resume-detect thread doesn't need to fish the id out of
-      // the session-<ts>-<uuid-prefix>.jsonl filename later.
-      let cmd = 'gemini';
-      if (resumeSessionId) {
-        cmd += ` --resume ${resumeSessionId}`;
-      } else {
-        const newId = preGeneratedId || crypto.randomUUID();
-        cmd += ` --session-id ${newId}`;
-      }
-      if (isInsecure) cmd += ' --yolo';
-      return cmd;
-    }
-    if (agentType === 'antigravity') {
-      return buildAntigravityCommand(resumeSessionId, isInsecure);
-    }
-    // Generic agent — use configured command
     const agentDef = aiAgents.find(a => a.type === agentType);
-    return agentDef?.command || agentType;
+    return buildAgentCommand(agentType, resumeSessionId, isInsecure, sessionName, preGeneratedId, agentDef?.command);
   };
 
   // Determine agent type for a PTY session
