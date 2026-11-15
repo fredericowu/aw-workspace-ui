@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../auth';
+import { readClipboardImageBlobs, uploadTerminalImage } from '../lib/terminalClipboardImage';
 
 const API_BASE = '';
 
@@ -239,6 +240,22 @@ export default function TerminalKeyboard({ sessionId, onHeightChange, cameraActi
   const [pasted, setPasted] = useState(false);
   const handlePaste = useCallback(async () => {
     try {
+      const blobs = await readClipboardImageBlobs();
+      if (blobs.length > 0) {
+        let uploaded = false;
+        for (const blob of blobs) {
+          const path = await uploadTerminalImage(blob, { fetchImpl: apiFetch, apiBase: API_BASE });
+          if (path) {
+            write(path + ' ');
+            uploaded = true;
+          }
+        }
+        if (uploaded) {
+          setPasted(true);
+          setTimeout(() => setPasted(false), 800);
+          return;
+        }
+      }
       const text = await navigator.clipboard.readText();
       if (text) {
         write(text);
