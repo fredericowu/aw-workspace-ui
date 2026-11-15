@@ -12,6 +12,7 @@ import {
   shouldAttachHardwareKeyboardBridge,
 } from '../lib/hardwareKeyboardBridge';
 import { onSuppressKbdChange } from '../lib/keyboardMode';
+import { getInsecureTooltip, supportsInsecureMode } from '../lib/agentClis';
 
 const API_BASE = '';
 
@@ -29,7 +30,9 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
   const isCursor = agentType === 'cursor';
   const isCodex = agentType === 'codex';
   const isGemini = agentType === 'gemini';
+  const isAntigravity = agentType === 'antigravity';
   const isAgent = !!(agentType) || !!isCladeProp || !!isCopilotProp;
+  const effectiveAgentType = agentType || (isClaude ? 'claude' : isCopilot ? 'copilot' : null);
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const [editing, setEditing] = useState(false);
@@ -711,6 +714,13 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
             <svg className="w-3.5 h-3.5 text-[#4796E3] shrink-0" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
             </svg>
+          ) : isAntigravity ? (
+            <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 2.5c.7 5.3 4.2 8.8 9.5 9.5-5.3.7-8.8 4.2-9.5 9.5-.7-5.3-4.2-8.8-9.5-9.5 5.3-.7 8.8-4.2 9.5-9.5Z" fill="#4285F4" />
+              <path d="M12 2.5c.7 5.3 4.2 8.8 9.5 9.5H12V2.5Z" fill="#34A853" />
+              <path d="M12 12h9.5c-5.3.7-8.8 4.2-9.5 9.5V12Z" fill="#FBBC04" />
+              <path d="M2.5 12H12v9.5c-.7-5.3-4.2-8.8-9.5-9.5Z" fill="#EA4335" />
+            </svg>
           ) : (
             <svg className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="4 17 10 11 4 5" />
@@ -755,6 +765,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
                       isCursor ? 'Switch Cursor session' :
                       isCodex ? 'Switch Codex session' :
                       isGemini ? 'Switch Gemini session' :
+                      isAntigravity ? 'Switch Antigravity session' :
                       'Switch Claude session'
                     }
                   >
@@ -923,22 +934,14 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
             </>,
             document.body
           )}
-          {/* Insecure toggle — Claude + Codex + Gemini + Cursor */}
-          {(isClaude || isCodex || isGemini || isCursor) && (
+          {/* Insecure toggle — driven by decoupled CLI metadata in aw-app-code-agent-clis */}
+          {supportsInsecureMode(effectiveAgentType) && (
             <button
               onClick={(e) => { e.stopPropagation(); onToggleInsecure?.(sessionId, !insecure); setTimeout(() => setReconnectKey((k) => k + 1), 500); }}
               className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${insecure
                 ? 'bg-[var(--color-danger)]/20 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/30'
                 : 'bg-white/5 text-[var(--color-text-muted)] hover:bg-white/10'}`}
-              title={insecure
-                ? 'Insecure mode ON — click to disable'
-                : (isCodex
-                    ? 'Click to enable insecure mode (--dangerously-bypass-approvals-and-sandbox)'
-                    : isGemini
-                        ? 'Click to enable insecure mode (--yolo — auto-approve all tools)'
-                        : isCursor
-                            ? 'Click to enable insecure mode (--approve-mcps --yolo)'
-                            : 'Click to enable insecure mode (skip all permission checks)')}
+              title={getInsecureTooltip(effectiveAgentType, insecure)}
             >
               {insecure ? 'INSECURE' : 'insecure'}
             </button>
