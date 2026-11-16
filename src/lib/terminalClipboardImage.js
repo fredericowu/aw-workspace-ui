@@ -53,40 +53,79 @@ export function clipboardImageFilename(blob, now = Date.now()) {
 }
 
 /**
- * Read image blobs from the Async Clipboard API (`navigator.clipboard.read()`).
- * Used when pasting via keyboard shortcuts that do not emit a native `paste`
- * event (e.g. `Ctrl+V` on macOS in Claude/Codex/Antigravity terminals, or the
- * iOS hardware-keyboard bridge / virtual keyboard paste button).
+ * Read both image blobs and plain text from the clipboard in a single async
+ * operation so transient user activation on Safari/iOS is not exhausted by
+ * sequential `clipboard.read()` -> `clipboard.readText()` calls.
+ * Falls back to `clipboard.readText()` only when `clipboard.read` is absent.
  */
-export async function readClipboardImageBlobs(
+export async function readClipboardContent(
   clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : null,
+  { includeText = true } = {},
 ) {
-  if (!clipboard || typeof clipboard.read !== 'function') return [];
+  if (!clipboard) return { images: [], text: '' };
   try {
-    const items = await clipboard.read();
-    if (!Array.isArray(items)) return [];
-    const blobs = [];
-    for (const item of items) {
-      const types = Array.isArray(item?.types) ? item.types : [];
-      const imgType = types.find((t) => typeof t === 'string' && t.startsWith('image/'));
-      if (imgType && typeof item.getType === 'function') {
-        const blob = await item.getType(imgType);
-        if (blob) blobs.push(blob);
+    if (typeof clipboard.read === 'function') {
+      const items = await clipboard.read();
+      if (!Array.isArray(items)) return { images: [], text: '' };
+      const images = [];
+      for (const item of items) {
+        const types = Array.isArray(item?.types) ? item.types : [];
+        const imgType = types.find((t) => typeof t === 'string' && t.startsWith('image/'));
+        if (imgType && typeof item.getType === 'function') {
+          const blob = await item.getType(imgType);
+          if (blob) images.push(blob);
+        }
       }
+      let text = '';
+      if (includeText && images.length === 0) {
+        const textParts = [];
+        for (const item of items) {
+          const types = Array.isArray(item?.types) ? item.types : [];
+          if (types.includes('text/plain') && typeof item.getType === 'function') {
+            const textBlob = await item.getType('text/plain');
+            if (textBlob) {
+              const part = typeof textBlob.text === 'function'
+                ? await textBlob.text()
+                : await new Response(textBlob).text();
+              if (part) textParts.push(part);
+            }
+          }
+        }
+        text = textParts.join('');
+      }
+      return { images, text };
     }
-    return blobs;
+    if (includeText && typeof clipboard.readText === 'function') {
+      const text = await clipboard.readText();
+      return { images: [], text: text || '' };
+    }
+    return { images: [], text: '' };
   } catch {
-    return [];
+    return { images: [], text: '' };
   }
 }
 
 /**
- * Upload an image Blob/File to `/api/terminals/upload` and return its server-side path.
+ * Read image blobs from the Async Clipboard API (`navigator.clipboard.read()`).
+ * Used when pasting via keyboard shortcuts that do not emit a native `paste`
+ * event (e.g. `Ctrl+V` on macOS in Claude/Codex/Antigravity terminals).
  */
-export async function uploadTerminalImage(blob, { fetchImpl = fetch, apiBase = '' } = {}) {
+export async function readClipboardImageBlobs(
+  clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : null,
+) {
+  const { images } = await readClipboardContent(clipboard, { includeText: false });
+  return images;
+}
+
+/**
+ * Upload a Blob/File to `/api/terminals/upload` and return its server-side path.
+ * When `filename` is omitted (e.g. clipboard paste blobs), generates a unique
+ * `clipboard-<ts>-<rand>.<ext>` name so consecutive screenshots do not collide.
+ */
+export async function uploadTerminalImage(blob, { fetchImpl = fetch, apiBase = '', filename } = {}) {
   if (!blob || typeof fetchImpl !== 'function') return null;
   const formData = new FormData();
-  formData.append('file', blob, clipboardImageFilename(blob));
+  formData.append('file', blob, filename || clipboardImageFilename(blob));
   try {
     const res = await fetchImpl(`${apiBase}/api/terminals/upload`, {
       method: 'POST',

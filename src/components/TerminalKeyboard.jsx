@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../auth';
-import { readClipboardImageBlobs, uploadTerminalImage } from '../lib/terminalClipboardImage';
+import { readClipboardContent, uploadTerminalImage } from '../lib/terminalClipboardImage';
 
 const API_BASE = '';
 
@@ -240,10 +240,10 @@ export default function TerminalKeyboard({ sessionId, onHeightChange, cameraActi
   const [pasted, setPasted] = useState(false);
   const handlePaste = useCallback(async () => {
     try {
-      const blobs = await readClipboardImageBlobs();
-      if (blobs.length > 0) {
+      const { images, text } = await readClipboardContent();
+      if (images.length > 0) {
         let uploaded = false;
-        for (const blob of blobs) {
+        for (const blob of images) {
           const path = await uploadTerminalImage(blob, { fetchImpl: apiFetch, apiBase: API_BASE });
           if (path) {
             write(path + ' ');
@@ -256,7 +256,6 @@ export default function TerminalKeyboard({ sessionId, onHeightChange, cameraActi
           return;
         }
       }
-      const text = await navigator.clipboard.readText();
       if (text) {
         write(text);
         setPasted(true);
@@ -269,14 +268,12 @@ export default function TerminalKeyboard({ sessionId, onHeightChange, cameraActi
   // path into the terminal so the agent can read it.
   const handleAttach = useCallback(async (file) => {
     if (!file || !sessionId) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const res = await apiFetch(`${API_BASE}/api/terminals/upload`, { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.path) write(data.path + ' ');
-    } catch { /* upload failures swallowed — UI shows nothing on the
-                  attach path; user retries.  Could add a toast here. */ }
+    const path = await uploadTerminalImage(file, {
+      fetchImpl: apiFetch,
+      apiBase: API_BASE,
+      filename: file.name || undefined,
+    });
+    if (path) write(path + ' ');
   }, [sessionId, write]);
 
   // Modifier toggle handler — single tap toggles, double tap locks.

@@ -252,14 +252,15 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       // raw ^V (\x16) to the remote container PTY (which cannot read the
       // client's local clipboard). Check the browser clipboard for an image
       // first; if none is present, forward \x16 to the PTY as usual.
-      if (!readOnly && isAgent && key === 'v' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
+      if (!readOnly && isAgent && isMac && key === 'v' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
         if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+          if (Date.now() - lastImagePasteTsRef.current < 200) return false;
+          lastImagePasteTsRef.current = Date.now();
           readClipboardImageBlobs(navigator.clipboard).then(async (blobs) => {
-            if (Date.now() - lastImagePasteTsRef.current < 200) return;
             const curWs = wsRef.current;
             if (!curWs || curWs.readyState !== WebSocket.OPEN) return;
             if (blobs.length > 0) {
-              lastImagePasteTsRef.current = Date.now();
               for (const blob of blobs) {
                 const uploadedPath = await uploadTerminalImage(blob, { fetchImpl: apiFetch, apiBase: API_BASE });
                 if (uploadedPath && curWs.readyState === WebSocket.OPEN) {
@@ -269,7 +270,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
             } else {
               curWs.send(new TextEncoder().encode('\x16'));
             }
-          });
+          }).catch(() => {});
           return false;
         }
       }
@@ -660,16 +661,15 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     for (const file of e.dataTransfer.files) {
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await apiFetch(`${API_BASE}/api/terminals/upload`, { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.path) {
-          // Type the file path into the terminal
-          ws.send(new TextEncoder().encode(data.path + ' '));
-        }
-      } catch { /* ignore upload errors */ }
+      const uploadedPath = await uploadTerminalImage(file, {
+        fetchImpl: apiFetch,
+        apiBase: API_BASE,
+        filename: file.name || undefined,
+      });
+      if (uploadedPath && ws.readyState === WebSocket.OPEN) {
+        // Type the file path into the terminal
+        ws.send(new TextEncoder().encode(uploadedPath + ' '));
+      }
     }
     termRef.current?.focus();
   }, [isAgent]);
