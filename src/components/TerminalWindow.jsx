@@ -36,6 +36,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
   const isCodex = agentType === 'codex';
   const isGemini = agentType === 'gemini';
   const isAntigravity = agentType === 'antigravity';
+  const isOpenCode = agentType === 'opencode';
   const isAgent = !!(agentType) || !!isCladeProp || !!isCopilotProp;
   const effectiveAgentType = agentType || (isClaude ? 'claude' : isCopilot ? 'copilot' : null);
   const containerRef = useRef(null);
@@ -777,6 +778,11 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
               <path d="M12 12h9.5c-5.3.7-8.8 4.2-9.5 9.5V12Z" fill="#FBBC04" />
               <path d="M2.5 12H12v9.5c-.7-5.3-4.2-8.8-9.5-9.5Z" fill="#EA4335" />
             </svg>
+          ) : isOpenCode ? (
+            <svg className="w-3.5 h-3.5 text-[#14b8a6] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="OpenCode">
+              <path d="M8 7l-5 5 5 5" />
+              <path d="M16 7l5 5-5 5" />
+            </svg>
           ) : (
             <svg className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="4 17 10 11 4 5" />
@@ -822,6 +828,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
                       isCodex ? 'Switch Codex session' :
                       isGemini ? 'Switch Gemini session' :
                       isAntigravity ? 'Switch Antigravity session' :
+                      isOpenCode ? 'Switch OpenCode session' :
                       'Switch Claude session'
                     }
                   >
