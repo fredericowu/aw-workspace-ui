@@ -112,6 +112,7 @@ const DEFAULT_INSECURE_TYPES = new Set([
   'codex',
   'gemini',
   'antigravity',
+  'opencode',
 ]);
 
 export function supportsInsecureMode(agentType) {
@@ -142,6 +143,9 @@ export function getInsecureTooltip(agentType, insecure = false) {
   }
   if (agentType === 'antigravity') {
     return 'Click to enable insecure mode (--dangerously-skip-permissions)';
+  }
+  if (agentType === 'opencode') {
+    return 'Click to enable insecure mode (--auto — auto-approve permissions not explicitly denied)';
   }
   return 'Click to enable insecure mode (skip all permission checks)';
 }

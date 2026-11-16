@@ -38,6 +38,8 @@ describe('code agent launcher definitions and decoupled bridge', () => {
     expect(supportsInsecureMode('antigravity')).toBe(true);
     expect(getInsecureTooltip('antigravity', false)).toContain('--dangerously-skip-permissions');
     expect(getInsecureTooltip('antigravity', true)).toBe('Insecure mode ON — click to disable');
+    expect(supportsInsecureMode('opencode')).toBe(true);
+    expect(getInsecureTooltip('opencode', false)).toContain('--auto');
   });
 
   it('delegates to window.__awCodeAgentClis when the plugin is loaded', () => {
