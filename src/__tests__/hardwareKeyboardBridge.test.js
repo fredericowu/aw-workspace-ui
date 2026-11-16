@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import { Terminal } from '@xterm/xterm';
 import {
   attachHardwareKeyboardBridge,
@@ -201,5 +201,32 @@ describe('attachHardwareKeyboardBridge', () => {
       key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
     }));
     expect(sent).toEqual([]);
+  });
+
+  it('pastes text from a single clipboard.read() call on Cmd+V without sequential readText()', async () => {
+    const originalClipboard = navigator.clipboard;
+    const textBlob = new Blob(['hello safari'], { type: 'text/plain' });
+    const read = vi.fn().mockResolvedValue([
+      { types: ['text/plain'], getType: vi.fn().mockResolvedValue(textBlob) },
+    ]);
+    const readText = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { read, readText },
+      configurable: true,
+    });
+
+    try {
+      keydown({ key: 'v', code: 'KeyV', keyCode: 86, which: 86, metaKey: true });
+      await vi.waitFor(() => {
+        expect(sent).toEqual(['hello safari']);
+      });
+      expect(read).toHaveBeenCalledOnce();
+      expect(readText).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: originalClipboard,
+        configurable: true,
+      });
+    }
   });
 });

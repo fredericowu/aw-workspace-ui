@@ -47,6 +47,8 @@
  */
 
 import { getSuppressKbd } from './keyboardMode';
+import { apiFetch } from '../auth';
+import { readClipboardContent, uploadTerminalImage } from './terminalClipboardImage';
 
 /**
  * Marks a focus proxy. Exported because it is a contract between mechanisms,
@@ -270,11 +272,19 @@ export function attachHardwareKeyboardBridge(term, containerEl) {
     // behaviour change versus the editable-textarea path.
     if (key && key.toLowerCase() === 'v' && ((ev.metaKey && !ev.ctrlKey) || (ev.ctrlKey && ev.shiftKey))) {
       ev.preventDefault();
-      try {
-        navigator.clipboard?.readText?.()
-          .then((text) => { if (text) term.paste(text); })
-          .catch(() => {});
-      } catch { /* clipboard unavailable */ }
+      (async () => {
+        try {
+          const { images, text } = await readClipboardContent(navigator.clipboard);
+          if (images.length > 0) {
+            for (const blob of images) {
+              const path = await uploadTerminalImage(blob, { fetchImpl: apiFetch });
+              if (path) term.paste(path + ' ');
+            }
+            return;
+          }
+          if (text) term.paste(text);
+        } catch { /* clipboard unavailable */ }
+      })();
       return;
     }
 

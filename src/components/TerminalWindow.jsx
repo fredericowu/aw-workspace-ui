@@ -13,6 +13,11 @@ import {
 } from '../lib/hardwareKeyboardBridge';
 import { onSuppressKbdChange } from '../lib/keyboardMode';
 import { getInsecureTooltip, supportsInsecureMode } from '../lib/agentClis';
+import {
+  extractClipboardImageFiles,
+  readClipboardImageBlobs,
+  uploadTerminalImage,
+} from '../lib/terminalClipboardImage';
 
 const API_BASE = '';
 
@@ -35,6 +40,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
   const effectiveAgentType = agentType || (isClaude ? 'claude' : isCopilot ? 'copilot' : null);
   const containerRef = useRef(null);
   const termRef = useRef(null);
+  const lastImagePasteTsRef = useRef(0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(name || '');
 
@@ -239,6 +245,34 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
           return false;
         }
         return true;
+      }
+      // Ctrl+V in agent CLIs (Claude Code / Codex / Antigravity on macOS):
+      // On macOS, Cmd+V triggers the browser's `paste` event (handled via
+      // onPasteCapture), whereas Ctrl+V only fires keydown and would send
+      // raw ^V (\x16) to the remote container PTY (which cannot read the
+      // client's local clipboard). Check the browser clipboard for an image
+      // first; if none is present, forward \x16 to the PTY as usual.
+      const isMac = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent);
+      if (!readOnly && isAgent && isMac && key === 'v' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+          if (Date.now() - lastImagePasteTsRef.current < 200) return false;
+          lastImagePasteTsRef.current = Date.now();
+          readClipboardImageBlobs(navigator.clipboard).then(async (blobs) => {
+            const curWs = wsRef.current;
+            if (!curWs || curWs.readyState !== WebSocket.OPEN) return;
+            if (blobs.length > 0) {
+              for (const blob of blobs) {
+                const uploadedPath = await uploadTerminalImage(blob, { fetchImpl: apiFetch, apiBase: API_BASE });
+                if (uploadedPath && curWs.readyState === WebSocket.OPEN) {
+                  curWs.send(new TextEncoder().encode(uploadedPath + ' '));
+                }
+              }
+            } else {
+              curWs.send(new TextEncoder().encode('\x16'));
+            }
+          }).catch(() => {});
+          return false;
+        }
       }
       return true;
     });
@@ -627,16 +661,15 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     for (const file of e.dataTransfer.files) {
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await apiFetch(`${API_BASE}/api/terminals/upload`, { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.path) {
-          // Type the file path into the terminal
-          ws.send(new TextEncoder().encode(data.path + ' '));
-        }
-      } catch { /* ignore upload errors */ }
+      const uploadedPath = await uploadTerminalImage(file, {
+        fetchImpl: apiFetch,
+        apiBase: API_BASE,
+        filename: file.name || undefined,
+      });
+      if (uploadedPath && ws.readyState === WebSocket.OPEN) {
+        // Type the file path into the terminal
+        ws.send(new TextEncoder().encode(uploadedPath + ' '));
+      }
     }
     termRef.current?.focus();
   }, [isAgent]);
@@ -653,6 +686,28 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
     setDragOver(false);
   }, []);
 
+  // Clipboard image paste (Cmd+V / Ctrl+V / context-menu Paste) — intercept
+  // image items in capture phase before xterm.js ignores them, upload to
+  // `/api/terminals/upload`, and write the server-side file path into the PTY.
+  const handlePasteCapture = useCallback(async (e) => {
+    if (readOnly) return;
+    const imageFiles = extractClipboardImageFiles(e.clipboardData);
+    if (!imageFiles.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    lastImagePasteTsRef.current = Date.now();
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    for (const file of imageFiles) {
+      const uploadedPath = await uploadTerminalImage(file, { fetchImpl: apiFetch, apiBase: API_BASE });
+      if (uploadedPath && ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(uploadedPath + ' '));
+      }
+    }
+    termRef.current?.focus();
+  }, [readOnly]);
+
   return (
     <div
       className={`terminal-window flex flex-col bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden h-full shadow-2xl shadow-black/40 border ${insecure ? 'border-[var(--color-danger)]/50' : dragOver ? 'border-[var(--color-accent)]' : 'border-[var(--color-border)]'}`}
@@ -660,6 +715,7 @@ export default function TerminalWindow({ sessionId, name, onClose, onMinimize, o
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      onPasteCapture={handlePasteCapture}
     >
       {/* Header — hidden in minimal (read-only automation) and chromeless
           (outer panel owns the chrome) modes. Cmd+F search still works. */}
