@@ -70,7 +70,7 @@ describe('AppConfigWindow — schema-driven config window', () => {
     // enum is a select defaulting to "token"
     const method = document.getElementById('appcfg-auth_method');
     expect(method.tagName).toBe('SELECT');
-    expect(method.value).toBe('token');
+    expect(method.selectedOptions[0]).toHaveTextContent('token');
   });
 
   it('applies schema input constraints and saves numbers as JSON numbers', async () => {
@@ -103,6 +103,33 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent('Saved');
     const [, request] = apiFetch.mock.calls.find(([url]) => url === '/api/apps/ollama/config');
     expect(JSON.parse(request.body).config).toEqual({ model: 'llama:8b', workers: 4, temperature: null });
+  });
+
+  it('preserves enum value types and rejects fractional integers without a minimum', async () => {
+    render(<AppConfigWindow app={{
+      slug: 'mixed',
+      config_schema: {
+        properties: {
+          choice: { enum: [1, '1'], default: 1 },
+          count: { type: 'integer', default: 2 },
+          bounded: { type: 'integer', minimum: 0.5, default: 1 },
+        },
+      },
+    }} onClose={() => {}} />);
+    const choice = await screen.findByLabelText('choice');
+    const count = screen.getByLabelText('count');
+    expect(screen.getByLabelText('bounded')).toHaveAttribute('min', '1');
+    fireEvent.change(choice, { target: { value: choice.options[1].value } });
+    fireEvent.change(count, { target: { value: '1.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent('count must be a whole number');
+    expect(apiFetch.mock.calls.some(([url]) => url === '/api/apps/mixed/config')).toBe(false);
+
+    fireEvent.change(count, { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent('Saved');
+    const [, request] = apiFetch.mock.calls.find(([url]) => url === '/api/apps/mixed/config');
+    expect(JSON.parse(request.body).config).toEqual({ choice: '1', count: 1, bounded: 1 });
   });
 
   it('submits the whole config object to the framework config route and shows Saved', async () => {
