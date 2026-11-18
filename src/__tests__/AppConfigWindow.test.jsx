@@ -73,6 +73,38 @@ describe('AppConfigWindow — schema-driven config window', () => {
     expect(method.value).toBe('token');
   });
 
+  it('applies schema input constraints and saves numbers as JSON numbers', async () => {
+    const app = {
+      slug: 'ollama',
+      config_schema: {
+        required: ['model', 'workers'],
+        properties: {
+          model: { type: 'string', pattern: '^llama:[0-9]+b$', minLength: 1 },
+          workers: { type: 'integer', default: 2, minimum: 1, maximum: 8 },
+          temperature: { type: 'number', default: 0.5, minimum: 0, maximum: 1 },
+        },
+      },
+    };
+    render(<AppConfigWindow app={app} onClose={() => {}} />);
+    const model = await screen.findByLabelText('model');
+    const workers = screen.getByLabelText('workers');
+    const temperature = screen.getByLabelText('temperature');
+    expect(model).toBeRequired();
+    expect(model).toHaveAttribute('pattern', expect.stringContaining(app.config_schema.properties.model.pattern));
+    expect(workers).toHaveAttribute('min', '1');
+    expect(workers).toHaveAttribute('max', '8');
+    expect(workers).toHaveAttribute('step', '1');
+    expect(temperature).toHaveAttribute('step', 'any');
+
+    fireEvent.change(model, { target: { value: 'llama:8b' } });
+    fireEvent.change(workers, { target: { value: '4' } });
+    fireEvent.change(temperature, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByTestId('appcfg-msg')).toHaveTextContent('Saved');
+    const [, request] = apiFetch.mock.calls.find(([url]) => url === '/api/apps/ollama/config');
+    expect(JSON.parse(request.body).config).toEqual({ model: 'llama:8b', workers: 4, temperature: null });
+  });
+
   it('submits the whole config object to the framework config route and shows Saved', async () => {
     apiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true, logged_in: true }) });
     const onSaved = vi.fn();
