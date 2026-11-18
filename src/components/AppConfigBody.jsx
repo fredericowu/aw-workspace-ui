@@ -21,6 +21,18 @@ function fieldType(spec) {
   return 'text';
 }
 
+function inputPattern(pattern) {
+  if (typeof pattern !== 'string') return undefined;
+  // HTML matches the whole input, while JSON Schema searches for a match.
+  const htmlPattern = `[\\s\\S]*(?:${pattern})[\\s\\S]*`;
+  try {
+    new RegExp(htmlPattern, 'v');
+    return htmlPattern;
+  } catch {
+    return undefined;
+  }
+}
+
 // A saved value that fell out of the resolved list (host unlinked, or an id
 // typed before this field had options at all) must survive — shown as its
 // own selected option and submitted unchanged, never silently reselected.
@@ -152,6 +164,14 @@ export default function AppConfigBody({ app, onSaved }) {
   const submit = async (e) => {
     e.preventDefault();
     if (saving) return;
+    const invalidInteger = fields.find(([key, spec]) =>
+      spec.type === 'integer' && values[key] != null && !Number.isInteger(values[key])
+    );
+    if (invalidInteger) {
+      const [key, spec] = invalidInteger;
+      setMessage({ ok: false, text: `${spec.title || key} must be a whole number` });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
@@ -198,6 +218,12 @@ export default function AppConfigBody({ app, onSaved }) {
           {fields.map(([key, spec]) => {
             const type = fieldType(spec);
             const id = `appcfg-${key}`;
+            const required = app.config_schema?.required?.includes(key);
+            const numeric = type === 'number';
+            const integer = spec.type === 'integer';
+            const minimum = integer && spec.minimum != null ? Math.ceil(spec.minimum) : spec.minimum;
+            const enumIndex = spec.enum?.findIndex((option) => Object.is(option, values[key]));
+            const pattern = numeric ? undefined : inputPattern(spec.pattern);
             const isXOptions = !!spec['x-options'];
             const xOptions = isXOptions ? fieldOptions[key] : null;
             const hasXOptions = Array.isArray(xOptions) && xOptions.length > 0;
@@ -231,15 +257,22 @@ export default function AppConfigBody({ app, onSaved }) {
                     </label>
                     {spec.description && <p className="appcfg-desc">{spec.description}</p>}
                     {type === 'enum' && isXOptions && hasXOptions ? (
-                      <select id={id} className="appcfg-input" value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
+                      <select id={id} className="appcfg-input" required={required && !spec.enum?.includes('')} value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
                         {!values[key] && <option value="">Select…</option>}
                         {withSavedOption(xOptions, values[key]).map((o) => (
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
                     ) : type === 'enum' && !isXOptions ? (
-                      <select id={id} className="appcfg-input" value={values[key] ?? ''} onChange={(e) => setValue(key, e.target.value)}>
-                        {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                      <select
+                        id={id}
+                        className="appcfg-input"
+                        required={required}
+                        value={enumIndex < 0 ? '' : enumIndex}
+                        onChange={(e) => setValue(key, e.target.value === '' ? null : spec.enum[Number(e.target.value)])}
+                      >
+                        {enumIndex < 0 && <option value="">Select…</option>}
+                        {spec.enum.map((option, index) => <option key={index} value={index}>{String(option)}</option>)}
                       </select>
                     ) : (
                       <input
@@ -248,7 +281,14 @@ export default function AppConfigBody({ app, onSaved }) {
                         type={type === 'secret' ? 'password' : type === 'number' ? 'number' : 'text'}
                         value={values[key] ?? ''}
                         autoComplete={type === 'secret' ? 'new-password' : 'off'}
-                        onChange={(e) => setValue(key, type === 'number' ? Number(e.target.value) : e.target.value)}
+                        min={numeric ? minimum : undefined}
+                        max={numeric ? spec.maximum : undefined}
+                        step={numeric ? (integer && minimum != null ? 1 : 'any') : undefined}
+                        minLength={numeric ? undefined : spec.minLength}
+                        maxLength={numeric ? undefined : spec.maxLength}
+                        pattern={pattern}
+                        required={required && (numeric ? spec.default === undefined : spec.minLength > 0 || (pattern && !new RegExp(pattern, 'v').test('')))}
+                        onChange={(e) => setValue(key, numeric ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
                       />
                     )}
                   </>
