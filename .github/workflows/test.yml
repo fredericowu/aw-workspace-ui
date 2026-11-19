@@ -22,3 +22,7 @@ jobs:
         run: npm test
       - name: Build static assets
         run: npm run build
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Settings browser regressions
+        run: npm run e2e -- --project=chromium --reporter=list tests/mobile-settings-new.spec.js tests/networking-tab.spec.js
