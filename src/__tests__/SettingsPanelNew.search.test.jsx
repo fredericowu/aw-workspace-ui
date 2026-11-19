@@ -1,7 +1,3 @@
-// Search box behaviour on top of SettingsPanelNew's sidebar (D-summary in
-// the settings-new-search-box Kanban card). Deliberately doesn't touch
-// SettingsPanelNew.responsive.test.jsx — that file is the regression net for
-// the mobile/narrow layout and must keep passing unedited.
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
@@ -69,12 +65,11 @@ describe('SettingsPanelNew — search box', () => {
     expect(screen.getByRole('button', { name: /Users/ })).toBeInTheDocument();
   });
 
-  // A8 — a "soon" section is still a searchable, visible row.
-  it('a not-yet-migrated section is still searchable and shows its badge', async () => {
+  it('filters the General sections by name', async () => {
     await renderPanel();
     typeQuery('backup');
-    expect(screen.getByRole('button', { name: /Backup/ })).toBeInTheDocument();
-    expect(screen.getByText('soon')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Backup' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Users' })).not.toBeInTheDocument();
   });
 
   // A10 — a group with zero matches disappears entirely, header included —

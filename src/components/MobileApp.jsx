@@ -16,7 +16,7 @@ import { appChrome, defaultLaunchWindow } from '../apps/appWindowChrome';
 import { appWindowKey } from '../apps/appWindowKeys';
 import AppWindowBody from './AppWindowBody';
 import DockerControls from './DockerControls';
-import SettingsPanel from './SettingsPanel';
+import useLegacySettingsLink from '../hooks/useLegacySettingsLink';
 import SettingsPanelNew from './SettingsPanelNew';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
@@ -107,7 +107,12 @@ export default function MobileApp() {
   // underneath so its scroll position is preserved when the modal closes).
   // Each entry is { title: string, content: ReactNode }.
   const [mobileModal, setMobileModal] = useState(null);
-  const openModal = useCallback((title, content) => setMobileModal({ title, content }), []);
+  const settingsNonce = useRef(0);
+  const openSettings = useCallback((selection) => {
+    const initialTarget = { selection, nonce: ++settingsNonce.current };
+    setMobileModal({ title: 'Settings', content: <SettingsPanelNew initialTarget={initialTarget} /> });
+  }, []);
+  useLegacySettingsLink(openSettings);
   const closeModal = useCallback(() => setMobileModal(null), []);
   const previousWindowRef = useRef(null);
   const [terminalRemountKey, setTerminalRemountKey] = useState(0);
@@ -1532,7 +1537,7 @@ export default function MobileApp() {
             installedApps={installedApps}
             contributions={contributions}
             onOpenWindow={openWindow}
-            onOpenModal={openModal}
+            onOpenSettings={() => openSettings()}
             onAction={handleAction}
             onCreateAgent={createAgent}
             onCreateTerminal={createTerminal}
@@ -1794,7 +1799,7 @@ function AppIcon({ name, size = 18 }) {
   }
 }
 
-function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, componentMap, grouped, workspaceApps, installedApps, contributions, onOpenWindow, onOpenModal, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
+function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOpen, setAgentPickerOpen, terminals, componentMap, grouped, workspaceApps, installedApps, contributions, onOpenWindow, onOpenSettings, onAction, onCreateAgent, onCreateTerminal, onDeleteSession, onDeletePresentation, onOpenApp }) {
   // Lookup helpers for the Agents list — get the agent definition
   // (label, color) by type so each row can render with its CLI's brand.
   const agentByType = (type) => aiAgents.find(a => a.type === type);
@@ -2225,30 +2230,14 @@ function MobileDashboard({ presentations, agentSessions, aiAgents, agentPickerOp
         {workspaceOpen && (
           <div className="space-y-1.5">
 
-            {/* Settings — BOTH panels, mirroring the desktop shell (Workspace >
-                Settings and Profile > Settings NEW). Deliberately not a swap:
-                the legacy panel is the only place AW Config, TCP Proxy, Cookies,
-                Feed Subscriber, Backup, Skills and MCP Servers actually work —
-                they are still `ready: false` placeholders in SettingsPanelNew,
-                so replacing one with the other would take seven working screens
-                off the phone. When the legacy panel is retired on desktop, this
-                entry goes with it. */}
-            <div
-              onClick={() => onOpenModal('Settings', <SettingsPanel />)}
-              className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--color-bg-secondary)] rounded-lg border border-[var(--color-border)] active:bg-white/5 cursor-pointer"
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-[var(--color-bg-secondary)] rounded-lg border border-[var(--color-border)] active:bg-white/5"
             >
               <span className="text-[var(--color-text-muted)]"><IconGear /></span>
               <span className="text-[13px] font-medium">Settings</span>
-            </div>
-
-            {/* Settings NEW */}
-            <div
-              onClick={() => onOpenModal('Settings NEW', <SettingsPanelNew />)}
-              className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--color-bg-secondary)] rounded-lg border border-[var(--color-border)] active:bg-white/5 cursor-pointer"
-            >
-              <span className="text-[var(--color-text-muted)]"><IconGear /></span>
-              <span className="text-[13px] font-medium">Settings NEW</span>
-            </div>
+            </button>
 
             {/* Repos */}
             <div>

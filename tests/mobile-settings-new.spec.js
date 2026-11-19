@@ -1,16 +1,4 @@
-// Real-browser proof that Settings NEW is reachable AND usable from the phone
-// shell, at a real iPhone viewport (390px).
-//
-// The bug: below 768px App.jsx swaps the whole shell for MobileApp, and
-// MobileApp mounted the LEGACY SettingsPanel. Settings NEW — every section in
-// it, including Networking (d01257c) — did not exist on the phone at all. The
-// networking-tab spec could only test down to 769px, one pixel above the shell
-// switch, and said so in a comment.
-//
-// What this proves that a jsdom test can't: in real Chromium, at 390px, on the
-// real #mobile route, the section is reachable by touch navigation and the
-// panel does not force horizontal panning — which is the acceptance bar the
-// card set ("não basta abrir: tem que dar pra usar sem pan horizontal").
+// Browser coverage for the Settings entry points and legacy fragments.
 import { test, expect } from '@playwright/test';
 
 const HOSTS = [
@@ -32,7 +20,7 @@ async function stubApi(page) {
   await page.route(onPath((p) => p === '/api/auth/status'), (route) => route.fulfill(json({ authenticated: true, mode: 'identity' })));
   await page.route(onPath((p) => p === '/api/apps'), (route) => route.fulfill(json([])));
   await page.route(onPath((p) => p === '/api/apps/-/contributions'), (route) => route.fulfill(json({ nav: [], windows: [], frontend: [] })));
-  // Settings NEW's Users section does `setUsers(await res.json())` with no array
+  // Settings' Users section does `setUsers(await res.json())` with no array
   // guard — an object here takes the panel down before Networking is clicked.
   await page.route(onPath((p) => p === '/api/guest-users'), (route) => route.fulfill(json([])));
   await page.route(onPath((p) => p === '/api/identity/me'), (route) => route.fulfill(json({
@@ -46,22 +34,19 @@ async function stubApi(page) {
 
 const IPHONE = { width: 390, height: 844 };
 
-async function openMobileSettingsNew(page) {
+async function openMobileSettings(page) {
   await page.setViewportSize(IPHONE);
   await page.goto('/#mobile');
   // The Workspace group is expanded by default on the mobile dashboard.
-  await page.getByText('Settings NEW', { exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
 }
 
-test.describe('Settings NEW on the mobile shell @ 390px', () => {
+test.describe('Settings on the mobile shell @ 390px', () => {
   test.beforeEach(async ({ page }) => { await stubApi(page); });
 
   test('is reachable from the phone dashboard and opens on the section list', async ({ page }) => {
-    await openMobileSettingsNew(page);
+    await openMobileSettings(page);
 
-    // The sheet is Settings NEW, not the legacy tab strip. The legacy panel's
-    // giveaway is a "TCP Proxy" tab rendered as a top strip; Settings NEW shows
-    // grouped nav with a General header and a "soon" marker on unmigrated ones.
     await expect(page.getByRole('button', { name: 'General' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Networking/ })).toBeVisible();
 
@@ -73,7 +58,7 @@ test.describe('Settings NEW on the mobile shell @ 390px', () => {
   });
 
   test('navigates to General > Networking and renders it without horizontal pan', async ({ page }) => {
-    await openMobileSettingsNew(page);
+    await openMobileSettings(page);
     await page.getByRole('button', { name: /Networking/ }).click();
 
     // The real section rendered — same assertions the desktop spec makes.
@@ -108,7 +93,7 @@ test.describe('Settings NEW on the mobile shell @ 390px', () => {
   });
 
   test('the back row returns to the section list', async ({ page }) => {
-    await openMobileSettingsNew(page);
+    await openMobileSettings(page);
     await page.getByRole('button', { name: /Networking/ }).click();
     await expect(page.getByRole('heading', { name: 'Networking' })).toBeVisible();
 
@@ -118,17 +103,79 @@ test.describe('Settings NEW on the mobile shell @ 390px', () => {
     await expect(page.getByRole('button', { name: 'General' })).toBeVisible();
   });
 
-  test('the legacy Settings panel is still reachable — nothing was taken away', async ({ page }) => {
-    // Settings NEW leaves 7 sections as `ready: false` placeholders (AW Config,
-    // TCP Proxy, Cookies, Feed Subscriber, Backup, Skills, MCP Servers) that
-    // only work in the legacy panel. Swapping instead of adding would have
-    // removed them from the phone.
+  test('has one Settings entry and keeps the former sections available', async ({ page }) => {
     await page.setViewportSize(IPHONE);
     await page.goto('/#mobile');
-    await page.getByText('Settings', { exact: true }).click();
+    await expect(page.getByRole('button', { name: /^Settings/ })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
 
-    // The legacy tab strip, not the grouped sidebar.
-    await expect(page.getByRole('button', { name: 'TCP Proxy' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'MCP Servers' })).toBeVisible();
+    for (const name of ['AW', 'TCP Proxy', 'Workspace VPN', 'Local Network', 'Cookies',
+      'Feed Subscriber', 'Backup', 'Skills', 'MCP Servers']) {
+      await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+    }
   });
+
+  test('consumes cold and repeated links, falls back for unknown tabs, and reloads cleanly', async ({ page }) => {
+    await page.setViewportSize(IPHONE);
+    await page.goto('/?settings-test=1#settings/backup');
+    const backup = page.getByRole('heading', { name: 'Backup' });
+    await expect(backup).toBeVisible();
+    await expect(page).toHaveURL('/?settings-test=1');
+
+    await page.getByRole('button', { name: /Back to Settings — Backup/ }).click();
+    await page.evaluate(() => { location.hash = '#settings/backup'; });
+    await expect(backup).toBeVisible();
+    await expect(page).toHaveURL('/?settings-test=1');
+
+    await page.evaluate(() => { location.hash = '#settings/constructor'; });
+    await expect(page.getByRole('button', { name: 'General' })).toBeVisible();
+    await expect(backup).toHaveCount(0);
+    await expect(page).toHaveURL('/?settings-test=1');
+    await page.goBack();
+    await expect(page).toHaveURL('/?settings-test=1');
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Search settings' })).toHaveCount(0);
+  });
+});
+
+for (const layout of ['desktop', 'mobile']) {
+  test(`opens the same Settings app configuration in forced ${layout}`, async ({ page }) => {
+    await stubApi(page);
+    await page.route(onPath((p) => p === '/api/apps'), (route) => route.fulfill(json([{
+      slug: 'agents-platform-runners', name: 'Agents Platform Runners', version: '1',
+      has_config: true, config: { workspace_slug: 'aw' },
+      config_schema: { properties: { workspace_slug: { type: 'string', title: 'Workspace slug' } } },
+    }])));
+    await page.goto(`/#${layout}`);
+    if (layout === 'desktop') {
+      await page.getByRole('button', { name: 'Workspace menu' }).hover();
+      await expect(page.getByRole('button', { name: /^Open Settings/ })).toHaveCount(1);
+      await page.getByRole('button', { name: 'Open Settings', exact: true }).click();
+    } else {
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    }
+    await page.getByRole('button', { name: /Agents Platform Runners/ }).click();
+    await expect(page.getByRole('heading', { name: 'Agents Platform Runners' })).toBeVisible();
+    await expect(page.getByLabel('Workspace slug')).toHaveValue('aw');
+
+    await page.evaluate(() => { location.hash = '#settings/backup'; });
+    await expect(page.getByRole('heading', { name: 'Backup' })).toBeVisible();
+    await expect(page).toHaveURL('/');
+  });
+}
+
+test('restores a single Settings window from legacy desktop storage and accepts a cold link', async ({ page }) => {
+  await stubApi(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('aw-open-windows', JSON.stringify(['panel:settings', 'panel:settings-new']));
+    localStorage.setItem('aw-maximized-key', 'panel:settings');
+  });
+  await page.goto('/?settings-test=1#settings/backup');
+  await expect(page.getByRole('heading', { name: 'Backup' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Search settings' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Restore' })).toBeVisible();
+  await expect(page).toHaveURL('/?settings-test=1');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('aw-open-windows')))
+    .toBe(JSON.stringify(['panel:settings-new']));
 });

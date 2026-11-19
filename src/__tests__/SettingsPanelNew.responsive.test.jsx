@@ -101,14 +101,14 @@ describe('SettingsPanelNew — narrow (mobile shell)', () => {
     expect(screen.queryByRole('button', { name: /Back to Settings/ })).not.toBeInTheDocument();
   });
 
-  it('a not-yet-migrated section still opens, showing its coming-soon body', () => {
+  it('opens the Backup controls from the section list', async () => {
     installMatchMedia(true);
     render(<SettingsPanelNew />);
 
     fireEvent.click(screen.getByRole('button', { name: /Backup/ }));
 
     expect(screen.getByRole('button', { name: /Back to Settings — Backup/ })).toBeInTheDocument();
-    expect(screen.getByText(/coming soon/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Backup' })).toBeInTheDocument();
   });
 });
 

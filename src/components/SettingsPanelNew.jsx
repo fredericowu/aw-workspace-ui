@@ -1,18 +1,3 @@
-// SettingsPanelNew — the grouped/collapsible sidebar redesign of Settings
-// (UX-Proto aw-redesign SettingsPanel.js layout: nav on the left, selected
-// section's content on the right), living alongside the legacy tab-strip
-// SettingsPanel so the two can be compared before the old one is retired.
-//
-// Two groups for now:
-//  - General: same sections the legacy SettingsPanel exposes. "Users" and
-//    "Integrations" are wired to real functionality here — everything else
-//    is an intentional "coming soon" placeholder rather than a dead link
-//    (Backup is tracked to come back via a Kanban card).
-//  - Apps: dynamically built from GET /api/apps (has_config === true), one
-//    entry per installed app with configurable settings — reuses
-//    AppConfigBody (the same body AppConfigWindow's modal renders) so both
-//    surfaces stay in sync automatically.
-//
 // Responsive (2026-08-25): this component is mounted by BOTH shells — the
 // desktop floating window (App.jsx) and the mobile sheet (MobileApp.jsx).
 // Below 768px the fixed `w-56` sidebar ate 57% of a 390px viewport, so the
@@ -20,6 +5,14 @@
 // a section swaps to its content with a back button. Above 768px nothing
 // changed — `detailOpen` is not consulted on that path at all.
 import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
+import AwConfigTab from './AwConfigTab';
+import TcpProxyTab from './TcpProxyTab';
+import VpnTab from './VpnTab';
+import LocalDnsTab from './LocalDnsTab';
+import McpServersTab from './McpServersTab';
+import ProxyTab from './ProxyTab';
+import BackupTab from './BackupTab';
+import FeedSubscriberTab from './FeedSubscriberTab';
 import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
@@ -35,10 +28,10 @@ import { listInstalledApps } from '../apps/appsApi';
 import { buildSettingsIndex, matchSettingsEntry } from '../lib/settingsSearch';
 
 const GENERAL_SECTIONS = [
-  { key: 'users', label: 'Users', ready: true, description: 'Guest logins scoped to a fixed list of apps.' },
-  { key: 'integrations', label: 'Integrations', ready: true, description: 'Connect external services and webhooks.' },
-  { key: 'marketplace', label: 'Marketplace', ready: true, description: 'Install and manage apps from the catalog.' },
-  { key: 'observability', label: 'Observability', ready: true, description: 'Metrics, traces and logs for this workspace.' },
+  { key: 'users', label: 'Users', description: 'Guest logins scoped to a fixed list of apps.' },
+  { key: 'integrations', label: 'Integrations', description: 'Connect external services and webhooks.' },
+  { key: 'marketplace', label: 'Marketplace', description: 'Install and manage apps from the catalog.' },
+  { key: 'observability', label: 'Observability', description: 'Metrics, traces and logs for this workspace.' },
   // Was `{ key: 'vpn', label: 'VPN' }` before it was renamed to `networking`:
   // the scope grew from "a VPN with an exit node" to the tenant's whole
   // private mesh, of which the exit gate is one feature. That vacated `vpn`
@@ -47,12 +40,18 @@ const GENERAL_SECTIONS = [
   // this workspace, vs. Networking's per-host exit-gate/mesh routing. See
   // docs/architecture/vpn-profiles-in-general.md §0 for why these are two
   // screens, not one.
-  { key: 'networking', label: 'Networking', ready: true, description: 'The tenant private mesh, exit nodes and VPN.' },
-  { key: 'vpn', label: 'VPNs', ready: true, description: 'VPN profiles — upload, edit, delete, NordVPN import. Phase 1 stores; it does not dial.' },
-  { key: 'remote-hosts', label: 'Remote Hosts', ready: true, description: 'Linked hosts, and how to install aw-remote-host on a new one.' },
-  { key: 'feed-subscriber', label: 'Feed Subscriber', ready: false, description: 'Watch external feeds and trigger agent runs.' },
-  { key: 'backup', label: 'Backup', ready: false, description: 'Back up and restore workspace state.' },
-  { key: 'skills', label: 'Skills', ready: true, description: 'Author and manage native and app-contributed skills.' },
+  { key: 'networking', label: 'Networking', description: 'The tenant private mesh, exit nodes and VPN.' },
+  { key: 'vpn', label: 'VPNs', description: 'VPN profiles — upload, edit, delete, NordVPN import. Connect or disconnect a saved profile.' },
+  { key: 'remote-hosts', label: 'Remote Hosts', description: 'Linked hosts, and how to install aw-remote-host on a new one.' },
+  { key: 'feed-subscriber', label: 'Feed Subscriber', description: 'Watch external feeds and trigger agent runs.' },
+  { key: 'backup', label: 'Backup', description: 'Back up and restore workspace state.' },
+  { key: 'aw', label: 'AW', description: 'Workspace configuration and appearance.' },
+  { key: 'tcp-proxy', label: 'TCP Proxy', description: 'Configure TCP forwarding.' },
+  { key: 'workspace-vpn', label: 'Workspace VPN', description: 'Workspace VPN client, server and startup settings.' },
+  { key: 'local-dns', label: 'Local Network', description: 'Local DNS and network configuration.' },
+  { key: 'proxy', label: 'Cookies', description: 'Manage proxy cookies.' },
+  { key: 'mcp', label: 'MCP Servers', description: 'Configure workspace MCP servers.' },
+  { key: 'skills', label: 'Skills', description: 'Author and manage native and app-contributed skills.' },
 ];
 
 function ChevronDown({ open }) {
@@ -66,23 +65,14 @@ function ChevronDown({ open }) {
   );
 }
 
-function ComingSoon({ label }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-center px-6">
-      <p className="text-sm text-[var(--color-text-muted)]">
-        <span className="text-[var(--color-text-primary)] font-medium">{label}</span> ainda não foi migrado
-        pra essa tela nova — coming soon.
-      </p>
-    </div>
-  );
-}
-
 // 767px, not a container width: this has to agree with App.jsx's own
 // `window.innerWidth <= 768` shell switch, so the two can never disagree about
 // which layout is on screen. A container-width observer would get the forced
 // `#mobile` case backwards — that renders the mobile sheet full-bleed on a wide
 // display, where the sidebar is the RIGHT layout and a narrow one would be a
 // downgrade. The viewport is what actually decides whether there is room.
+const DEFAULT_SELECTION = { group: 'general', key: 'users' };
+
 const NARROW_QUERY = '(max-width: 767px)';
 
 function narrowMediaQuery() {
@@ -130,7 +120,7 @@ function BackChevron() {
 // identical, which is what makes the effect below fire again.
 export default function SettingsPanelNew({ initialTarget } = {}) {
   const [expanded, setExpanded] = useState({ general: true, apps: true });
-  const [selection, setSelection] = useState(() => initialTarget?.selection || { group: 'general', key: 'users' });
+  const [selection, setSelection] = useState(() => initialTarget?.selection || DEFAULT_SELECTION);
   const [apps, setApps] = useState([]);
   const [appsError, setAppsError] = useState(null);
   const [query, setQuery] = useState('');
@@ -146,9 +136,9 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
   // (window was open in the background) — the mount-time useState above only
   // covers the first-open case.
   useEffect(() => {
-    if (!initialTarget?.selection) return;
-    setSelection(initialTarget.selection);
-    setDetailOpen(true);
+    if (!initialTarget) return;
+    setSelection(initialTarget.selection || DEFAULT_SELECTION);
+    setDetailOpen(!!initialTarget.selection);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTarget?.nonce]);
 
@@ -262,7 +252,6 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
                     }`}
                   >
                     <span className="flex-1 truncate">{s.label}</span>
-                    {!s.ready && <span className="text-[9px] text-[var(--color-text-muted)] shrink-0">soon</span>}
                     {searching && matchHints.get(`general:${s.key}`) && (
                       <span data-testid="settings-search-hint" className="text-[9px] italic text-[var(--color-text-muted)] shrink-0">
                         {matchHints.get(`general:${s.key}`)}
@@ -352,20 +341,24 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
           }
         >
           {selection.group === 'general' && selectedSection && (
-            selectedSection.ready
-              ? (
-                (selectedSection.key === 'users' && <UsersTab />) ||
-                (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
-                (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
-                (selectedSection.key === 'networking' && <NetworkingTab />) ||
-                (selectedSection.key === 'vpn' && <VpnsTab />) ||
-                (selectedSection.key === 'remote-hosts' && (
-                  <RemoteHostsTab onNavigateToNetworking={() => select('general', 'networking')} />
-                )) ||
-                (selectedSection.key === 'observability' && <ObservabilityTab />) ||
-                (selectedSection.key === 'skills' && <SkillsSection />)
-              )
-              : <ComingSoon label={selectedSection.label} />
+            (selectedSection.key === 'users' && <UsersTab />) ||
+            (selectedSection.key === 'integrations' && <IntegrationsTab />) ||
+            (selectedSection.key === 'marketplace' && <MarketplaceTab />) ||
+            (selectedSection.key === 'networking' && <NetworkingTab />) ||
+            (selectedSection.key === 'vpn' && <VpnsTab />) ||
+            (selectedSection.key === 'remote-hosts' && (
+              <RemoteHostsTab onNavigateToNetworking={() => select('general', 'networking')} />
+            )) ||
+            (selectedSection.key === 'observability' && <ObservabilityTab />) ||
+            (selectedSection.key === 'skills' && <SkillsSection />) ||
+            (selectedSection.key === 'aw' && <AwConfigTab />) ||
+            (selectedSection.key === 'tcp-proxy' && <TcpProxyTab />) ||
+            (selectedSection.key === 'workspace-vpn' && <VpnTab />) ||
+            (selectedSection.key === 'local-dns' && <LocalDnsTab />) ||
+            (selectedSection.key === 'proxy' && <ProxyTab />) ||
+            (selectedSection.key === 'mcp' && <McpServersTab />) ||
+            (selectedSection.key === 'feed-subscriber' && <FeedSubscriberTab />) ||
+            (selectedSection.key === 'backup' && <BackupTab />)
           )}
           {selection.group === 'apps' && selectedApp && (
             // max-w-lg (512px) used to cap this no matter how wide the window
