@@ -1,4 +1,4 @@
-// Real-browser proof of Settings NEW › General › Networking.
+// Real-browser proof of Settings › General › Networking.
 //
 // The screen is behind the auth gate and its data comes from aw-backend, which
 // this dev box has no browser session for — so the API is stubbed at the
@@ -125,7 +125,7 @@ async function stubApi(page) {
   await page.route(onPath((p) => p.startsWith('/api/')), (route) => route.fulfill(json({})));
   await page.route(onPath((p) => p === '/api/auth/status'), (route) => route.fulfill(json({ authenticated: true, mode: 'identity' })));
   await page.route(onPath((p) => p === '/api/apps'), (route) => route.fulfill(json([])));
-  // Settings NEW opens on Users; UsersTab does `setUsers(await res.json())` with
+  // Settings opens on Users; UsersTab does `setUsers(await res.json())` with
   // no array guard, so an object here takes the whole panel down before
   // Networking is ever clicked.
   await page.route(onPath((p) => p === '/api/guest-users'), (route) => route.fulfill(json([])));
@@ -141,13 +141,13 @@ async function stubApi(page) {
 
 async function openNetworking(page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Profile', exact: true }).click();
-  await page.getByRole('button', { name: 'Open Settings NEW' }).click();
+  await page.getByRole('button', { name: 'Workspace menu', exact: true }).hover();
+  await page.getByRole('button', { name: 'Open Settings' }).click();
   await page.getByRole('button', { name: 'Networking' }).click();
   await expect(page.getByRole('heading', { name: 'Networking' })).toBeVisible();
 }
 
-test.describe('Settings NEW › General › Networking', () => {
+test.describe('Settings › General › Networking', () => {
   test.beforeEach(async ({ page }) => { await stubApi(page); });
 
   test('lists the hosts, names the ineligibility reason, and is honest about the unknown', async ({ page }) => {

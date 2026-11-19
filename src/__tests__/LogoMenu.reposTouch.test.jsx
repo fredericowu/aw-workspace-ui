@@ -19,7 +19,6 @@ import LogoMenu from '../components/LogoMenu';
 function baseProps() {
   return {
     onOpenSettings: vi.fn(),
-    onOpenSettingsOld: vi.fn(),
     onLogout: vi.fn(),
     components: [],
     openWindows: new Set(),

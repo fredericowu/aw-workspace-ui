@@ -34,11 +34,6 @@ import { installWindowKbdSync, originForIframeSrc } from '../lib/appIframeKbd';
  * between rows and their submenus), on click-outside, or on picking an
  * item.
  *
- * "Settings (old)" (the legacy SettingsPanel entry) is wired via
- * onOpenSettingsOld but gated off with `false &&` per the Settings
- * rename/promote card — kept so the handler isn't orphaned, not rendered,
- * not in the accessibility tree.
- *
  * The repos WS subscription, the code-server-popup kbd-sync effect, and the
  * Components-row hover-preview state all live at this component's TOP
  * LEVEL (always mounted), not inside the `{open && ...}` popover body — see
@@ -163,7 +158,6 @@ function AgentsPlatformIcon() {
 
 export default function LogoMenu({
   onOpenSettings,
-  onOpenSettingsOld,
   onLogout,
   setView,
   components,
@@ -474,20 +468,6 @@ export default function LogoMenu({
             <GearIcon />
             <span className="text-[13px] text-[var(--color-text-primary)]">Settings</span>
           </button>
-
-          {false && (
-            <button
-              onClick={() => { setOpen(false); onOpenSettingsOld?.(); }}
-              onMouseEnter={closeSub}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.06] cursor-pointer text-left"
-              aria-label="Open Settings (old)"
-            >
-              <svg className="w-4 h-4 shrink-0 text-[var(--color-text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-              </svg>
-              <span className="text-[13px] text-[var(--color-text-primary)]">Settings (old)</span>
-            </button>
-          )}
 
           {/* Console + Agents Platform: external cross-plane links — account
               admin (control-plane) and the multi-tenant agents runtime, both

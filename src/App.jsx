@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import WindowManager from './components/WindowManager';
-// SettingsPanel is now rendered inside WindowManager as a floating panel
+import useLegacySettingsLink, { isLegacySettingsLink } from './hooks/useLegacySettingsLink';
+import { SETTINGS_WINDOW_KEY, normalizeSettingsWindowKey } from './lib/settingsWindowKey';
 import AppsNav from './components/AppsNav';
 import LogoMenu from './components/LogoMenu';
 import VpnNav from './components/VpnNav';
@@ -80,7 +81,7 @@ export default function App() {
   // Set hash on mobile detection (only if no explicit hash)
   useEffect(() => {
     const hash = window.location.hash;
-    if (isMobile && !hash.startsWith('#mobile')) {
+    if (isMobile && !hash.startsWith('#mobile') && !isLegacySettingsLink(hash)) {
       window.location.hash = '#mobile';
     }
   }, [isMobile]);
@@ -351,7 +352,7 @@ function AuthenticatedApp() {
       return new Set(JSON.parse(saved).filter((k) =>
         !k.startsWith('presentation:')
         && !k.startsWith('appwin:presentations.viewer:')
-        && k !== 'panel:remote-desktop'));
+        && k !== 'panel:remote-desktop').map(normalizeSettingsWindowKey));
     } catch { return new Set(); }
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -442,15 +443,15 @@ function AuthenticatedApp() {
   useEffect(() => {
     localStorage.setItem('aw-sidebar-collapsed', sidebarCollapsed ? 'true' : 'false');
   }, [sidebarCollapsed]);
+  // Keep the consumed URL on a cold Settings link, including effect replay.
+  const openedFromSettingsLink = useRef(isLegacySettingsLink(window.location.hash));
   // Sync view -> hash
   useEffect(() => {
-    if (view === 'home' && window.location.hash !== '#home') {
+    const hash = window.location.hash;
+    if (view === 'home' && hash !== '#home' && !openedFromSettingsLink.current && !isLegacySettingsLink(hash)) {
       window.location.hash = '#home';
     }
-    // 'settings' hash is managed by SettingsPanel
   }, [view]);
-
-  // (Settings is now a floating window — no hash-based view routing needed)
 
   // NOTE (2026-08-05): this WS's presentation_init/presentation_update
   // handling moved into aw-app-presentations' own plugin.jsx (decoupling).
@@ -749,7 +750,7 @@ function AuthenticatedApp() {
   }, []);
 
   const [maximizedKey, setMaximizedKey] = useState(() => {
-    try { return localStorage.getItem('aw-maximized-key') || null; } catch { return null; }
+    try { return normalizeSettingsWindowKey(localStorage.getItem('aw-maximized-key')); } catch { return null; }
   });
 
   useEffect(() => {
@@ -1347,53 +1348,17 @@ function AuthenticatedApp() {
     [windowFocusTriggers],
   );
 
-  // Workspace > Settings: open as a floating window (mirrors Knowledge Base/Tasks).
-  const openSettingsPanel = useCallback(() => {
-    const key = 'panel:settings';
-    setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
-    setView('home');
-    requestWindowFocus(key);
-  }, [requestWindowFocus]);
-
-  // Profile > Settings NEW: the grouped-sidebar Settings redesign, kept side
-  // by side with the legacy tab-strip Settings for comparison — see
-  // SettingsPanelNew.jsx.
-  //
-  // Generic deep-link opener: `selection` (optional {group, key}) can target
-  // ANY section SettingsPanelNew renders — General or Apps, not just VPN.
-  // VpnNav's "Open VPN settings" (below, {group: 'general', key: 'vpn'}) is
-  // one caller, not the reason the parameter exists; a future caller can
-  // reuse this unchanged, e.g. {group: 'apps', key: '<app-slug>'}.
-  //   - group: 'general' — key is one of GENERAL_SECTIONS' `key`s, enumerated
-  //     in SettingsPanelNew.jsx (users, integrations, marketplace,
-  //     observability, networking, vpn, remote-hosts, skills, ...).
-  //   - group: 'apps' — key is an installed app's `slug`, from the same
-  //     `GET /api/apps` list SettingsPanelNew's Apps group renders (only
-  //     apps with has_config: true show up there).
-  //   - omitted — opens the panel on whatever it last showed (or the
-  //     {general, users} default).
-  // See SettingsPanelNew.deepLink.test.jsx for a general- and an apps-group
-  // deep link exercised end to end.
-  //
-  // Stamped with a nonce so re-clicking the same target while the window is
-  // already open still re-navigates (SettingsPanelNew mounts once and
-  // otherwise has no reason to notice the same {group,key} arriving twice).
-  //
-  // Only threaded via prop today (VpnNav gets it as `onOpenSettings`) —
-  // plain prop-drilling is one hop (App.jsx -> VpnNav) and there's exactly
-  // one caller, so a Context/EventBus would be solving a problem that
-  // doesn't exist yet. If a second, more distant caller shows up, lift this
-  // — the function itself already doesn't need to change, only how it's
-  // threaded.
+  // A fresh nonce re-selects a section even if Settings is already open.
   const openSettingsPanelNew = useCallback((selection) => {
-    const key = 'panel:settings-new';
-    if (selection) {
-      setSettingsNewTarget({ selection, nonce: Date.now() });
+    const key = SETTINGS_WINDOW_KEY;
+    if (selection !== undefined) {
+      setSettingsNewTarget((previous) => ({ selection, nonce: (previous?.nonce ?? 0) + 1 }));
     }
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
     requestWindowFocus(key);
   }, [requestWindowFocus]);
+  useLegacySettingsLink(openSettingsPanelNew);
 
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg-primary)]">
@@ -1422,7 +1387,6 @@ function AuthenticatedApp() {
           <ErrorBoundary label="Logo menu">
           <LogoMenu
             onOpenSettings={openSettingsPanelNew}
-            onOpenSettingsOld={openSettingsPanel}
             onLogout={async () => { await logout(); window.location.reload(); }}
             setView={setView}
             components={components}
