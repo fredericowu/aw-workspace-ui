@@ -34,3 +34,7 @@ The dashboard includes modules for App, Terminal, Settings, Diff, Knowledge
 Base, Plans, Whiteboard, Debugger, Presentation, Tasks, Tests, Remote Desktop,
 Docker Components, and Mobile Shell windows. Each module composes the shared
 window shell instead of owning its own chrome.
+
+## Licence
+
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE) (third-party attributions, including vendored noVNC).

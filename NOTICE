@@ -1,0 +1,15 @@
+aw-workspace-ui
+Copyright 2026 Frederico Wu
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components:
+
+- noVNC 1.4.0 (public/novnc): MPL-2.0 core, with BSD and OFL licensed parts
+  and pako (MIT). Each component keeps its own licence files under
+  public/novnc (LICENSE.txt, docs/, vendor/). Modified noVNC files remain
+  under MPL-2.0.
+- caniuse-lite (npm dependency, CC-BY-4.0, https://github.com/browserslist/caniuse-lite):
+  browser support data by Alexis Deveria and contributors, used at build time.
+- Other npm dependencies are installed from the registry under their own
+  licences (MIT, Apache-2.0, BSD, ISC, MPL-2.0, ...), see package-lock.json.
