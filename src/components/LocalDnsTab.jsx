@@ -162,13 +162,13 @@ export default function LocalDnsTab() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const s = await currentWorkspaceSlug();
-    setSlug(s);
-    if (!s) {
-      setLoading(false);
-      return;
-    }
     try {
+      // Inside the try: in a standalone (local) workspace there is no central
+      // plane to resolve a slug from, the lookup rejects, and outside the try
+      // that left `loading` true forever.
+      const s = await currentWorkspaceSlug();
+      setSlug(s);
+      if (!s) return;
       const resp = await api('GET', `/api/workspaces/${encodeURIComponent(s)}/dns-publications`);
       setData(resp);
       setError('');
