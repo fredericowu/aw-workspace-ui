@@ -160,15 +160,26 @@ export default function LocalDnsTab() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // The slug could not be resolved at all (standalone workspace: no slug in
+  // the URL and no central plane to look one up from). Distinct from a failed
+  // dns-publications fetch, which is a retryable error for a known slug.
+  const [unavailable, setUnavailable] = useState(false);
 
   const load = useCallback(async () => {
+    let s = null;
     try {
-      // Inside the try: in a standalone (local) workspace there is no central
-      // plane to resolve a slug from, the lookup rejects, and outside the try
-      // that left `loading` true forever.
-      const s = await currentWorkspaceSlug();
-      setSlug(s);
-      if (!s) return;
+      s = await currentWorkspaceSlug();
+    } catch {
+      s = null;
+    }
+    setSlug(s);
+    if (!s) {
+      setUnavailable(true);
+      setLoading(false);
+      return;
+    }
+    setUnavailable(false);
+    try {
       const resp = await api('GET', `/api/workspaces/${encodeURIComponent(s)}/dns-publications`);
       setData(resp);
       setError('');
@@ -219,6 +230,14 @@ export default function LocalDnsTab() {
 
   if (loading) {
     return <div className="p-4 text-xs text-[var(--color-text-muted)]">Loading…</div>;
+  }
+
+  if (unavailable) {
+    return (
+      <div className="p-4 text-xs text-[var(--color-text-muted)]">
+        Local Network access is not available for this workspace.
+      </div>
+    );
   }
 
   return (
