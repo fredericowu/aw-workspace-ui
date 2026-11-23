@@ -58,6 +58,9 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
   // online, poll) must not start its own loop then: its result can be a stale
   // in-flight one and would cancel the newer announced revision's loop.
   let converging = false;
+  // A catch-up signal that arrived while a loop owned the shell: replayed when
+  // the loop ends so a wake/online during a doomed loop is not lost.
+  let deferredCheck = false;
 
   // Drive the shell to `announced`. A newer announcement supersedes an older
   // loop (generation check) so a burst of installs costs one loop.
@@ -67,7 +70,10 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
     try {
       await run(mine, announced);
     } finally {
-      if (mine === generation) converging = false;
+      if (mine === generation) {
+        converging = false;
+        if (deferredCheck && !stopped) { deferredCheck = false; checkNow(); }
+      }
     }
   }
 
@@ -89,7 +95,8 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
 
   // Conditional "has anything moved since what I applied?" check.
   async function checkNow() {
-    if (stopped || converging) return;
+    if (stopped) return;
+    if (converging) { deferredCheck = true; return; }
     const applied = getAppliedRevision();
     const gen = generation;
     try {

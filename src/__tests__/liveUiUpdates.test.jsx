@@ -240,6 +240,25 @@ describe('liveUiUpdates', () => {
     stop();
   });
 
+  it('a wake signal during a loop that later exhausts is replayed, not lost', async () => {
+    setAppliedRevision('A');
+    let current = 'A';
+    h.apiFetch.mockImplementation(async (_p, opts = {}) => {
+      const fresh = opts.headers?.['If-None-Match'] === `"${current}"`;
+      return fresh ? notModified() : ok({ revision: current });
+    });
+    const unshell = withShellApplying();
+    const stop = startLiveUiUpdates();
+    h.socket.onFrame({ type: 'ui_changed', revision: 'B' });   // B never becomes current
+    await tick(0);
+    current = 'C';
+    window.dispatchEvent(new Event('online'));                 // arrives mid-loop
+    await tick(60_000);                                        // loop exhausts its attempts
+    expect(getAppliedRevision()).toBe('C');
+    unshell();
+    stop();
+  });
+
   it('a backend that sends no revision is not treated as a change on every poll', async () => {
     setAppliedRevision('r1');
     h.apiFetch.mockResolvedValue(ok({ windows: [] }));   // older core: 200, no revision
