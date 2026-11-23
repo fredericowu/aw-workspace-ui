@@ -24,6 +24,8 @@ import { installPluginHost } from './pluginHost';
 import { fetchContributions } from './appsApi';
 import { wireContributions } from './wireContributions';
 import { wireAppEventHooks } from './appEventHooks';
+import { startLiveUiUpdates } from './liveUiUpdates';
+import { setAppliedRevision } from './contributionsRevision';
 
 // The slot registry is a process-wide singleton, so wiring it twice would
 // double-mount every contribution. Only one shell is ever mounted at a time
@@ -91,7 +93,11 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
       // reopened the browser"), so every component-mode slot visibly vanished
       // and reappeared on each refocus even though nothing had changed.
       const nextSignature = JSON.stringify(contributions);
-      if (!isFirstLoad && dispose && nextSignature === signature) return;
+      if (!isFirstLoad && dispose && nextSignature === signature) {
+        // Same content as already applied: the shell IS at this revision.
+        if (typeof contributions.revision === 'string') setAppliedRevision(contributions.revision);
+        return;
+      }
 
       // Hand the previous generation's disposer to wireContributions instead of
       // calling it here: it tears the old one down in the same synchronous tick
@@ -122,6 +128,13 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
       // guard above short-circuits every later refresh and its nav stays gone
       // until a page reload.
       signature = next.incomplete ? null : nextSignature;
+      // Record the revision only now that the shell actually applied it, and
+      // only if every app made it in: an incomplete wiring must stay "behind"
+      // so the next push/poll retries. Independent fetchContributions()
+      // callers (settings panel, mobile launcher) deliberately do not record.
+      if (!next.incomplete && typeof contributions.revision === 'string') {
+        setAppliedRevision(contributions.revision);
+      }
 
       if (isFirstLoad) {
         try { onFirstLoadRef.current?.(contributions); } catch (e) {
@@ -147,8 +160,12 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
     const onChanged = () => load();
     window.addEventListener('aw-apps-changed', onChanged);
     window.addEventListener('focus', onChanged);
+    // Push + catch-up: turns server announcements, reconnects, online,
+    // visibility and a poll backstop into the same `aw-apps-changed` event.
+    const stopLive = startLiveUiUpdates();
     return () => {
       disposed = true;
+      stopLive();
       activeWirings -= 1;
       window.removeEventListener('aw-apps-changed', onChanged);
       window.removeEventListener('focus', onChanged);

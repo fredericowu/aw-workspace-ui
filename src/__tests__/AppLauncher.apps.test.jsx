@@ -26,6 +26,7 @@ import {
 import { setSuppressKbd } from '../lib/keyboardMode';
 import { isVirtualKeyboardTrackpadOpen, openVirtualKeyboardTrackpad, closeVirtualKeyboardTrackpad } from '../lib/virtualKeyboardTrackpad';
 import AppLauncher from '../components/AppLauncher';
+import { setAppsListRevision } from '../apps/contributionsRevision';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 const INSTALLED = [
@@ -89,6 +90,37 @@ describe('AppLauncher — F5 Apps view', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Runnables/ }));
     expect(await screen.findByText('Essentials')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Configure Essentials' })).toBeNull();
+  });
+
+  // Live UI updates phase 1: the shell-owned Apps menu re-lists in place when
+  // liveUiUpdates.js announces a change (install from the CLI / another tab).
+  it('re-lists installed apps in place on aw-apps-changed, no reload', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+    expect(await screen.findByText('Git + GitHub CLI')).toBeInTheDocument();
+    expect(screen.queryByText('Brand New')).toBeNull();
+
+    listInstalledApps.mockResolvedValue([
+      ...INSTALLED,
+      { slug: 'brand-new', name: 'Brand New', version: '0.1.0', icon: 'plug', signed: true,
+        has_config: false, has_windows: true, config_schema: {}, frontend: {} },
+    ]);
+    window.dispatchEvent(new Event('aw-apps-changed'));
+    expect(await screen.findByText('Brand New')).toBeInTheDocument();
+  });
+
+  it('keeps re-listing past a lagging worker until X-Apps-Revision matches the announced revision', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+    expect(await screen.findByText('Git + GitHub CLI')).toBeInTheDocument();
+
+    const fresh = [...INSTALLED, { slug: 'brand-new', name: 'Brand New', version: '0.1.0', icon: 'plug',
+      signed: true, has_config: false, has_windows: true, config_schema: {}, frontend: {} }];
+    listInstalledApps
+      .mockImplementationOnce(async () => { setAppsListRevision('old'); return INSTALLED; })   // lagging worker
+      .mockImplementation(async () => { setAppsListRevision('r2'); return fresh; });          // converged
+    window.dispatchEvent(new CustomEvent('aw-apps-changed', { detail: { revision: 'r2' } }));
+    expect(await screen.findByText('Brand New', {}, { timeout: 3000 })).toBeInTheDocument();
   });
 
   it('an app with category "Tools" shows under the Tools tab, not UI or Runnables', async () => {

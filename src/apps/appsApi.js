@@ -3,6 +3,7 @@
 // workspace API by the apiBase.js global shim.
 import { apiFetch } from '../auth';
 import { asArray } from '../lib/asArray';
+import { setAppsListRevision } from './contributionsRevision';
 
 async function json(res) {
   const body = await res.json().catch(() => ({}));
@@ -21,7 +22,12 @@ async function json(res) {
 // the only shape callers ever see, and also protects whatever gets cached
 // via writeCachedInstalled() from poisoning localStorage for next time.
 export function listInstalledApps() {
-  return apiFetch('/api/apps').then(json).then(asArray);
+  return apiFetch('/api/apps').then((res) => {
+    // Which contributions revision the answering worker is at (X-Apps-Revision),
+    // so a caller can tell a lagging worker's list from a converged one.
+    setAppsListRevision(res.headers?.get?.('X-Apps-Revision') ?? null);
+    return json(res);
+  }).then(asArray);
 }
 
 // GET /api/apps/-/catalog — marketplace catalog (available apps).

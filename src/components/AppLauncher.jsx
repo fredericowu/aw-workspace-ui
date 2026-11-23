@@ -6,6 +6,7 @@ import AppConfigWindow from './AppConfigWindow';
 import AppVersionWindow from './AppVersionWindow';
 import AppSearchResults from './AppSearchResults';
 import { pollInstallStatus } from './AppsMarketplace';
+import { getAppsListRevision } from '../apps/contributionsRevision';
 import { listInstalledApps, uninstallApp, installMyApps, fetchCatalog, updateApp } from '../apps/appsApi';
 import { markUiRefreshNeeded } from '../apps/uiRefresh';
 import { readCachedInstalled, writeCachedInstalled, readCachedCatalog, writeCachedCatalog } from '../apps/appsCache';
@@ -251,6 +252,27 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
       .catch((e) => { if (mounted) { setInstalled((prev) => prev ?? []); setInstalledError(String(e.message || e)); } });
     return () => { mounted = false; };
   }, []);
+
+  // Shell-owned Apps menu: an install/uninstall/update elsewhere (CLI, agent,
+  // another tab) announces itself as `aw-apps-changed` (liveUiUpdates.js);
+  // re-list in place, no reload.
+  // GET /api/apps is answered from ONE worker's loaded set, which can lag the
+  // revision that was announced, so keep re-listing until the response's
+  // X-Apps-Revision matches it (an older core sends none: accept the first).
+  useEffect(() => {
+    let alive = true;
+    const onChanged = async (e) => {
+      const target = e?.detail?.revision ?? null;
+      for (let attempt = 0; attempt < 6 && alive; attempt += 1) {
+        await refreshInstalled();
+        const got = getAppsListRevision();
+        if (!target || !got || got === target) return;
+        await new Promise((r) => setTimeout(r, Math.min(4000, 500 * 2 ** attempt)));
+      }
+    };
+    window.addEventListener('aw-apps-changed', onChanged);
+    return () => { alive = false; window.removeEventListener('aw-apps-changed', onChanged); };
+  }, [refreshInstalled]);
 
   useEffect(() => {
     let mounted = true;
