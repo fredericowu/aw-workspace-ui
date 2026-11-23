@@ -415,7 +415,7 @@ function AuthenticatedApp() {
     setAppWindowSpecs,
     openWindows,
   });
-  const { releaseWindow, noteToggle } = appGens;
+  const { releaseWindow, noteToggle, isOpen: isAppWindowOpen } = appGens;
   const [terminals, setTerminals] = useState([]);
   const [aiAgents, setAiAgents] = useState(withAntigravityAgent([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
@@ -616,18 +616,21 @@ function AuthenticatedApp() {
   const openAppWindow = useCallback((found, instanceId, title) => {
     if (!found?.id) return;
     const key = appWindowKey(found.id, instanceId);
+    // Read BEFORE the updater runs: only a window that is on screen right now
+    // keeps its old snapshot; a minimized one is a fresh open.
+    const wasOpen = isAppWindowOpen(key);
     setAppWindowSpecs((prev) => {
       // An already-open window of an app that has since been updated keeps the
       // generation it opened with (its code is retained too); only a fresh open,
       // after it is closed, picks up the new rev. The hint tells the user.
       const nextSpec = instanceId ? { ...found, instanceId, title: title || found.title } : found;
-      const chosen = specForOpen(prev[key], nextSpec);
+      const chosen = specForOpen(prev[key], nextSpec, wasOpen);
       return chosen === prev[key] ? prev : { ...prev, [key]: chosen };
     });
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
     requestWindowFocus(key);
-  }, [requestWindowFocus]);
+  }, [requestWindowFocus, isAppWindowOpen]);
   // Generic escape hatch so ANY app's own component-mode contribution (a nav
   // row, a background WS listener, ...) can open one of ITS OWN windows
   // without core knowing anything app-specific — mirrors __awOpenTerminal/
@@ -688,7 +691,7 @@ function AuthenticatedApp() {
     onOpenWindow: (windowId, _appId, eventAction) => {
       let found = findWindowSpec(contributionsRef.current, windowId);
       if (found && eventAction?.url) {
-        found = { ...found, body: { ...found.body, url: eventAction.url } };
+        found = { ...found, body: { ...found.body, url: eventAction.url }, urlOverride: eventAction.url };
       }
       if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
     },

@@ -42,8 +42,10 @@ export function retainedAppSlugs(appWindowSpecs, contributions) {
 // What an "open this window" request does to the spec map. A window already
 // open on an older generation of its app keeps that snapshot (the new code only
 // arrives on a fresh open, after close); anything else takes the new snapshot.
-export function specForOpen(prevSpec, nextSpec) {
-  if (prevSpec && typeof prevSpec.rev === 'string' && prevSpec.rev !== nextSpec.rev) return prevSpec;
+export function specForOpen(prevSpec, nextSpec, isOpen = true) {
+  // A hidden (minimized) window is not running its old snapshot: opening it is
+  // a fresh open.
+  if (isOpen && prevSpec && typeof prevSpec.rev === 'string' && prevSpec.rev !== nextSpec.rev) return prevSpec;
   return nextSpec;
 }
 

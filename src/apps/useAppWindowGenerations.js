@@ -86,9 +86,14 @@ export function useAppWindowGenerations({ appWindowSpecs, setAppWindowSpecs, ope
         spec: win.body?.spec_data || null,
         rev: contributions.app_revs?.[win.app],
       };
+      // A per-open URL (e.g. Code Server's open_file hook) is not part of the
+      // manifest snapshot: re-apply it over the refreshed body.
+      if (spec.urlOverride) fresh.body = { ...fresh.body, url: spec.urlOverride };
       return { ...prev, [key]: fresh };
     });
   }, [setAppWindowSpecs]);
+
+  const isOpen = useCallback((key) => !!openRef.current?.has(key), []);
 
   // Tray toggle: an open window is hidden (released), a hidden one is restored.
   const noteToggle = useCallback((key) => {
@@ -96,5 +101,5 @@ export function useAppWindowGenerations({ appWindowSpecs, setAppWindowSpecs, ope
     else restoreWindow(key);
   }, [releaseWindow, restoreWindow]);
 
-  return { staleKeys, attention, getRetainedApps, onApplied, onWired, releaseWindow, restoreWindow, noteToggle };
+  return { staleKeys, attention, getRetainedApps, onApplied, onWired, releaseWindow, restoreWindow, noteToggle, isOpen };
 }

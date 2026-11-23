@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
 
 import {
-  openAppSpecs, isRemovedWindowSpec, attentionWindowKeys,
+  openAppSpecs, isRemovedWindowSpec, attentionWindowKeys, specForOpen,
 } from '../apps/appGenerations';
 import { useAppWindowGenerations } from '../apps/useAppWindowGenerations';
 import AppSlot from '../apps/AppSlot';
@@ -126,6 +126,39 @@ describe('useAppWindowGenerations', () => {
     act(() => result.current.gens.onWired({ failedApps: [] }));
     act(() => result.current.gens.onApplied(payload({ a: 'r1', b: 'r1' })));
     expect(result.current.gens.attention.size).toBe(0);
+  });
+});
+
+describe('specForOpen only pins a window that is open', () => {
+  it('a hidden window takes the new snapshot on open (launcher reopen of a minimized window)', () => {
+    const old = { id: 'w', rev: 'r1' };
+    const next = { id: 'w', rev: 'r2' };
+    expect(specForOpen(old, next, true)).toBe(old);
+    expect(specForOpen(old, next, false)).toBe(next);
+  });
+});
+
+describe('restoreWindow keeps a per-open URL override', () => {
+  it('re-applies urlOverride over the refreshed body (Code Server open_file)', () => {
+    const win = { id: 'a.main', app: 'a', body: { type: 'managed_app', url: '/manifest-default' } };
+    const start = { 'appwin:a': spec('a', 'r1', { id: 'a.main', body: { type: 'managed_app', url: '/file.py' }, urlOverride: '/file.py' }) };
+    const { result } = renderHook(() => useHarness(start, []));
+    act(() => result.current.gens.onApplied({ app_revs: { a: 'r2' }, windows: [win] }));
+    act(() => result.current.gens.restoreWindow('appwin:a'));
+    expect(result.current.specs['appwin:a'].rev).toBe('r2');
+    expect(result.current.specs['appwin:a'].body.url).toBe('/file.py');
+    // without an override the refreshed manifest body wins
+    const plain = { 'appwin:a': spec('a', 'r1', { id: 'a.main', body: { type: 'managed_app', url: '/old' } }) };
+    const h2 = renderHook(() => useHarness(plain, []));
+    act(() => h2.result.current.gens.onApplied({ app_revs: { a: 'r2' }, windows: [win] }));
+    act(() => h2.result.current.gens.restoreWindow('appwin:a'));
+    expect(h2.result.current.specs['appwin:a'].body.url).toBe('/manifest-default');
+  });
+
+  it('isOpen reflects the open set', () => {
+    const { result } = renderHook(() => useHarness({ 'appwin:a': spec('a', 'r1') }, ['appwin:a']));
+    expect(result.current.gens.isOpen('appwin:a')).toBe(true);
+    expect(result.current.gens.isOpen('appwin:b')).toBe(false);
   });
 });
 
