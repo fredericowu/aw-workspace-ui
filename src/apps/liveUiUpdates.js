@@ -54,18 +54,34 @@ async function probe(etagRevision) {
 export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
   let stopped = false;
   let generation = 0;
+  // True while a converge() loop owns the shell. A catch-up probe (wake,
+  // online, poll) must not start its own loop then: its result can be a stale
+  // in-flight one and would cancel the newer announced revision's loop.
+  let converging = false;
 
   // Drive the shell to `announced`. A newer announcement supersedes an older
   // loop (generation check) so a burst of installs costs one loop.
   async function converge(announced) {
     const mine = ++generation;
+    converging = true;
+    try {
+      await run(mine, announced);
+    } finally {
+      if (mine === generation) converging = false;
+    }
+  }
+
+  async function run(mine, announced) {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       if (stopped || mine !== generation) return;
       if (getAppliedRevision() === announced) return;
       try {
         const r = await probe(announced);
         if (stopped || mine !== generation) return;
-        if (r.notModified || r.revision === announced) notifyChanged(announced);
+        if (r.notModified || r.revision === announced) {
+          notifyChanged(announced);
+          if (getAppliedRevision() === announced) return;
+        }
       } catch { /* transient: retry */ }
       await sleep(backoff(attempt));
     }
@@ -73,11 +89,14 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
 
   // Conditional "has anything moved since what I applied?" check.
   async function checkNow() {
-    if (stopped) return;
+    if (stopped || converging) return;
     const applied = getAppliedRevision();
+    const gen = generation;
     try {
       const r = await probe(applied);
-      if (stopped) return;
+      // A converge loop started while this probe was in flight: its target is
+      // newer than this (possibly stale) answer, so leave it alone.
+      if (stopped || converging || gen !== generation) return;
       // A backend that sends no revision (older core) can't be diffed: stay
       // quiet instead of treating every 200 as a change.
       // Converge (not a single dispatch): the shell's own refetch may land on
