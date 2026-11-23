@@ -791,7 +791,7 @@ function loadFromStorage(key, fallback) {
   } catch { return fallback; }
 }
 
-export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, onUpdateAppWindowTitle, settingsNewTarget }) {
+export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, staleAppWindowKeys, onUpdateAppWindowTitle, settingsNewTarget }) {
   // Derive agentType from terminals array for any session key
   const _getAgentType = (key) => {
     const sessionId = key.replace('terminal:', '');
@@ -1099,6 +1099,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   title={appWindowSpec?.title}
                   spec={appWindowSpec?.spec}
                   windowSpec={appWindowSpec}
+                  updated={!!staleAppWindowKeys?.has(key)}
                   windowKey={key}
                   onClose={() => onCloseWindow(key)}
                   onMaximize={onMaximize}

@@ -142,6 +142,22 @@ export default function AppConfigBody({ app, onSaved }) {
     return () => { alive = false; };
   }, [app.slug, fields]);
 
+  // Shell-owned: the settings panel an app contributes can change under an open
+  // Settings window (update/install elsewhere). The effect above is one-shot per
+  // mount, so follow `aw-apps-changed` here, quietly (no `resolving` flicker).
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => fetchContributions().then((c) => {
+      if (!alive) return;
+      const panel = (c.settings || []).find((s) => s.app === app.slug && s.window);
+      const win = panel && (c.windows || []).find((w) => w.app === app.slug && w.id === panel.window);
+      setAdvancedSchemaForm(!!panel && panel.schema_form === 'advanced');
+      setSettingsWindowSpec(win?.body?.spec_data || null);
+    }).catch(() => {});
+    window.addEventListener('aw-apps-changed', refresh);
+    return () => { alive = false; window.removeEventListener('aw-apps-changed', refresh); };
+  }, [app.slug]);
+
   const [values, setValues] = useState(() => {
     const init = {};
     for (const [key, spec] of Object.entries(props)) {

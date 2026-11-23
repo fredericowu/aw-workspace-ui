@@ -24,7 +24,7 @@ export { specFromManagedWindow };
 // tiny single-action popups (e.g. aw-app-git's "Sign in with GitHub"), not
 // a full app UI — confirmed as the wrong fit for aw-app-whiteboard's window
 // (2026-07-28).
-export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, isFocused = true, onTitleChange }) {
+export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, isFocused = true, onTitleChange, updated = false }) {
   const isComponent = windowSpec?.body?.type === 'component';
   // Only a real declarative spec gets the body gutter (see .is-declarative in
   // index.css). A `component` body is app code that owns its own padding, and
@@ -45,6 +45,16 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
           </span>
         </div>
         <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
+          {updated && (
+            <span
+              role="status"
+              data-testid="app-window-updated-hint"
+              title="This app was updated. This window keeps running the old version until you close it."
+              className="mr-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 whitespace-nowrap"
+            >
+              Updated, reopen to apply
+            </span>
+          )}
           {/* The app's own buttons, before the generic pair — so an app never
               needs a second bar in its body just to have somewhere to put
               them. Renders nothing (AppSlot's null fallback) for every window

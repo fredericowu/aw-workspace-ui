@@ -13,6 +13,7 @@ import TopNotifications from './components/TopNotifications';
 import ErrorBoundary from './components/ErrorBoundary';
 import { asArray } from './lib/asArray';
 import AppSlot from './apps/AppSlot';
+import { staleAppWindowKeys, retainedAppSlugs, specForOpen } from './apps/appGenerations';
 import IconStack from './components/IconStack';
 import { usePluginContributions } from './apps/usePluginContributions';
 import { findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
@@ -405,6 +406,20 @@ function AuthenticatedApp() {
   // legitimately empty, and writing it out would erase the very record the
   // rehydrate is about to read (contributions are fetched async on mount).
   const appWindowsHydratedRef = useRef(false);
+  // Mirror of appWindowSpecs for callbacks that must read it synchronously
+  // (the plugin runtime's retain decision, window close).
+  const appWindowSpecsRef = useRef({});
+  // Latest per-app revisions, for the "Updated, reopen to apply" window hint.
+  const [liveAppRevs, setLiveAppRevs] = useState(null);
+  const staleAppKeys = useMemo(
+    () => staleAppWindowKeys(appWindowSpecs, { app_revs: liveAppRevs }),
+    [appWindowSpecs, liveAppRevs],
+  );
+  const staleAppKeysRef = useRef(new Set());
+  useEffect(() => {
+    appWindowSpecsRef.current = appWindowSpecs;
+    staleAppKeysRef.current = staleAppKeys;
+  }, [appWindowSpecs, staleAppKeys]);
   const [terminals, setTerminals] = useState([]);
   const [aiAgents, setAiAgents] = useState(withAntigravityAgent([
     { type: 'claude', label: 'Claude', command: 'claude', color: '#d97706', icon: 'bolt' },
@@ -605,10 +620,14 @@ function AuthenticatedApp() {
   const openAppWindow = useCallback((found, instanceId, title) => {
     if (!found?.id) return;
     const key = appWindowKey(found.id, instanceId);
-    setAppWindowSpecs((prev) => ({
-      ...prev,
-      [key]: instanceId ? { ...found, instanceId, title: title || found.title } : found,
-    }));
+    setAppWindowSpecs((prev) => {
+      // An already-open window of an app that has since been updated keeps the
+      // generation it opened with (its code is retained too); only a fresh open,
+      // after it is closed, picks up the new rev. The hint tells the user.
+      const nextSpec = instanceId ? { ...found, instanceId, title: title || found.title } : found;
+      const chosen = specForOpen(prev[key], nextSpec);
+      return chosen === prev[key] ? prev : { ...prev, [key]: chosen };
+    });
     setOpenWindows((prev) => { const next = new Set(prev); next.add(key); return next; });
     setView('home');
     requestWindowFocus(key);
@@ -678,6 +697,8 @@ function AuthenticatedApp() {
       if (found && (found.spec || found.body?.type === 'managed_app' || found.body?.type === 'component')) openAppWindow(found);
     },
     onFirstLoad: rehydrateAppWindows,
+    getRetainedApps: (contributions) => retainedAppSlugs(appWindowSpecsRef.current, contributions),
+    onApplied: (contributions) => setLiveAppRevs(contributions?.app_revs || null),
   });
 
   // Open a framework-installed app's default window from its Apps-view card
@@ -731,6 +752,15 @@ function AuthenticatedApp() {
     // session — singleton appwin: keys (Whiteboard/Tasks) just get re-added
     // identically next open, so dropping them here is harmless either way.
     if (key.startsWith('appwin:')) {
+      // If this window pinned an old app generation, nothing else may need it
+      // now: let the plugin runtime load the new code (it rewires only when a
+      // retained app is no longer retained).
+      if (staleAppKeysRef.current.has(key)) {
+        const rest = { ...appWindowSpecsRef.current };
+        delete rest[key];
+        appWindowSpecsRef.current = rest;
+        window.dispatchEvent(new CustomEvent('aw-apps-changed', { detail: { revision: null } }));
+      }
       setAppWindowSpecs((prev) => {
         if (!(key in prev)) return prev;
         const next = { ...prev };
@@ -1709,6 +1739,7 @@ function AuthenticatedApp() {
             layoutTrigger={layoutTrigger}
             terminalReconnectSignals={terminalReconnectSignals}
             appWindowSpecs={appWindowSpecs}
+            staleAppWindowKeys={staleAppKeys}
             onUpdateAppWindowTitle={updateAppWindowTitle}
             settingsNewTarget={settingsNewTarget}
           />

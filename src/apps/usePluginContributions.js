@@ -27,6 +27,8 @@ import { wireAppEventHooks } from './appEventHooks';
 import { startLiveUiUpdates } from './liveUiUpdates';
 import { setAppliedRevision } from './contributionsRevision';
 
+const NONE = new Set();
+
 // The slot registry is a process-wide singleton, so wiring it twice would
 // double-mount every contribution. Only one shell is ever mounted at a time
 // today, but `isMobile` IS reactive (resize / #mobile / #desktop hashchange),
@@ -45,9 +47,14 @@ let activeWirings = 0;
  * @param {function} [opts.onFirstLoad] - (contributions) => void, run once
  *   after the first successful wiring. The desktop shell uses it to rehydrate
  *   windows persisted in localStorage.
+ * @param {function} [opts.getRetainedApps] - (contributions) => Set<slug>: apps
+ *   whose open window still runs the previous generation's code. Their old
+ *   component mount is kept (not swapped) until no window needs it.
+ * @param {function} [opts.onApplied] - (contributions) => void, run for every
+ *   fetched payload (changed or not) so the shell can recompute window hints.
  * @returns {{current: object|null}} ref holding the latest contributions payload.
  */
-export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
+export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedApps, onApplied } = {}) {
   const contributionsRef = useRef(null);
 
   // Kept current: a nav click can happen long after mount. Assigned in an
@@ -56,6 +63,9 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
   // what React's refs rule forbids.
   const onOpenWindowRef = useRef(onOpenWindow);
   useEffect(() => { onOpenWindowRef.current = onOpenWindow; });
+  const getRetainedRef = useRef(getRetainedApps);
+  const onAppliedRef = useRef(onApplied);
+  useEffect(() => { getRetainedRef.current = getRetainedApps; onAppliedRef.current = onApplied; });
 
   // Captured ONCE, deliberately not refreshed. The desktop rehydration reads
   // the `openWindows` snapshot from its mount-time closure on purpose (a later
@@ -76,6 +86,10 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
     let dispose = null;
     let disposeEventHooks = null;
     let signature = null;
+    // Apps whose OLD component code the last wiring kept mounted. When a later
+    // payload no longer needs that (the window closed), rewire even though the
+    // payload is byte-identical, so the new code finally loads.
+    let lastRetained = NONE;
 
     const run = async (isFirstLoad) => {
       let contributions;
@@ -86,6 +100,9 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
       }
       if (disposed) return;
       contributionsRef.current = contributions;
+      let retain = NONE;
+      try { retain = getRetainedRef.current?.(contributions) || NONE; } catch { /* hint only */ }
+      try { onAppliedRef.current?.(contributions); } catch (e) { console.warn('[apps] onApplied failed:', e); }
 
       // Skip the rewire cycle when nothing actually changed since the last time
       // this ran. Found 2026-08-04: this used to unconditionally dispose() then
@@ -93,7 +110,8 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
       // reopened the browser"), so every component-mode slot visibly vanished
       // and reappeared on each refocus even though nothing had changed.
       const nextSignature = JSON.stringify(contributions);
-      if (!isFirstLoad && dispose && nextSignature === signature) {
+      const releasing = [...lastRetained].some((slug) => !retain.has(slug));
+      if (!isFirstLoad && dispose && nextSignature === signature && !releasing) {
         // Same content as already applied: the shell IS at this revision.
         if (typeof contributions.revision === 'string') setAppliedRevision(contributions.revision);
         return;
@@ -110,6 +128,7 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
         // silently strip the app slug from any future caller that wants it.
         onOpenWindow: (...args) => onOpenWindowRef.current?.(...args),
         replace: previous || undefined,
+        retain,
       });
       const previousEventHooks = disposeEventHooks;
       const nextEventHooks = wireAppEventHooks(contributions, (action) => {
@@ -123,6 +142,7 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
       try { previousEventHooks?.(); } catch { /* replacement still proceeds */ }
       disposeEventHooks = nextEventHooks;
       dispose = next;
+      lastRetained = new Set(next.retainedApps || []);
       // Only now, and only if every app made it in — an app whose bundle failed
       // to load must not have its absence frozen in as the steady state, or the
       // guard above short-circuits every later refresh and its nav stays gone
