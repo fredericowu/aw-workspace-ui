@@ -214,6 +214,32 @@ describe('liveUiUpdates', () => {
     stop();
   });
 
+  it('a delayed wake probe does not cancel convergence to a newer announced frame', async () => {
+    // Wake probe is pending, frame C arrives, the first convergence probe hits
+    // a lagging worker (A), then the wake probe resolves as stale B. The C
+    // loop must keep running and apply C.
+    setAppliedRevision('A');
+    let n = 0;
+    let resolveWake;
+    h.apiFetch.mockImplementation((_p, opts = {}) => {
+      n += 1;
+      if (n === 1) return new Promise((res) => { resolveWake = res; });
+      const rev = n === 2 ? 'A' : 'C';
+      return Promise.resolve(opts.headers?.['If-None-Match'] === `"${rev}"` ? notModified() : ok({ revision: rev }));
+    });
+    const unshell = withShellApplying();
+    const stop = startLiveUiUpdates();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await tick(0);
+    h.socket.onFrame({ type: 'ui_changed', revision: 'C' });
+    await tick(0);
+    resolveWake(ok({ revision: 'B' }));
+    await tick(5000);
+    expect(getAppliedRevision()).toBe('C');
+    unshell();
+    stop();
+  });
+
   it('a backend that sends no revision is not treated as a change on every poll', async () => {
     setAppliedRevision('r1');
     h.apiFetch.mockResolvedValue(ok({ windows: [] }));   // older core: 200, no revision
