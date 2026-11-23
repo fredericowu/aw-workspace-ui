@@ -72,7 +72,13 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
     } finally {
       if (mine === generation) {
         converging = false;
-        if (deferredCheck && !stopped) { deferredCheck = false; checkNow(); }
+        // Replay only a loop that gave up. One that reached its target already
+        // satisfied the signal, and a replayed probe could hit a lagging worker
+        // and roll the shell back to the older revision it just left.
+        const reached = getAppliedRevision() === announced;
+        const replay = deferredCheck && !reached && !stopped;
+        deferredCheck = false;
+        if (replay) checkNow();
       }
     }
   }

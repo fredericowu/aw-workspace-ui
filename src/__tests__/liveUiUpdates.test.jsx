@@ -259,6 +259,28 @@ describe('liveUiUpdates', () => {
     stop();
   });
 
+  it('a wake signal during a loop that converged is not replayed onto a lagging worker', async () => {
+    setAppliedRevision('A');
+    let served = 'B';
+    h.apiFetch.mockImplementation(async (_p, opts = {}) => {
+      const fresh = opts.headers?.['If-None-Match'] === `"${served}"`;
+      return fresh ? notModified() : ok({ revision: served });
+    });
+    const unshell = withShellApplying();
+    const applied = [];
+    const rec = () => applied.push(getAppliedRevision());
+    window.addEventListener('aw-apps-changed', rec);
+    const stop = startLiveUiUpdates();
+    h.socket.onFrame({ type: 'ui_changed', revision: 'B' });
+    window.dispatchEvent(new Event('online'));                 // arrives mid-loop
+    served = 'A';                                              // next probe lands on a lagging worker
+    await tick(60_000);
+    window.removeEventListener('aw-apps-changed', rec);
+    expect(getAppliedRevision()).toBe('B');
+    unshell();
+    stop();
+  });
+
   it('a backend that sends no revision is not treated as a change on every poll', async () => {
     setAppliedRevision('r1');
     h.apiFetch.mockResolvedValue(ok({ windows: [] }));   // older core: 200, no revision
