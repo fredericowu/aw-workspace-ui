@@ -214,6 +214,31 @@ describe('liveUiUpdates', () => {
     stop();
   });
 
+  it('a slow wake probe does not cancel a newer socket announcement', async () => {
+    // Wake probe is in flight (slow) when a ui_changed frame announces C. The
+    // late wake answer (B) must not supersede the convergence to C.
+    setAppliedRevision('A');
+    let resolveWake;
+    let calls = 0;
+    h.apiFetch.mockImplementation((_p, opts = {}) => {
+      calls += 1;
+      if (calls === 1) return new Promise((r) => { resolveWake = r; });
+      if (calls === 2) return Promise.resolve(ok({ revision: 'A' })); // C probe hits a lagging worker
+      const inm = opts.headers?.['If-None-Match'];
+      return Promise.resolve(inm === '"C"' ? notModified() : ok({ revision: 'C' }));
+    });
+    const onApply = (e) => { if (e.detail.revision === 'C') setAppliedRevision('C'); };
+    window.addEventListener('aw-apps-changed', onApply);
+    const stop = startLiveUiUpdates();
+    document.dispatchEvent(new Event('visibilitychange'));
+    h.socket.onFrame({ type: 'ui_changed', revision: 'C' });
+    resolveWake(ok({ revision: 'B' }));
+    await tick(5000);
+    expect(getAppliedRevision()).toBe('C');
+    window.removeEventListener('aw-apps-changed', onApply);
+    stop();
+  });
+
   it('a backend that sends no revision is not treated as a change on every poll', async () => {
     setAppliedRevision('r1');
     h.apiFetch.mockResolvedValue(ok({ windows: [] }));   // older core: 200, no revision

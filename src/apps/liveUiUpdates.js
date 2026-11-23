@@ -75,9 +75,13 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
   async function checkNow() {
     if (stopped) return;
     const applied = getAppliedRevision();
+    const startedAt = generation;
     try {
       const r = await probe(applied);
-      if (stopped) return;
+      // A newer announcement (socket frame) started a convergence while this
+      // probe was in flight: it targets a newer revision, so do not supersede
+      // it with this older answer.
+      if (stopped || startedAt !== generation) return;
       // A backend that sends no revision (older core) can't be diffed: stay
       // quiet instead of treating every 200 as a change.
       // Converge (not a single dispatch): the shell's own refetch may land on
