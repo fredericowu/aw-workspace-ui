@@ -26,6 +26,7 @@ import {
 import { setSuppressKbd } from '../lib/keyboardMode';
 import { isVirtualKeyboardTrackpadOpen, openVirtualKeyboardTrackpad, closeVirtualKeyboardTrackpad } from '../lib/virtualKeyboardTrackpad';
 import AppLauncher from '../components/AppLauncher';
+import { setAppsListRevision } from '../apps/contributionsRevision';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 const INSTALLED = [
@@ -106,6 +107,20 @@ describe('AppLauncher — F5 Apps view', () => {
     ]);
     window.dispatchEvent(new Event('aw-apps-changed'));
     expect(await screen.findByText('Brand New')).toBeInTheDocument();
+  });
+
+  it('keeps re-listing past a lagging worker until X-Apps-Revision matches the announced revision', async () => {
+    listInstalledApps.mockResolvedValue(INSTALLED);
+    renderLauncher();
+    expect(await screen.findByText('Git + GitHub CLI')).toBeInTheDocument();
+
+    const fresh = [...INSTALLED, { slug: 'brand-new', name: 'Brand New', version: '0.1.0', icon: 'plug',
+      signed: true, has_config: false, has_windows: true, config_schema: {}, frontend: {} }];
+    listInstalledApps
+      .mockImplementationOnce(async () => { setAppsListRevision('old'); return INSTALLED; })   // lagging worker
+      .mockImplementation(async () => { setAppsListRevision('r2'); return fresh; });          // converged
+    window.dispatchEvent(new CustomEvent('aw-apps-changed', { detail: { revision: 'r2' } }));
+    expect(await screen.findByText('Brand New', {}, { timeout: 3000 })).toBeInTheDocument();
   });
 
   it('an app with category "Tools" shows under the Tools tab, not UI or Runnables', async () => {

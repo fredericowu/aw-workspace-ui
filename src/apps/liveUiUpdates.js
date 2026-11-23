@@ -30,8 +30,11 @@ const MAX_ATTEMPTS = 8;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const backoff = (attempt) => Math.min(8000, 500 * 2 ** attempt);
 
-function notifyChanged() {
-  window.dispatchEvent(new CustomEvent('aw-apps-changed'));
+// `revision` (when known) rides along as event detail so listeners that read a
+// DIFFERENT per-worker endpoint (the Apps launcher's GET /api/apps) can wait
+// for a response at that same revision instead of settling on a lagging one.
+function notifyChanged(revision) {
+  window.dispatchEvent(new CustomEvent('aw-apps-changed', { detail: { revision: revision ?? null } }));
 }
 
 // One conditional GET. Resolves { notModified, revision }. Never records the
@@ -61,7 +64,8 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
       if (getAppliedRevision() === announced) return;
       try {
         const r = await probe(announced);
-        if (r.notModified || r.revision === announced) notifyChanged();
+        if (stopped || mine !== generation) return;
+        if (r.notModified || r.revision === announced) notifyChanged(announced);
       } catch { /* transient: retry */ }
       await sleep(backoff(attempt));
     }
@@ -73,7 +77,10 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
     const applied = getAppliedRevision();
     try {
       const r = await probe(applied);
-      if (!r.notModified) notifyChanged();
+      if (stopped) return;
+      // A backend that sends no revision (older core) can't be diffed: stay
+      // quiet instead of treating every 200 as a change.
+      if (!r.notModified && typeof r.revision === 'string' && r.revision !== applied) notifyChanged(r.revision);
     } catch { /* offline etc.: the next trigger retries */ }
   }
 

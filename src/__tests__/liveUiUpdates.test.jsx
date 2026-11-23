@@ -23,7 +23,8 @@ vi.mock('../hooks/useSharedSocket', () => ({
 }));
 
 import { startLiveUiUpdates } from '../apps/liveUiUpdates';
-import { setAppliedRevision } from '../apps/contributionsRevision';
+import { setAppliedRevision, getAppliedRevision } from '../apps/contributionsRevision';
+import { fetchContributions } from '../apps/appsApi';
 import { usePluginContributions } from '../apps/usePluginContributions';
 import AppSlot from '../apps/AppSlot';
 
@@ -158,6 +159,78 @@ describe('liveUiUpdates', () => {
     stop();
   });
 
+  it('the event carries the revision it converged on, for per-worker listeners', async () => {
+    setAppliedRevision('old');
+    h.apiFetch.mockResolvedValue(notModified());
+    let detail;
+    const cap = (e) => { detail = e.detail; };
+    window.addEventListener('aw-apps-changed', cap);
+    const stop = startLiveUiUpdates();
+    h.socket.onFrame({ type: 'ui_changed', revision: 'new' });
+    await tick(0);
+    window.removeEventListener('aw-apps-changed', cap);
+    expect(detail).toEqual({ revision: 'new' });
+    stop();
+  });
+
+  it('a backend that sends no revision is not treated as a change on every poll', async () => {
+    setAppliedRevision('r1');
+    h.apiFetch.mockResolvedValue(ok({ windows: [] }));   // older core: 200, no revision
+    const stop = startLiveUiUpdates();
+    window.dispatchEvent(new Event('online'));
+    await tick(5 * 60 * 1000);
+    expect(changed).toBe(0);
+    stop();
+  });
+
+  it('a probe that resolves after stop() or supersession is discarded', async () => {
+    setAppliedRevision('r1');
+    let release;
+    h.apiFetch.mockImplementation(() => new Promise((res) => { release = () => res(ok({ revision: 'r2' })); }));
+    const stop = startLiveUiUpdates();
+    window.dispatchEvent(new Event('online'));
+    await tick(0);
+    stop();
+    release();
+    await tick(0);
+    expect(changed).toBe(0);
+  });
+
+  it('a convergence probe superseded by a newer announcement is discarded', async () => {
+    setAppliedRevision('r1');
+    const pending = [];
+    h.apiFetch.mockImplementation(() => new Promise((res) => pending.push(res)));
+    const details = [];
+    const cap = (e) => details.push(e.detail.revision);
+    window.addEventListener('aw-apps-changed', cap);
+    const stop = startLiveUiUpdates();
+    h.socket.onFrame({ type: 'ui_changed', revision: 'r2' });
+    await tick(0);
+    h.socket.onFrame({ type: 'ui_changed', revision: 'r3' });
+    await tick(0);
+    pending[0](notModified());          // the r2 probe resolves late
+    await tick(0);
+    expect(details).toEqual([]);        // r2 is stale: no event for it
+    pending[1](notModified());
+    await tick(0);
+    window.removeEventListener('aw-apps-changed', cap);
+    expect(details).toEqual(['r3']);
+    stop();
+  });
+
+  it('an independent fetchContributions() (settings panel, mobile) does NOT mark the shell as applied', async () => {
+    setAppliedRevision('r1');
+    h.apiFetch.mockResolvedValueOnce(ok({ revision: 'r2', nav: [] }));
+    await fetchContributions();
+    expect(getAppliedRevision()).toBe('r1');
+    h.apiFetch.mockResolvedValue(notModified());
+    const stop = startLiveUiUpdates();
+    h.socket.onFrame({ type: 'ui_changed', revision: 'r2' });
+    await tick(0);
+    expect(changed).toBe(1);          // still pushed to the shell
+    stop();
+  });
+
   it('stop() releases the socket and silences every trigger', async () => {
     setAppliedRevision('r1');
     h.apiFetch.mockResolvedValue(ok({ revision: 'r2' }));
@@ -201,6 +274,7 @@ describe('install while the UI is open (no reload)', () => {
 
     expect(screen.getByRole('button', { name: 'Git' })).toBeInTheDocument();
 
+    expect(getAppliedRevision()).toBe('r2');
     // The shell recorded the revision it applied, so the convergence loop
     // stops instead of probing forever.
     const calls = h.apiFetch.mock.calls.length;

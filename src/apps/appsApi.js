@@ -3,7 +3,7 @@
 // workspace API by the apiBase.js global shim.
 import { apiFetch } from '../auth';
 import { asArray } from '../lib/asArray';
-import { setAppliedRevision } from './contributionsRevision';
+import { setAppsListRevision } from './contributionsRevision';
 
 async function json(res) {
   const body = await res.json().catch(() => ({}));
@@ -22,7 +22,12 @@ async function json(res) {
 // the only shape callers ever see, and also protects whatever gets cached
 // via writeCachedInstalled() from poisoning localStorage for next time.
 export function listInstalledApps() {
-  return apiFetch('/api/apps').then(json).then(asArray);
+  return apiFetch('/api/apps').then((res) => {
+    // Which contributions revision the answering worker is at (X-Apps-Revision),
+    // so a caller can tell a lagging worker's list from a converged one.
+    setAppsListRevision(res.headers?.get?.('X-Apps-Revision') ?? null);
+    return json(res);
+  }).then(asArray);
 }
 
 // GET /api/apps/-/catalog — marketplace catalog (available apps).
@@ -39,12 +44,7 @@ export function fetchCatalog(refresh = false) {
 // same-shaped `{}` fallback this endpoint's json() helper can produce, so no
 // change needed here.
 export function fetchContributions() {
-  return apiFetch('/api/apps/-/contributions').then(json).then((body) => {
-    // Remember which revision the shell last actually APPLIED, so the live
-    // update checker (liveUiUpdates.js) can tell "caught up" from "behind".
-    if (body && typeof body.revision === 'string') setAppliedRevision(body.revision);
-    return body;
-  });
+  return apiFetch('/api/apps/-/contributions').then(json);
 }
 
 // POST /api/apps/install — kicks off a catalog app install (repo/ref, F3
