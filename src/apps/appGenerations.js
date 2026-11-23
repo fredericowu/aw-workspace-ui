@@ -46,3 +46,40 @@ export function specForOpen(prevSpec, nextSpec) {
   if (prevSpec && typeof prevSpec.rev === 'string' && prevSpec.rev !== nextSpec.rev) return prevSpec;
   return nextSpec;
 }
+
+// ── Open vs minimized ────────────────────────────────────────────────────────
+// Closing a window deletes its spec; minimizing (or hiding it from the tray)
+// only takes its key out of `openWindows`, so the spec lingers. A window that is
+// not on screen is not running anything, so it must neither pin an old app
+// generation nor carry a hint: only OPEN windows count.
+export function openAppSpecs(appWindowSpecs, openWindows) {
+  const out = {};
+  for (const [key, spec] of Object.entries(appWindowSpecs || {})) {
+    if (openWindows?.has(key)) out[key] = spec;
+  }
+  return out;
+}
+
+// ── Tombstones / needs-attention ─────────────────────────────────────────────
+// 'removed': the window recorded a rev (so core speaks app_revs) and its app is
+//   no longer in the payload at all (uninstalled). Judged from the LATEST
+//   payload only, so a lagging worker's stale answer can flash it but the next
+//   good payload clears it.
+// 'failed':  the app's component bundle failed to load/register in the last
+//   wiring and this window's body IS that component (a declarative or iframe
+//   body does not depend on the bundle).
+export function isRemovedWindowSpec(spec, contributions) {
+  if (!spec || typeof spec.rev !== 'string' || !spec.app) return false;
+  const revs = contributions?.app_revs;
+  if (!revs || typeof revs !== 'object') return false;
+  return !Object.prototype.hasOwnProperty.call(revs, spec.app);
+}
+
+export function attentionWindowKeys(appWindowSpecs, contributions, failedApps) {
+  const out = new Map();
+  for (const [key, spec] of Object.entries(appWindowSpecs || {})) {
+    if (isRemovedWindowSpec(spec, contributions)) out.set(key, 'removed');
+    else if (spec?.body?.type === 'component' && failedApps?.has(spec.app)) out.set(key, 'failed');
+  }
+  return out;
+}

@@ -30,6 +30,9 @@ export async function wireContributions(contributions, host, {
   replace,  // previous generation's disposer — torn down inside the swap below
   retain,   // Set of app slugs whose OLD component code stays mounted (an open
             // window still runs it); their new bundle is not even fetched
+  unchanged, // Set of app slugs whose per-app rev did not move: their mount is
+             // carried over as-is (no re-fetch, no remount), so a rewire
+             // triggered by ANOTHER app never touches them
 } = {}) {
   const nav = contributions?.nav || [];
   const frontend = contributions?.frontend || [];
@@ -39,7 +42,7 @@ export async function wireContributions(contributions, host, {
   // touched yet, so whatever is currently on screen stays on screen. In
   // parallel, not sequentially: the bundles are independent, and serialising
   // them made the (previously visible) gap N round-trips long.
-  const keepOld = (fe) => !!retain?.has(fe.app) && !!replace?.hasApp?.(fe.app);
+  const keepOld = (fe) => !!(retain?.has(fe.app) || unchanged?.has(fe.app)) && !!replace?.hasApp?.(fe.app);
   const prepared = await Promise.all(
     frontend
       .filter((fe) => effectiveMode(fe) === 'component' && !keepOld(fe))
@@ -60,7 +63,9 @@ export async function wireContributions(contributions, host, {
   // nav disappears.
   const disposers = [];
   const appOffs = new Map(); // slug -> disposer of that app's component mount
-  const retainedApps = [];
+  const retainedApps = [];   // carried because an open window pins the old code
+  const carriedApps = [];    // every carried mount (pinned or simply unchanged)
+  const failedApps = [];     // bundle failed to load/register in this generation
   let incomplete = false;
   // Coalesced into a single store notification, so the teardown-then-remount is
   // one atomic transition rather than a visit to "no apps contribute anything".
@@ -72,9 +77,12 @@ export async function wireContributions(contributions, host, {
     // Carry the retained apps' old mounts over BEFORE tearing the previous
     // generation down, so its disposer no longer owns them.
     for (const fe of frontend) {
-      if (!retain?.has(fe.app) || typeof replace?.detachApp !== 'function') continue;
+      if (!(retain?.has(fe.app) || unchanged?.has(fe.app)) || typeof replace?.detachApp !== 'function') continue;
       const off = replace.detachApp(fe.app);
-      if (off) { appOffs.set(fe.app, off); disposers.push(off); retainedApps.push(fe.app); }
+      if (off) {
+        appOffs.set(fe.app, off); disposers.push(off); carriedApps.push(fe.app);
+        if (retain?.has(fe.app)) retainedApps.push(fe.app);
+      }
     }
     if (replace) {
       // Failing to tear the old generation down is a leak, not a reason to skip
@@ -137,12 +145,13 @@ export async function wireContributions(contributions, host, {
 
     // (2) component-mode plugins → register(host) into their granted slots
     for (const { fe, mount } of prepared) {
-      if (!mount) { incomplete = true; continue; }
+      if (!mount) { incomplete = true; failedApps.push(fe.app); continue; }
       try {
         const off = mount();
         if (typeof off === 'function') { disposers.push(off); appOffs.set(fe.app, off); }
       } catch (e) {
         incomplete = true;
+        failedApps.push(fe.app);
         console.warn(`[apps] component register failed for ${fe.app}:`, e);
       }
     }
@@ -168,6 +177,12 @@ export async function wireContributions(contributions, host, {
     return off;
   };
   dispose.retainedApps = retainedApps;
+  // Which apps have a live component mount in this generation, and which of
+  // those were carried over rather than freshly loaded (the caller records the
+  // rev each mount was built from, to diff the next payload per app).
+  dispose.mountedApps = [...appOffs.keys()];
+  dispose.carriedApps = carriedApps;
+  dispose.failedApps = failedApps;
   // True when at least one app did not make it into this generation. The caller
   // uses it to NOT record the contributions signature, so the next refresh
   // retries instead of treating the missing app as the steady state (a bundle
