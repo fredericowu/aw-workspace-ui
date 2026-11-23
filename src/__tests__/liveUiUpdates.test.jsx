@@ -276,7 +276,29 @@ describe('liveUiUpdates', () => {
     served = 'A';                                              // next probe lands on a lagging worker
     await tick(60_000);
     window.removeEventListener('aw-apps-changed', rec);
+    expect(applied).toEqual(['B']);
     expect(getAppliedRevision()).toBe('B');
+    unshell();
+    stop();
+  });
+
+  it('a wake signal during a loop that converged still discovers a newer revision', async () => {
+    setAppliedRevision('A');
+    let served = 'B';
+    h.apiFetch.mockImplementation(async (_p, opts = {}) => {
+      const fresh = opts.headers?.['If-None-Match'] === `"${served}"`;
+      return fresh ? notModified() : ok({ revision: served });
+    });
+    const unshell = withShellApplying();
+    const applied = [];
+    const rec = () => { applied.push(getAppliedRevision()); if (getAppliedRevision() === 'B') served = 'C'; };
+    window.addEventListener('aw-apps-changed', rec);
+    const stop = startLiveUiUpdates();
+    h.socket.onFrame({ type: 'ui_changed', revision: 'B' });
+    window.dispatchEvent(new Event('online'));
+    await tick(60_000);
+    window.removeEventListener('aw-apps-changed', rec);
+    expect(getAppliedRevision()).toBe('C');
     unshell();
     stop();
   });

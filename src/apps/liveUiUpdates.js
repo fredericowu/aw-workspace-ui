@@ -66,19 +66,21 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
   // loop (generation check) so a burst of installs costs one loop.
   async function converge(announced) {
     const mine = ++generation;
+    const from = getAppliedRevision();
     converging = true;
     try {
       await run(mine, announced);
     } finally {
       if (mine === generation) {
         converging = false;
-        // Replay only a loop that gave up. One that reached its target already
-        // satisfied the signal, and a replayed probe could hit a lagging worker
-        // and roll the shell back to the older revision it just left.
+        // Replay the signal either way: a worker may already be at a newer
+        // revision that no frame announced. After a loop that reached its
+        // target, ignore an answer equal to the revision it just left: that is
+        // a lagging worker, and acting on it would roll the shell back.
         const reached = getAppliedRevision() === announced;
-        const replay = deferredCheck && !reached && !stopped;
+        const replay = deferredCheck && !stopped;
         deferredCheck = false;
-        if (replay) checkNow();
+        if (replay) checkNow(reached ? from : undefined);
       }
     }
   }
@@ -100,7 +102,7 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
   }
 
   // Conditional "has anything moved since what I applied?" check.
-  async function checkNow() {
+  async function checkNow(ignore) {
     if (stopped) return;
     if (converging) { deferredCheck = true; return; }
     const applied = getAppliedRevision();
@@ -114,7 +116,7 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
       // quiet instead of treating every 200 as a change.
       // Converge (not a single dispatch): the shell's own refetch may land on
       // a worker still at the old revision, so keep driving until applied.
-      if (!r.notModified && typeof r.revision === 'string' && r.revision !== applied) converge(r.revision);
+      if (!r.notModified && typeof r.revision === 'string' && r.revision !== applied && r.revision !== ignore) converge(r.revision);
     } catch { /* offline etc.: the next trigger retries */ }
   }
 
@@ -140,7 +142,7 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
   const onVisible = () => { if (document.visibilityState === 'visible') checkNow(); };
   window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisible);
-  const timer = setInterval(checkNow, pollMs);
+  const timer = setInterval(() => checkNow(), pollMs);
 
   return () => {
     stopped = true;
