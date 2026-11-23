@@ -25,6 +25,7 @@ import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
 import { listInstalledApps } from '../apps/appsApi';
+import { watchAppsList } from '../apps/watchAppsList';
 import { buildSettingsIndex, matchSettingsEntry } from '../lib/settingsSearch';
 
 const GENERAL_SECTIONS = [
@@ -144,10 +145,13 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
 
   useEffect(() => {
     let alive = true;
-    listInstalledApps()
-      .then((d) => { if (alive) setApps((d || []).filter((a) => a.has_config)); })
+    const load = () => listInstalledApps()
+      .then((d) => { if (alive) { setApps((d || []).filter((a) => a.has_config)); setAppsError(null); } })
       .catch((e) => { if (alive) setAppsError(String(e.message || e)); });
-    return () => { alive = false; };
+    load();
+    // Install/uninstall/update elsewhere re-lists the Apps group in place.
+    const unwatch = watchAppsList(load);
+    return () => { alive = false; unwatch(); };
   }, []);
 
   const toggleGroup = (g) => setExpanded((prev) => ({ ...prev, [g]: !prev[g] }));
