@@ -1,4 +1,5 @@
 import AppIcon from './AppIcon';
+import AppWindowStatusChip from './AppWindowStatusChip';
 import AppSlot from '../apps/AppSlot';
 import AppWindowBody, { specFromManagedWindow } from './AppWindowBody';
 import { windowTitlebarSlot } from '../apps/slotRegistry';
@@ -24,7 +25,7 @@ export { specFromManagedWindow };
 // tiny single-action popups (e.g. aw-app-git's "Sign in with GitHub"), not
 // a full app UI — confirmed as the wrong fit for aw-app-whiteboard's window
 // (2026-07-28).
-export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, isFocused = true, onTitleChange, updated = false }) {
+export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximize, isMaximized, windowKey, onFocus, isFocused = true, onTitleChange, updated = false, attention = null }) {
   const isComponent = windowSpec?.body?.type === 'component';
   // Only a real declarative spec gets the body gutter (see .is-declarative in
   // index.css). A `component` body is app code that owns its own padding, and
@@ -45,16 +46,7 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
           </span>
         </div>
         <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
-          {updated && (
-            <span
-              role="status"
-              data-testid="app-window-updated-hint"
-              title="This app was updated. This window keeps running the old version until you close it."
-              className="mr-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 whitespace-nowrap"
-            >
-              Updated, reopen to apply
-            </span>
-          )}
+          <AppWindowStatusChip updated={updated} attention={attention} />
           {/* The app's own buttons, before the generic pair — so an app never
               needs a second bar in its body just to have somewhere to put
               them. Renders nothing (AppSlot's null fallback) for every window
@@ -91,11 +83,23 @@ export default function BasicWindow({ title, spec, windowSpec, onClose, onMaximi
         className={`app-declarative-window-body flex-1 overflow-auto no-drag${isDeclarative ? ' is-declarative' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <AppWindowBody
-          windowSpec={windowSpec}
-          spec={spec}
-          slotProps={{ windowKey, onClose, onMaximize, isMaximized, instanceId: windowSpec?.instanceId, onTitleChange, onFocus, isFocused }}
-        />
+        {/* A component body is the app's own mount: once the app is gone (or its
+            bundle failed) that slot is empty, so say why instead of a blank
+            window. Declarative/iframe bodies keep their snapshot; the titlebar
+            chip is enough there. */}
+        {attention && isComponent ? (
+          <div data-testid="app-window-tombstone" className="h-full flex items-center justify-center p-6 text-center text-sm text-[var(--color-text-muted)]">
+            {attention === 'removed'
+              ? 'This app was uninstalled, so this window has nothing left to show. Close it.'
+              : 'This app failed to load. It will retry automatically; reload the page if it persists.'}
+          </div>
+        ) : (
+          <AppWindowBody
+            windowSpec={windowSpec}
+            spec={spec}
+            slotProps={{ windowKey, onClose, onMaximize, isMaximized, instanceId: windowSpec?.instanceId, onTitleChange, onFocus, isFocused }}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import AppWindowStatusChip from './AppWindowStatusChip';
 import { Rnd } from 'react-rnd';
 import LogWindow from './LogWindow';
 import LogStream from './LogStream';
@@ -480,6 +481,8 @@ function AppProxyWindow({
   maximizedKey,
   bringToFront,
   isFocused,
+  updated = false,
+  attention = null,
 }) {
   const app = (workspaceApps || []).find((a) => a.id === appId)
     || { id: appId, label: appId, url: 'http://localhost' };
@@ -602,6 +605,7 @@ function AppProxyWindow({
           )}
         </div>
         <div className="flex items-center gap-1 no-drag" onMouseDown={(e) => e.stopPropagation()}>
+          <AppWindowStatusChip updated={updated} attention={attention} />
           {/* Start/Stop/Restart only make sense when the backing component
               is a STANDALONE process the framework can independently
               start/stop/restart (a docker/podman container, or a
@@ -791,7 +795,7 @@ function loadFromStorage(key, fallback) {
   } catch { return fallback; }
 }
 
-export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, staleAppWindowKeys, onUpdateAppWindowTitle, settingsNewTarget }) {
+export default function WindowManager({ openWindows, components, terminals, maxLines, onCloseWindow, onReopenWindow, onMinimizeWindow, onMaximize, maximizedKey, onAction, onRenameTerminal, onSessionSwitch, claudeSessionIds, copilotSessionIds, insecureMap, onToggleInsecure, onWindowFocus, focusTriggers, layout, layoutTrigger, terminalReconnectSignals, resumeMap, aiAgents, workspaceApps, appWindowSpecs, staleAppWindowKeys, attentionAppWindows, onUpdateAppWindowTitle, settingsNewTarget }) {
   // Derive agentType from terminals array for any session key
   const _getAgentType = (key) => {
     const sessionId = key.replace('terminal:', '');
@@ -1093,6 +1097,8 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   maximizedKey={maximizedKey}
                   bringToFront={() => bringToFront(key)}
                   isFocused={zOrder[zOrder.length - 1] === key}
+                  updated={!!staleAppWindowKeys?.has(key)}
+                  attention={attentionAppWindows?.get(key) || null}
                 />
               ) : key.startsWith('appwin:') ? (
                 <BasicWindow
@@ -1100,6 +1106,7 @@ export default function WindowManager({ openWindows, components, terminals, maxL
                   spec={appWindowSpec?.spec}
                   windowSpec={appWindowSpec}
                   updated={!!staleAppWindowKeys?.has(key)}
+                  attention={attentionAppWindows?.get(key) || null}
                   windowKey={key}
                   onClose={() => onCloseWindow(key)}
                   onMaximize={onMaximize}

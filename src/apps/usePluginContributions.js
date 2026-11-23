@@ -52,9 +52,12 @@ let activeWirings = 0;
  *   component mount is kept (not swapped) until no window needs it.
  * @param {function} [opts.onApplied] - (contributions) => void, run for every
  *   fetched payload (changed or not) so the shell can recompute window hints.
+ * @param {function} [opts.onWired] - ({failedApps, incomplete}) => void, run
+ *   after every wiring so the shell can flag open windows whose app bundle
+ *   failed to load.
  * @returns {{current: object|null}} ref holding the latest contributions payload.
  */
-export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedApps, onApplied } = {}) {
+export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedApps, onApplied, onWired } = {}) {
   const contributionsRef = useRef(null);
 
   // Kept current: a nav click can happen long after mount. Assigned in an
@@ -65,7 +68,12 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedA
   useEffect(() => { onOpenWindowRef.current = onOpenWindow; });
   const getRetainedRef = useRef(getRetainedApps);
   const onAppliedRef = useRef(onApplied);
-  useEffect(() => { getRetainedRef.current = getRetainedApps; onAppliedRef.current = onApplied; });
+  const onWiredRef = useRef(onWired);
+  useEffect(() => {
+    getRetainedRef.current = getRetainedApps;
+    onAppliedRef.current = onApplied;
+    onWiredRef.current = onWired;
+  });
 
   // Captured ONCE, deliberately not refreshed. The desktop rehydration reads
   // the `openWindows` snapshot from its mount-time closure on purpose (a later
@@ -90,6 +98,12 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedA
     // payload no longer needs that (the window closed), rewire even though the
     // payload is byte-identical, so the new code finally loads.
     let lastRetained = NONE;
+    // slug -> the per-app rev (core's `app_revs`) each live component mount was
+    // BUILT from. A rewire carries over every mount whose app rev still equals
+    // this, so installing/updating one app never re-fetches or remounts the
+    // others. A retained (pinned) mount keeps its OLD recorded rev, so it is
+    // reloaded once released.
+    let mountedRevs = new Map();
 
     const run = async (isFirstLoad) => {
       let contributions;
@@ -110,6 +124,11 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedA
       // reopened the browser"), so every component-mode slot visibly vanished
       // and reappeared on each refocus even though nothing had changed.
       const nextSignature = JSON.stringify(contributions);
+      // Per-app diff: apps whose rev has not moved since their mount was built.
+      const unchanged = new Set();
+      for (const [slug, rev] of mountedRevs) {
+        if (typeof rev === 'string' && contributions.app_revs?.[slug] === rev) unchanged.add(slug);
+      }
       const releasing = [...lastRetained].some((slug) => !retain.has(slug));
       if (!isFirstLoad && dispose && nextSignature === signature && !releasing) {
         // Same content as already applied: the shell IS at this revision.
@@ -129,6 +148,7 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedA
         onOpenWindow: (...args) => onOpenWindowRef.current?.(...args),
         replace: previous || undefined,
         retain,
+        unchanged,
       });
       const previousEventHooks = disposeEventHooks;
       const nextEventHooks = wireAppEventHooks(contributions, (action) => {
@@ -143,6 +163,15 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad, getRetainedA
       disposeEventHooks = nextEventHooks;
       dispose = next;
       lastRetained = new Set(next.retainedApps || []);
+      const carried = new Set(next.carriedApps || []);
+      const nextMounted = new Map();
+      for (const slug of next.mountedApps || []) {
+        nextMounted.set(slug, carried.has(slug) ? mountedRevs.get(slug) : contributions.app_revs?.[slug]);
+      }
+      mountedRevs = nextMounted;
+      try {
+        onWiredRef.current?.({ failedApps: next.failedApps || [], incomplete: !!next.incomplete });
+      } catch (e) { console.warn('[apps] onWired failed:', e); }
       // Only now, and only if every app made it in — an app whose bundle failed
       // to load must not have its absence frozen in as the steady state, or the
       // guard above short-circuits every later refresh and its nav stays gone

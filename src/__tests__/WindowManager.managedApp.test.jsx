@@ -333,4 +333,32 @@ describe('WindowManager managed_app chrome', () => {
       expect(screen.queryByText(/Loading Browser…/)).not.toBeInTheDocument();
     });
   });
+
+  it('shows the removed / updated chips on a managed (iframe) app window', async () => {
+    const props = (extra) => ({
+      openWindows: new Set(['appwin:browser.main']),
+      components: [{ key: 'docker:aw-browser', status: 'running' }],
+      terminals: [], maxLines: 200,
+      onCloseWindow: vi.fn(), onReopenWindow: vi.fn(), onMinimizeWindow: vi.fn(), onMaximize: vi.fn(),
+      maximizedKey: null, onAction: vi.fn(), onRenameTerminal: vi.fn(), onSessionSwitch: vi.fn(),
+      claudeSessionIds: [], copilotSessionIds: [], insecureMap: {}, onToggleInsecure: vi.fn(),
+      onWindowFocus: vi.fn(), presentations: [], aiAgents: [], workspaceApps: [],
+      appWindowSpecs: {
+        'appwin:browser.main': {
+          id: 'browser.main', app: 'browser', title: 'Browser', icon: 'globe',
+          body: { type: 'managed_app', kind: 'browser', path: '/vnc.html' },
+        },
+      },
+      ...extra,
+    });
+    const { rerender } = render(<WindowManager {...props({})} />);
+    await waitFor(() => expect(screen.getByTitle('Start container')).toBeInTheDocument());
+    expect(screen.queryByTestId('app-window-attention-hint')).toBeNull();
+
+    rerender(<WindowManager {...props({ attentionAppWindows: new Map([['appwin:browser.main', 'removed']]) })} />);
+    expect(screen.getByTestId('app-window-attention-hint')).toHaveTextContent('App removed');
+
+    rerender(<WindowManager {...props({ staleAppWindowKeys: new Set(['appwin:browser.main']) })} />);
+    expect(screen.getByTestId('app-window-updated-hint')).toHaveTextContent('Updated, reopen to apply');
+  });
 });
