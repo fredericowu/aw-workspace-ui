@@ -28,6 +28,8 @@ export async function wireContributions(contributions, host, {
   registry = defaultRegistry,
   importer, // injectable for tests; prod uses prepareComponentPlugin's dynamic import
   replace,  // previous generation's disposer — torn down inside the swap below
+  retain,   // Set of app slugs whose OLD component code stays mounted (an open
+            // window still runs it); their new bundle is not even fetched
 } = {}) {
   const nav = contributions?.nav || [];
   const frontend = contributions?.frontend || [];
@@ -37,9 +39,10 @@ export async function wireContributions(contributions, host, {
   // touched yet, so whatever is currently on screen stays on screen. In
   // parallel, not sequentially: the bundles are independent, and serialising
   // them made the (previously visible) gap N round-trips long.
+  const keepOld = (fe) => !!retain?.has(fe.app) && !!replace?.hasApp?.(fe.app);
   const prepared = await Promise.all(
     frontend
-      .filter((fe) => effectiveMode(fe) === 'component')
+      .filter((fe) => effectiveMode(fe) === 'component' && !keepOld(fe))
       .map(async (fe) => {
         try {
           return { fe, mount: await prepareComponentPlugin(fe, host, importer ? { importer } : undefined) };
@@ -56,6 +59,8 @@ export async function wireContributions(contributions, host, {
   // any suspension point reopens the window where the slots are empty and the
   // nav disappears.
   const disposers = [];
+  const appOffs = new Map(); // slug -> disposer of that app's component mount
+  const retainedApps = [];
   let incomplete = false;
   // Coalesced into a single store notification, so the teardown-then-remount is
   // one atomic transition rather than a visit to "no apps contribute anything".
@@ -64,6 +69,13 @@ export async function wireContributions(contributions, host, {
     : (fn) => fn();
 
   batch(() => {
+    // Carry the retained apps' old mounts over BEFORE tearing the previous
+    // generation down, so its disposer no longer owns them.
+    for (const fe of frontend) {
+      if (!retain?.has(fe.app) || typeof replace?.detachApp !== 'function') continue;
+      const off = replace.detachApp(fe.app);
+      if (off) { appOffs.set(fe.app, off); disposers.push(off); retainedApps.push(fe.app); }
+    }
     if (replace) {
       // Failing to tear the old generation down is a leak, not a reason to skip
       // mounting the new one — keep going either way.
@@ -128,7 +140,7 @@ export async function wireContributions(contributions, host, {
       if (!mount) { incomplete = true; continue; }
       try {
         const off = mount();
-        if (typeof off === 'function') disposers.push(off);
+        if (typeof off === 'function') { disposers.push(off); appOffs.set(fe.app, off); }
       } catch (e) {
         incomplete = true;
         console.warn(`[apps] component register failed for ${fe.app}:`, e);
@@ -141,8 +153,21 @@ export async function wireContributions(contributions, host, {
       for (const off of disposers.splice(0)) {
         try { off(); } catch { /* keep disposing the rest */ }
       }
+      appOffs.clear();
     });
   };
+  // Hand an app's component mount to the NEXT generation instead of disposing
+  // it with this one (see `retain`). Returns the disposer, or undefined.
+  dispose.hasApp = (slug) => appOffs.has(slug);
+  dispose.detachApp = (slug) => {
+    const off = appOffs.get(slug);
+    if (!off) return undefined;
+    appOffs.delete(slug);
+    const i = disposers.indexOf(off);
+    if (i >= 0) disposers.splice(i, 1);
+    return off;
+  };
+  dispose.retainedApps = retainedApps;
   // True when at least one app did not make it into this generation. The caller
   // uses it to NOT record the contributions signature, so the next refresh
   // retries instead of treating the missing app as the steady state (a bundle
@@ -164,6 +189,7 @@ export function findWindowSpec(contributions, windowId) {
     icon: win.icon,
     body: win.body || {},
     spec: win.body?.spec_data || null,
+    rev: contributions?.app_revs?.[win.app],
   };
 }
 
@@ -181,5 +207,6 @@ export function findAppDefaultWindow(contributions, appId) {
     icon: win.icon,
     body: win.body || {},
     spec: win.body?.spec_data || null,
+    rev: contributions?.app_revs?.[win.app],
   };
 }
