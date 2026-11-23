@@ -1428,14 +1428,6 @@ function AuthenticatedApp() {
 
           {/* Navigation tabs */}
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setView('home')}
-              className={`px-3 py-1 text-xs rounded transition-colors cursor-pointer ${view === 'home'
-                ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)]'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5'}`}
-            >
-              Home
-            </button>
             {/* Agents nav menu (launch/resume claude/codex/copilot/cursor
                 sessions) is contributed by the code-agent-clis app into the
                 core.nav slot — decoupled from core per the 2026-08-03
@@ -1572,7 +1564,7 @@ function AuthenticatedApp() {
           )}
           {/* Decoupled-apps: nav entries an installed app registers into
               core.nav.right render here, right before the mic — the
-              top-right counterpart of core.nav (left side, next to Home).
+              top-right counterpart of core.nav (left side).
               Meant for small, fixed-footprint status indicators (e.g. the
               devctl [dev] pill) that shouldn't shift neighboring icons
               when their content changes. Empty until an app contributes. */}
