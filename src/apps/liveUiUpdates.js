@@ -80,7 +80,9 @@ export function startLiveUiUpdates({ pollMs = POLL_MS } = {}) {
       if (stopped) return;
       // A backend that sends no revision (older core) can't be diffed: stay
       // quiet instead of treating every 200 as a change.
-      if (!r.notModified && typeof r.revision === 'string' && r.revision !== applied) notifyChanged(r.revision);
+      // Converge (not a single dispatch): the shell's own refetch may land on
+      // a worker still at the old revision, so keep driving until applied.
+      if (!r.notModified && typeof r.revision === 'string' && r.revision !== applied) converge(r.revision);
     } catch { /* offline etc.: the next trigger retries */ }
   }
 

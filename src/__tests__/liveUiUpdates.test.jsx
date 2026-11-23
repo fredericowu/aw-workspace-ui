@@ -47,6 +47,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Stand-in for the shell's own refetch: applies the revision the event names.
+const applyOnChange = (e) => { setAppliedRevision(e.detail.revision); };
+const withShellApplying = () => {
+  window.addEventListener('aw-apps-changed', applyOnChange);
+  return () => window.removeEventListener('aw-apps-changed', applyOnChange);
+};
+
 const tick = (ms) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 
 describe('liveUiUpdates', () => {
@@ -129,10 +136,13 @@ describe('liveUiUpdates', () => {
     expect(h.apiFetch).toHaveBeenCalledWith('/api/apps/-/contributions',
       { headers: { 'If-None-Match': '"r1"' } });
     expect(changed).toBe(0);
-    h.apiFetch.mockResolvedValueOnce(ok({ revision: 'r2' }));
+    const unapply = withShellApplying();
+    h.apiFetch.mockResolvedValueOnce(ok({ revision: 'r2' }))
+      .mockResolvedValue(notModified());   // convergence probe: worker is at r2
     h.socket.onStatus({ state: 'open' });
     await tick(0);
     expect(changed).toBe(1);
+    unapply();
     stop();
   });
 
@@ -140,6 +150,12 @@ describe('liveUiUpdates', () => {
     setAppliedRevision('r1');
     h.apiFetch.mockResolvedValue(ok({ revision: 'r2' }));
     const stop = startLiveUiUpdates();
+    // Each check sees a change; the shell applies it, then the next one is a
+    // fresh change (r3, r4) so every trigger is individually observable.
+    let n = 2;
+    const bump = () => { n += 1; h.apiFetch.mockResolvedValue(ok({ revision: `r${n}` })); };
+    const unapply = withShellApplying();
+    window.addEventListener('aw-apps-changed', bump);
 
     window.dispatchEvent(new Event('online'));
     await tick(0);
@@ -156,6 +172,8 @@ describe('liveUiUpdates', () => {
 
     await tick(5 * 60 * 1000);
     expect(changed).toBe(3);
+    window.removeEventListener('aw-apps-changed', bump);
+    unapply();
     stop();
   });
 
@@ -170,6 +188,29 @@ describe('liveUiUpdates', () => {
     await tick(0);
     window.removeEventListener('aw-apps-changed', cap);
     expect(detail).toEqual({ revision: 'new' });
+    stop();
+  });
+
+  it('tab wake keeps converging when the shell refetch lands on a lagging worker', async () => {
+    // Multi-worker core mid-convergence: the wake probe sees B, the shell's own
+    // refetch (listener) is answered by a worker still at A, the next is at B.
+    setAppliedRevision('A');
+    const workers = ['B', 'A', 'B', 'B', 'B'];
+    h.apiFetch.mockImplementation(async (_p, opts = {}) => {
+      const rev = workers.shift() ?? 'B';
+      const inm = opts.headers?.['If-None-Match'];
+      return inm === `"${rev}"` ? notModified() : ok({ revision: rev });
+    });
+    const shellRefetch = async () => {
+      const r = await h.apiFetch('/api/apps/-/contributions');
+      setAppliedRevision((await r.json()).revision);
+    };
+    window.addEventListener('aw-apps-changed', shellRefetch);
+    const stop = startLiveUiUpdates();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await tick(5000);
+    expect(getAppliedRevision()).toBe('B');
+    window.removeEventListener('aw-apps-changed', shellRefetch);
     stop();
   });
 
