@@ -3,6 +3,7 @@
 // workspace API by the apiBase.js global shim.
 import { apiFetch } from '../auth';
 import { asArray } from '../lib/asArray';
+import { setAppliedRevision } from './contributionsRevision';
 
 async function json(res) {
   const body = await res.json().catch(() => ({}));
@@ -38,7 +39,12 @@ export function fetchCatalog(refresh = false) {
 // same-shaped `{}` fallback this endpoint's json() helper can produce, so no
 // change needed here.
 export function fetchContributions() {
-  return apiFetch('/api/apps/-/contributions').then(json);
+  return apiFetch('/api/apps/-/contributions').then(json).then((body) => {
+    // Remember which revision the shell last actually APPLIED, so the live
+    // update checker (liveUiUpdates.js) can tell "caught up" from "behind".
+    if (body && typeof body.revision === 'string') setAppliedRevision(body.revision);
+    return body;
+  });
 }
 
 // POST /api/apps/install — kicks off a catalog app install (repo/ref, F3

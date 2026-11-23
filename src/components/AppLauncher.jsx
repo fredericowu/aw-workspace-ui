@@ -252,6 +252,14 @@ export default function AppLauncher({ workspaceApps, components, onOpenApp, onOp
     return () => { mounted = false; };
   }, []);
 
+  // Shell-owned Apps menu: an install/uninstall/update elsewhere (CLI, agent,
+  // another tab) announces itself as `aw-apps-changed` (liveUiUpdates.js);
+  // re-list in place, no reload.
+  useEffect(() => {
+    window.addEventListener('aw-apps-changed', refreshInstalled);
+    return () => window.removeEventListener('aw-apps-changed', refreshInstalled);
+  }, [refreshInstalled]);
+
   useEffect(() => {
     let mounted = true;
     fetchCatalog()

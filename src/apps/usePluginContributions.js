@@ -24,6 +24,7 @@ import { installPluginHost } from './pluginHost';
 import { fetchContributions } from './appsApi';
 import { wireContributions } from './wireContributions';
 import { wireAppEventHooks } from './appEventHooks';
+import { startLiveUiUpdates } from './liveUiUpdates';
 
 // The slot registry is a process-wide singleton, so wiring it twice would
 // double-mount every contribution. Only one shell is ever mounted at a time
@@ -147,8 +148,12 @@ export function usePluginContributions({ onOpenWindow, onFirstLoad } = {}) {
     const onChanged = () => load();
     window.addEventListener('aw-apps-changed', onChanged);
     window.addEventListener('focus', onChanged);
+    // Push + catch-up: turns server announcements, reconnects, online,
+    // visibility and a poll backstop into the same `aw-apps-changed` event.
+    const stopLive = startLiveUiUpdates();
     return () => {
       disposed = true;
+      stopLive();
       activeWirings -= 1;
       window.removeEventListener('aw-apps-changed', onChanged);
       window.removeEventListener('focus', onChanged);
