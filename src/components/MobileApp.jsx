@@ -20,6 +20,7 @@ import useLegacySettingsLink from '../hooks/useLegacySettingsLink';
 import SettingsPanelNew from './SettingsPanelNew';
 import StatusDot from './StatusDot';
 import TerminalKeyboard from './TerminalKeyboard';
+import { appOrigin } from '../appHost';
 import {
   buildAgentCommand as buildDecoupledAgentCommand,
   buildAntigravityCommand,
@@ -828,13 +829,12 @@ export default function MobileApp() {
   // are preserved (e.g. ?autoconnect=1&resize=scale for Browser,
   // ?folder=... for VSCode).
   const buildProxyUrl = useCallback((app) => {
-    const apex = window.location.hostname.replace(/^www\./, '');
     let pathQuery = '/';
     try {
       const u = new URL(app.url);
       pathQuery = u.pathname + u.search;
     } catch {}
-    return `${window.location.protocol}//${app.id}.app.${apex}${pathQuery}`;
+    return `${appOrigin(app.id)}${pathQuery}`;
   }, []);
 
   // Background docker start so the app the user just tapped finds a running
@@ -936,11 +936,10 @@ export default function MobileApp() {
       // 'vscode' / 'desktop') used by the top-bar quick launchers
       // before workspaceApps have loaded, or for the 'desktop' kind
       // which maps to app id 'linux' in aw.json.
-      const apex = window.location.hostname.replace(/^www\./, '');
       const legacyMap = {
-        browser: { url: `${window.location.protocol}//browser.app.${apex}/?autoconnect=1&resize=scale`, title: 'Browser', compKey: 'docker:aw-browser' },
-        vscode:  { url: `${window.location.protocol}//vscode.app.${apex}/?folder=/home/coder/project`, title: 'VSCode',  compKey: 'docker:aw-code-server' },
-        desktop: { url: `${window.location.protocol}//linux.app.${apex}/`,                             title: 'Desktop', compKey: 'docker:aw-kali' },
+        browser: { url: `${appOrigin('browser')}/?autoconnect=1&resize=scale`, title: 'Browser', compKey: 'docker:aw-browser' },
+        vscode:  { url: `${appOrigin('vscode')}/?folder=/home/coder/project`, title: 'VSCode',  compKey: 'docker:aw-code-server' },
+        desktop: { url: `${appOrigin('linux')}/`,                             title: 'Desktop', compKey: 'docker:aw-kali' },
       };
       const target = legacyMap[kindOrApp];
       if (!target) return;

@@ -14,6 +14,7 @@ import SettingsPanelNew from './SettingsPanelNew';
 import { startComponent } from '../hooks/useComponentStatus';
 import { apiFetch } from '../auth';
 import { appChrome } from '../apps/appWindowChrome';
+import { appOrigin } from '../appHost';
 import { installAppIframeKbdSync, postSuppressState } from '../lib/appIframeKbd';
 import { getSuppressKbd } from '../lib/keyboardMode';
 
@@ -189,8 +190,7 @@ function AppIframe({ appId, label, url, componentKey, bringToFront, isFocused, r
   try {
     const parsed = new URL(url);
     if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-      const apex = window.location.hostname.replace(/^www\./, '');
-      const base = `${window.location.protocol}//${appId}.app.${apex}`;
+      const base = appOrigin(appId);
       // Keep any path (besides bare '/') and query string from the config url
       const trail = (parsed.pathname !== '/' ? parsed.pathname : '') + (parsed.search || '');
       src = trail ? `${base}/${trail.replace(/^\//, '')}` : `${base}/`;
@@ -572,8 +572,7 @@ function AppProxyWindow({
     try {
       const parsed = new URL(app.url);
       if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-        const apex = window.location.hostname.replace(/^www\./, '');
-        const base = `${window.location.protocol}//${app.id}.app.${apex}`;
+        const base = appOrigin(app.id);
         const trail = (parsed.pathname !== '/' ? parsed.pathname : '') + (parsed.search || '');
         return trail ? `${base}/${trail.replace(/^\//, '')}` : `${base}/`;
       }
