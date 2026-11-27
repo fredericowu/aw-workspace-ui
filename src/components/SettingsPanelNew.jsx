@@ -36,6 +36,12 @@ const ABOUT_SECTION = { key: 'about', label: 'About', description: 'Workspace ve
 const NAV_DEFAULT = 224;
 const NAV_MIN = 160;
 const CONTENT_MIN = 320;
+// The separator (w-1) sits between the two panes and eats width from the
+// container, so it counts against the content pane's minimum.
+const DIVIDER_W = 4;
+// Smallest desktop window that fits both panes at their minimums (+2 px for
+// the window border), so resizing the window cannot squeeze the content pane.
+export const SETTINGS_WINDOW_MIN_W = NAV_MIN + DIVIDER_W + CONTENT_MIN + 2;
 
 const GENERAL_SECTIONS = [
   { key: 'users', label: 'Users', description: 'Guest logins scoped to a fixed list of apps.' },
@@ -123,7 +129,7 @@ function BackChevron() {
 }
 
 function clampNav(width, total) {
-  const max = Math.max(NAV_MIN, total - CONTENT_MIN);
+  const max = Math.max(NAV_MIN, total - CONTENT_MIN - DIVIDER_W);
   return Math.min(Math.max(width, NAV_MIN), max);
 }
 

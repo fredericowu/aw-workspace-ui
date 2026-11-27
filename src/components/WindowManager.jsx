@@ -10,7 +10,7 @@ import PlansPanel from './PlansPanel';
 import {
   LEGACY_SETTINGS_WINDOW_KEY, SETTINGS_WINDOW_KEY, normalizeSettingsWindowKey,
 } from '../lib/settingsWindowKey';
-import SettingsPanelNew from './SettingsPanelNew';
+import SettingsPanelNew, { SETTINGS_WINDOW_MIN_W } from './SettingsPanelNew';
 import { startComponent } from '../hooks/useComponentStatus';
 import { apiFetch } from '../auth';
 import { appChrome } from '../apps/appWindowChrome';
@@ -1027,14 +1027,15 @@ export default function WindowManager({ openWindows, components, terminals, maxL
         // so the snapshot+restore useEffect above can put the window
         // back to where it was.
         const pos = isMax ? { x: 0, y: 0 } : { x: ws.x, y: ws.y };
-        const size = isMax ? { width: containerSize.w, height: containerSize.h } : { width: ws.w, height: ws.h };
+        const minW = key === SETTINGS_WINDOW_KEY ? Math.max(MIN_W, SETTINGS_WINDOW_MIN_W) : MIN_W;
+        const size = isMax ? { width: containerSize.w, height: containerSize.h } : { width: Math.max(ws.w, minW), height: ws.h };
 
         return (
           <Rnd
             key={key}
             position={pos}
             size={size}
-            minWidth={MIN_W}
+            minWidth={minW}
             minHeight={MIN_H}
             bounds="parent"
             dragHandleClassName="drag-handle"
