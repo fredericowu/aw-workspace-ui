@@ -39,6 +39,9 @@ const CONTENT_MIN = 320;
 // The separator (w-1) sits between the two panes and eats width from the
 // container, so it counts against the content pane's minimum.
 const DIVIDER_W = 4;
+// Smallest desktop window that fits both panes at their minimums (+2 px for
+// the window border), so resizing the window cannot squeeze the content pane.
+export const SETTINGS_WINDOW_MIN_W = NAV_MIN + DIVIDER_W + CONTENT_MIN + 2;
 
 const GENERAL_SECTIONS = [
   { key: 'users', label: 'Users', description: 'Guest logins scoped to a fixed list of apps.' },

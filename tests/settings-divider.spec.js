@@ -58,3 +58,24 @@ for (const vw of [1600, 1280]) {
     expect(w.content).toBeGreaterThanOrEqual(320);
   });
 }
+
+test('resizing the Settings window itself cannot shrink the content pane below 320 px', async ({ page }) => {
+  await stubApi(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Workspace menu', exact: true }).hover();
+  await page.getByRole('button', { name: 'Open Settings' }).click();
+  await expect(page.getByTestId('settings-divider')).toBeVisible();
+
+  // Drag the window's right edge far to the left (resize handle on the Rnd).
+  const win = page.getByTestId('settings-divider').locator('xpath=ancestor::div[contains(@class,"react-draggable")][1]');
+  const wb = await win.boundingBox();
+  await page.mouse.move(wb.x + wb.width - 1, wb.y + wb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(wb.x + 50, wb.y + wb.height / 2, { steps: 10 });
+  await page.mouse.up();
+
+  const w = await widths(page);
+  expect(w.content).toBeGreaterThanOrEqual(320);
+  expect(Math.round(w.nav)).toBeGreaterThanOrEqual(160);
+});
