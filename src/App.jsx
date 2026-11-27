@@ -17,6 +17,7 @@ import { specForOpen } from './apps/appGenerations';
 import { useAppWindowGenerations } from './apps/useAppWindowGenerations';
 import IconStack from './components/IconStack';
 import { usePluginContributions } from './apps/usePluginContributions';
+import BootStatusChip from './components/BootStatusChip';
 import { findWindowSpec, findAppDefaultWindow } from './apps/wireContributions';
 import {
   appWindowKey, isAppWindowKey, identityForKey, persistAppWindows, readPersistedAppWindows,
@@ -194,11 +195,13 @@ export default function App() {
     return <AuthScreen onAuthenticated={() => setAuthState('authenticated')} />;
   }
 
+  // Mounted only here (not at the root) so it starts when the user signs in,
+  // including a sign-in that flips authState in place.
   if (isMobile) {
-    return <MobileApp />;
+    return <><MobileApp /><BootStatusChip /></>;
   }
 
-  return <AuthenticatedApp />;
+  return <><AuthenticatedApp /><BootStatusChip /></>;
 }
 
 // Unauthenticated landing on the cloud workspace SPA host — no password
