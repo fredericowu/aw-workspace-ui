@@ -8,6 +8,7 @@
 // covered the `managed_app` window body type (~9 of 24 visual apps); this
 // module generalizes the same component-key/title resolution to every body
 // type so both shells can open any launchable window.
+import { appOrigin } from '../appHost';
 
 // Mirrors AppLauncher.jsx:280 verbatim — manifests disagree on singular vs
 // plural category names ("Service" vs "Services").
@@ -83,8 +84,7 @@ export function appChrome({ appId, windowSpec, installedApp, legacyApp, componen
   // rows have no `url` field, so this is the only source for one.
   const path = body.path || '/';
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const apex = window.location.hostname.replace(/^www\./, '');
-  const url = body.url || `${window.location.protocol}//${appId}.app.${apex}${normalizedPath}`;
+  const url = body.url || `${appOrigin(appId)}${normalizedPath}`;
 
   const component = resolveComponentKey({ appId, body, windowSpec, legacyApp, componentMap });
   const componentRow = component ? componentMap?.[component] : null;

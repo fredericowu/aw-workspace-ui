@@ -1,3 +1,4 @@
+import { appOrigin, isLoopbackHostname } from './appHost';
 // Three-plane split (ADR: aw-three-plane-split-and-workspace-urls) API base.
 //
 // When the cloud static SPA is served at `<ws>.workspace.<domain>` it has NO
@@ -160,6 +161,7 @@ export function workspaceSlug() {
  *  the external/tunnel subdomain today, fast-path or not. See
  *  docs/architecture/aw-workspace-lan-fastpath.md. */
 export function appSubdomainUrl(appId) {
+  if (isLoopbackHostname(window.location.hostname)) return appOrigin(appId);
   if (!BASES.apex || !BASES.slug) return null;
   return `${window.location.protocol}//${appId}.app.${BASES.slug}.workspace.${BASES.apex}`;
 }
