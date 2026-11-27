@@ -110,7 +110,7 @@ test.describe('Settings on the mobile shell @ 390px', () => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
 
     for (const name of ['AW', 'TCP Proxy', 'Workspace VPN', 'Local Network', 'About',
-      'Backup', 'Skills']) {
+      'Backup', 'Skills', 'Legacy settings']) {
       await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
     }
     // Moved to their own apps: no longer General topics.

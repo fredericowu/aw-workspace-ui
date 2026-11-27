@@ -27,6 +27,18 @@ describe('SettingsPanelNew — rework', () => {
     }
   });
 
+  it('lists Legacy settings last in General and finds it by search', async () => {
+    render(<SettingsPanelNew />);
+    const legacy = await screen.findByRole('button', { name: 'Legacy settings' });
+    const skills = screen.getByRole('button', { name: 'Skills' });
+    expect(skills.compareDocumentPosition(legacy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const search = screen.getByLabelText('Search settings');
+    for (const q of ['legacy', 'mcp']) {
+      fireEvent.change(search, { target: { value: q } });
+      expect(screen.getByRole('button', { name: /Legacy settings/ })).toBeInTheDocument();
+    }
+  });
+
   it('opens About for a removed or unknown target', async () => {
     render(<SettingsPanelNew initialTarget={{ selection: { group: 'general', key: 'mcp' }, nonce: 1 }} />);
     const about = await screen.findByRole('button', { name: 'About' });

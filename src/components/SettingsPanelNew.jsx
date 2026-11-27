@@ -19,6 +19,7 @@ import RemoteHostsTab from './RemoteHostsTab';
 import ObservabilityTab from './ObservabilityTab';
 import SkillsSection from './SkillsSection';
 import AboutTab from './AboutTab';
+import LegacySettingsTab from './LegacySettingsTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
@@ -58,6 +59,7 @@ const GENERAL_SECTIONS = [
   { key: 'workspace-vpn', label: 'Workspace VPN', description: 'Workspace VPN client, server and startup settings.' },
   { key: 'local-dns', label: 'Local Network', description: 'Local DNS and network configuration.' },
   { key: 'skills', label: 'Skills', description: 'Author and manage native and app-contributed skills.' },
+  { key: 'legacy-settings', label: 'Legacy settings', description: 'Legacy MCP and AW settings rows, edited as JSON. Not MCP Tools or Feed Subscriber configuration.' },
 ];
 
 function ChevronDown({ open }) {
@@ -460,7 +462,8 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
             (selectedSection.key === 'tcp-proxy' && <TcpProxyTab />) ||
             (selectedSection.key === 'workspace-vpn' && <VpnTab />) ||
             (selectedSection.key === 'local-dns' && <LocalDnsTab />) ||
-            (selectedSection.key === 'backup' && <BackupTab />)
+            (selectedSection.key === 'backup' && <BackupTab />) ||
+            (selectedSection.key === 'legacy-settings' && <LegacySettingsTab onNavigate={select} />)
           )}
           {selection.group === 'apps' && selectedApp && (
             // max-w-lg (512px) used to cap this no matter how wide the window
