@@ -11,8 +11,12 @@ import { createSharedSocket } from '../hooks/useSharedSocket';
 
 const URL_PATH = '/api/apps/-/boot-status';
 export const POLL_MS = 3000;
+// Core reports idle until the boot leader writes its first snapshot; keep polling
+// through that startup gap for a bounded time so a follower-worker socket still sees it.
+export const IDLE_GRACE_MS = 90000;
 
-export function startBootStatus(onChange, { pollMs = POLL_MS } = {}) {
+export function startBootStatus(onChange, { pollMs = POLL_MS, idleGraceMs = IDLE_GRACE_MS } = {}) {
+  const startedAt = Date.now();
   let stopped = false;
   let release = null;
   let timer = null;
@@ -32,7 +36,8 @@ export function startBootStatus(onChange, { pollMs = POLL_MS } = {}) {
   function schedule() {
     clearTimeout(timer);
     timer = null;
-    if (!stopped && last?.phase === 'reconciling') timer = setTimeout(fetchNow, pollMs);
+    const waiting = last?.phase === 'idle' && Date.now() - startedAt < idleGraceMs;
+    if (!stopped && (last?.phase === 'reconciling' || waiting)) timer = setTimeout(fetchNow, pollMs);
   }
 
   async function fetchNow() {

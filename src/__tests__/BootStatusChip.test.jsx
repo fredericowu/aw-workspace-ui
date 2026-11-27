@@ -68,4 +68,24 @@ describe('BootStatusChip', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
     expect(late).toBeUndefined(); // no further polling once done
   });
+
+  it('keeps polling through the startup idle state and picks up reconciling with no socket frames', async () => {
+    h.apiFetch.mockResolvedValue(ok({ phase: 'idle' }));
+    render(<BootStatusChip />);
+    await flush();
+    expect(screen.queryByTestId('boot-status-chip')).toBeNull();
+    h.apiFetch.mockResolvedValue(ok({ phase: 'reconciling', boot_id: 'b', total: 5, loaded: 2 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    expect(screen.getByTestId('boot-status-chip').textContent).toBe('Setting up apps 2/5');
+  });
+
+  it('stops polling an idle core after the grace window', async () => {
+    h.apiFetch.mockResolvedValue(ok({ phase: 'idle' }));
+    render(<BootStatusChip />);
+    await flush();
+    await act(async () => { await vi.advanceTimersByTimeAsync(95000); });
+    const calls = h.apiFetch.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(h.apiFetch.mock.calls.length).toBe(calls);
+  });
 });
