@@ -77,7 +77,7 @@ describe('SettingsPanelNew — rework', () => {
     divider.dispatchEvent(ev('pointermove', 105));
     await vi.waitFor(() => expect(nav.style.width).toBe('160px'));
     divider.dispatchEvent(ev('pointermove', 890));
-    await vi.waitFor(() => expect(nav.style.width).toBe('480px'));
+    await vi.waitFor(() => expect(nav.style.width).toBe('476px'));
     divider.dispatchEvent(ev('pointerup', 890));
     expect(container).toBeTruthy();
   });

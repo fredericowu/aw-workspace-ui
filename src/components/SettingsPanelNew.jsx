@@ -36,6 +36,9 @@ const ABOUT_SECTION = { key: 'about', label: 'About', description: 'Workspace ve
 const NAV_DEFAULT = 224;
 const NAV_MIN = 160;
 const CONTENT_MIN = 320;
+// The separator (w-1) sits between the two panes and eats width from the
+// container, so it counts against the content pane's minimum.
+const DIVIDER_W = 4;
 
 const GENERAL_SECTIONS = [
   { key: 'users', label: 'Users', description: 'Guest logins scoped to a fixed list of apps.' },
@@ -123,7 +126,7 @@ function BackChevron() {
 }
 
 function clampNav(width, total) {
-  const max = Math.max(NAV_MIN, total - CONTENT_MIN);
+  const max = Math.max(NAV_MIN, total - CONTENT_MIN - DIVIDER_W);
   return Math.min(Math.max(width, NAV_MIN), max);
 }
 
