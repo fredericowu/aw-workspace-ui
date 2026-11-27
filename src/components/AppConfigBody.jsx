@@ -397,6 +397,11 @@ export default function AppConfigBody({ app, onSaved }) {
       {isMcpTools && !windowBlock && (
         <JsonConfigEditor app={app} onSaved={onSaved} />
       )}
+      {settingsComponentWindow && !componentSlotFilled && !isMcpTools && fields.length === 0 && (
+        <p role="status" data-testid="settings-panel-unavailable">
+          This app's settings panel is unavailable (its UI code is not enabled or failed to load).
+        </p>
+      )}
     </>
   );
 }

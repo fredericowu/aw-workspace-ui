@@ -37,6 +37,12 @@ describe('AppConfigBody — component-mode settings panel', () => {
     expect(await screen.findByTestId('appcfg-json-editor')).toBeInTheDocument();
   });
 
+  it('shows an unavailable notice when a component-only panel cannot mount', async () => {
+    serve('other-app');
+    render(<AppConfigBody app={{ slug: 'other-app', name: 'O', version: '1', config: {}, config_schema: { type: 'object', properties: {} } }} />);
+    expect(await screen.findByTestId('settings-panel-unavailable')).toBeInTheDocument();
+  });
+
   it('never renders or submits object/array properties (no stale-snapshot overwrite)', async () => {
     apiFetch.mockImplementation((url) => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve(url === '/api/apps/-/contributions' ? { settings: [], windows: [] } : {}),
