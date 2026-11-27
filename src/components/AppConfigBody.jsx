@@ -115,6 +115,19 @@ function useSlotFilled(slot) {
   return useSyncExternalStore(subscribe, snap, snap);
 }
 
+// The shell imports app bundles asynchronously, so an empty slot is only
+// "unavailable" once it has stayed empty past a grace period.
+const PANEL_GRACE_MS = 5000;
+function usePanelTimedOut(pending) {
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!pending) { setTimedOut(false); return undefined; }
+    const t = setTimeout(() => setTimedOut(true), PANEL_GRACE_MS);
+    return () => clearTimeout(t);
+  }, [pending]);
+  return timedOut;
+}
+
 export default function AppConfigBody({ app, onSaved }) {
   const isMcpGateway = app?.slug === 'mcp-gateway';
   const isMcpTools = app?.slug === 'mcp-tools';
@@ -143,6 +156,7 @@ export default function AppConfigBody({ app, onSaved }) {
   const componentSlotFilled = useSlotFilled(
     settingsComponentWindow ? windowBodySlot(settingsComponentWindow.id) : null
   );
+  const panelTimedOut = usePanelTimedOut(!!settingsComponentWindow && !componentSlotFilled);
   const [fieldOptions, setFieldOptions] = useState({});
   const [resolving, setResolving] = useState(true);
   useEffect(() => {
@@ -396,6 +410,11 @@ export default function AppConfigBody({ app, onSaved }) {
           slot (older mcp-tools versions, or ui:code denied). */}
       {isMcpTools && !windowBlock && (
         <JsonConfigEditor app={app} onSaved={onSaved} />
+      )}
+      {settingsComponentWindow && !componentSlotFilled && panelTimedOut && !isMcpTools && fields.length === 0 && (
+        <p role="status" data-testid="settings-panel-unavailable">
+          This app's settings panel is unavailable (its UI code is not enabled or failed to load).
+        </p>
       )}
     </>
   );

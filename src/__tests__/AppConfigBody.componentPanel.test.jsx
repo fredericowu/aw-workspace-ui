@@ -37,6 +37,23 @@ describe('AppConfigBody — component-mode settings panel', () => {
     expect(await screen.findByTestId('appcfg-json-editor')).toBeInTheDocument();
   });
 
+  it('keeps the unavailable notice hidden while loading, shows it after the grace period, and clears it when the slot fills', async () => {
+    serve('other-app');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<AppConfigBody app={{ slug: 'other-app', name: 'O', version: '1', config: {}, config_schema: { type: 'object', properties: {} } }} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(screen.queryByTestId('settings-panel-unavailable')).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(screen.getByTestId('settings-panel-unavailable')).toBeInTheDocument();
+      let unmount;
+      act(() => { unmount = slotRegistry.mount(windowBodySlot('other-app.settings'), { id: 'o.p', appId: 'other-app', render: () => <div>LATE PANEL</div> }); });
+      expect(await screen.findByText('LATE PANEL')).toBeInTheDocument();
+      expect(screen.queryByTestId('settings-panel-unavailable')).toBeNull();
+      act(() => unmount());
+    } finally { vi.useRealTimers(); }
+  });
+
   it('never renders or submits object/array properties (no stale-snapshot overwrite)', async () => {
     apiFetch.mockImplementation((url) => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve(url === '/api/apps/-/contributions' ? { settings: [], windows: [] } : {}),
