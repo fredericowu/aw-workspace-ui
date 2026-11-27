@@ -56,10 +56,10 @@ function vpnsNavButton() {
 }
 
 describe('SettingsPanelNew — initialTarget deep link', () => {
-  it('with no target, defaults to Users (unchanged behaviour)', async () => {
+  it('with no target, opens on About', async () => {
     render(<SettingsPanelNew />);
-    const usersBtn = await screen.findByRole('button', { name: 'Users' });
-    expect(usersBtn.className).toMatch(/bg-\[var\(--color-accent\)\]/);
+    const aboutBtn = await screen.findByRole('button', { name: 'About' });
+    expect(aboutBtn.className).toMatch(/bg-\[var\(--color-accent\)\]/);
   });
 
   it('opens straight on the requested section when given a target', async () => {

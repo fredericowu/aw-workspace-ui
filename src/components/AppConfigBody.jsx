@@ -3,11 +3,13 @@
 // Gateway/MCP Tools special cases. Extracted out of AppConfigWindow so the
 // same body can render inside a modal (AppConfigWindow) or embedded inline
 // in a sidebar (SettingsPanelNew's Apps group) — see ADR Decision 3b.
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useSyncExternalStore } from 'react';
 import { apiFetch } from '../auth';
 import { fetchContributions } from '../apps/appsApi';
 import { SOURCES, resolveOptions } from '../lib/configOptions';
 import AppWindow from './AppWindow';
+import AppWindowBody from './AppWindowBody';
+import { slotRegistry, windowBodySlot } from '../apps/slotRegistry';
 import McpGatewayConfigEditor from './McpGatewayConfigEditor';
 import McpGatewayNamedConfigs from './McpGatewayNamedConfigs';
 import McpGatewayExternalUpstreams from './McpGatewayExternalUpstreams';
@@ -96,11 +98,30 @@ function isManagedApp(app) {
   return !!(app?.managed_app || app?.tier === 'container');
 }
 
+// Scalar and enum fields only. Object/array properties are never rendered nor
+// submitted by the generated form: the form posts the config it loaded at
+// mount, so submitting a collection the app edits elsewhere (feed cards, MCP
+// servers) would overwrite newer data with a stale snapshot. Core merges a
+// partial save, so omitting them leaves the stored value untouched.
+function isScalarProp(spec) {
+  return !(spec?.type === 'object' || spec?.type === 'array');
+}
+
+// True when the app's component-mode settings window has a body registered
+// in the slot registry (needs ui:code granted and the bundle loaded).
+function useSlotFilled(slot) {
+  const subscribe = (l) => slotRegistry.subscribe(l);
+  const snap = () => (slot ? slotRegistry.getSlot(slot).length > 0 : false);
+  return useSyncExternalStore(subscribe, snap, snap);
+}
+
 export default function AppConfigBody({ app, onSaved }) {
   const isMcpGateway = app?.slug === 'mcp-gateway';
   const isMcpTools = app?.slug === 'mcp-tools';
   const props = useMemo(() => {
-    const appProps = app?.config_schema?.properties || {};
+    const appProps = Object.fromEntries(
+      Object.entries(app?.config_schema?.properties || {}).filter(([, spec]) => isScalarProp(spec))
+    );
     if (!isManagedApp(app)) return appProps;
     return { ...MANAGED_APP_PROPS, ...appProps };
   }, [app]);
@@ -116,12 +137,19 @@ export default function AppConfigBody({ app, onSaved }) {
   // behind an "Advanced" details element, with the declarative window
   // first — opt-in, so every other app's settings body is unaffected.
   const [advancedSchemaForm, setAdvancedSchemaForm] = useState(false);
+  // The panel's window, when its body is component-mode (rendered through the
+  // core.window.body slot instead of a declarative spec).
+  const [settingsComponentWindow, setSettingsComponentWindow] = useState(null);
+  const componentSlotFilled = useSlotFilled(
+    settingsComponentWindow ? windowBodySlot(settingsComponentWindow.id) : null
+  );
   const [fieldOptions, setFieldOptions] = useState({});
   const [resolving, setResolving] = useState(true);
   useEffect(() => {
     let alive = true;
     setResolving(true);
     setSettingsWindowSpec(null);
+    setSettingsComponentWindow(null);
     setAdvancedSchemaForm(false);
     const contributionsDone = fetchContributions()
       .then((c) => {
@@ -132,6 +160,7 @@ export default function AppConfigBody({ app, onSaved }) {
         const win = (c.windows || []).find((w) => w.app === app.slug && w.id === panel.window);
         const spec = win?.body?.spec_data;
         if (spec) setSettingsWindowSpec(spec);
+        if (win?.body?.type === 'component') setSettingsComponentWindow(win);
       })
       .catch(() => {});
     const xOptionFields = fields.filter(([, spec]) => spec['x-options']);
@@ -153,6 +182,7 @@ export default function AppConfigBody({ app, onSaved }) {
       const win = panel && (c.windows || []).find((w) => w.app === app.slug && w.id === panel.window);
       setAdvancedSchemaForm(!!panel && panel.schema_form === 'advanced');
       setSettingsWindowSpec(win?.body?.spec_data || null);
+      setSettingsComponentWindow(win?.body?.type === 'component' ? win : null);
     }).catch(() => {});
     window.addEventListener('aw-apps-changed', refresh);
     return () => { alive = false; window.removeEventListener('aw-apps-changed', refresh); };
@@ -163,7 +193,13 @@ export default function AppConfigBody({ app, onSaved }) {
     for (const [key, spec] of Object.entries(props)) {
       if (spec.default !== undefined) init[key] = spec.default;
     }
-    Object.assign(init, app?.config || {});
+    // Only keys the form renders: object/array values stay out of the
+    // submitted payload (core merges a partial save, see isScalarProp).
+    const rendered = (app?.config && typeof app.config === 'object') ? app.config : {};
+    for (const [key, v] of Object.entries(rendered)) {
+      if (!isScalarProp(app?.config_schema?.properties?.[key])) continue;
+      init[key] = v;
+    }
     // A locked field (e.g. "public" on a non-standalone managed app) always
     // reads as its default — stale persisted config from before the lock
     // can't override what the disabled toggle shows.
@@ -225,7 +261,7 @@ export default function AppConfigBody({ app, onSaved }) {
     );
   }
 
-  if (fields.length === 0 && !settingsWindowSpec && !isMcpGateway && !isMcpTools) {
+  if (fields.length === 0 && !settingsWindowSpec && !settingsComponentWindow && !isMcpGateway && !isMcpTools) {
     return <p className="appcfg-empty">This app has no configurable settings.</p>;
   }
 
@@ -325,9 +361,11 @@ export default function AppConfigBody({ app, onSaved }) {
         </form>
   );
 
-  const windowBlock = settingsWindowSpec && (
+  const windowBlock = settingsWindowSpec ? (
     <div className="appcfg-appwindow"><AppWindow spec={settingsWindowSpec} appId={app.slug} /></div>
-  );
+  ) : (settingsComponentWindow && componentSlotFilled ? (
+    <div className="appcfg-appwindow"><AppWindowBody windowSpec={settingsComponentWindow} /></div>
+  ) : null);
 
   return (
     <>
@@ -354,7 +392,9 @@ export default function AppConfigBody({ app, onSaved }) {
           <McpGatewayNamedConfigs />
         </>
       )}
-      {isMcpTools && (
+      {/* Legacy fallback: only while the app mounted nothing in its settings
+          slot (older mcp-tools versions, or ui:code denied). */}
+      {isMcpTools && !windowBlock && (
         <JsonConfigEditor app={app} onSaved={onSaved} />
       )}
     </>

@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 
 describe('SettingsPanelNew — wide (desktop shell)', () => {
-  it('shows nav and section content at the same time, and opens on Users', async () => {
+  it('shows nav and section content at the same time, and opens on About', async () => {
     installMatchMedia(false);
     render(<SettingsPanelNew />);
 
@@ -50,7 +50,7 @@ describe('SettingsPanelNew — wide (desktop shell)', () => {
     expect(screen.getByRole('button', { name: /Networking/ })).toBeInTheDocument();
     // ...and so is a section, with no navigation step in between. This is the
     // pre-existing desktop behaviour and must not regress.
-    expect(document.querySelector('.w-56')).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="settings-divider"]')).toBeInTheDocument();
   });
 
   it('never renders the narrow back row', () => {
@@ -65,7 +65,7 @@ describe('SettingsPanelNew — narrow (mobile shell)', () => {
     installMatchMedia(true);
     render(<SettingsPanelNew />);
     // w-56 is the 224px sidebar that ate 57% of a 390px viewport.
-    expect(document.querySelector('.w-56')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-testid="settings-divider"]')).not.toBeInTheDocument();
   });
 
   it('opens on the section list, not on a section', () => {
@@ -117,13 +117,13 @@ describe('SettingsPanelNew — breakpoint changes', () => {
     const mm = installMatchMedia(false);
     render(<SettingsPanelNew />);
 
-    expect(document.querySelector('.w-56')).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="settings-divider"]')).toBeInTheDocument();
 
     mm.setMatches(true);
-    expect(document.querySelector('.w-56')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-testid="settings-divider"]')).not.toBeInTheDocument();
 
     mm.setMatches(false);
-    expect(document.querySelector('.w-56')).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="settings-divider"]')).toBeInTheDocument();
   });
 
   it('unsubscribes the media listener on unmount', () => {

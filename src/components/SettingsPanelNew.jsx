@@ -9,10 +9,7 @@ import AwConfigTab from './AwConfigTab';
 import TcpProxyTab from './TcpProxyTab';
 import VpnTab from './VpnTab';
 import LocalDnsTab from './LocalDnsTab';
-import McpServersTab from './McpServersTab';
-import ProxyTab from './ProxyTab';
 import BackupTab from './BackupTab';
-import FeedSubscriberTab from './FeedSubscriberTab';
 import UsersTab from './UsersTab';
 import IntegrationsTab from './IntegrationsTab';
 import MarketplaceTab from './MarketplaceTab';
@@ -28,6 +25,16 @@ import ErrorBoundary from './ErrorBoundary';
 import { listInstalledApps } from '../apps/appsApi';
 import { watchAppsList } from '../apps/watchAppsList';
 import { buildSettingsIndex, matchSettingsEntry } from '../lib/settingsSearch';
+import { ABOUT_SELECTION, resolveSelection } from '../lib/settingsSelection';
+
+// About sits above the General group as its own top-level topic and is the
+// default when nothing valid was selected.
+const ABOUT_SECTION = { key: 'about', label: 'About', description: 'Workspace version, update, and machine resources.' };
+
+// Settings divider limits (wide layout only).
+const NAV_DEFAULT = 224;
+const NAV_MIN = 160;
+const CONTENT_MIN = 320;
 
 const GENERAL_SECTIONS = [
   { key: 'users', label: 'Users', description: 'Guest logins scoped to a fixed list of apps.' },
@@ -45,16 +52,12 @@ const GENERAL_SECTIONS = [
   { key: 'networking', label: 'Networking', description: 'The tenant private mesh, exit nodes and VPN.' },
   { key: 'vpn', label: 'VPNs', description: 'VPN profiles — upload, edit, delete, NordVPN import. Connect or disconnect a saved profile.' },
   { key: 'remote-hosts', label: 'Remote Hosts', description: 'Linked hosts, and how to install aw-remote-host on a new one.' },
-  { key: 'feed-subscriber', label: 'Feed Subscriber', description: 'Watch external feeds and trigger agent runs.' },
   { key: 'backup', label: 'Backup', description: 'Back up and restore workspace state.' },
   { key: 'aw', label: 'AW', description: 'Workspace configuration and appearance.' },
   { key: 'tcp-proxy', label: 'TCP Proxy', description: 'Configure TCP forwarding.' },
   { key: 'workspace-vpn', label: 'Workspace VPN', description: 'Workspace VPN client, server and startup settings.' },
   { key: 'local-dns', label: 'Local Network', description: 'Local DNS and network configuration.' },
-  { key: 'proxy', label: 'Cookies', description: 'Manage proxy cookies.' },
-  { key: 'mcp', label: 'MCP Servers', description: 'Configure workspace MCP servers.' },
   { key: 'skills', label: 'Skills', description: 'Author and manage native and app-contributed skills.' },
-  { key: 'about', label: 'About', description: 'Workspace version, update, and machine resources.' },
 ];
 
 function ChevronDown({ open }) {
@@ -74,7 +77,9 @@ function ChevronDown({ open }) {
 // `#mobile` case backwards — that renders the mobile sheet full-bleed on a wide
 // display, where the sidebar is the RIGHT layout and a narrow one would be a
 // downgrade. The viewport is what actually decides whether there is room.
-const DEFAULT_SELECTION = { group: 'general', key: 'users' };
+const DEFAULT_SELECTION = ABOUT_SELECTION;
+const GENERAL_KEYS = GENERAL_SECTIONS.map((s) => s.key);
+const ALL_SECTIONS = [ABOUT_SECTION, ...GENERAL_SECTIONS];
 
 const NARROW_QUERY = '(max-width: 767px)';
 
@@ -115,6 +120,69 @@ function BackChevron() {
   );
 }
 
+function clampNav(width, total) {
+  const max = Math.max(NAV_MIN, total - CONTENT_MIN);
+  return Math.min(Math.max(width, NAV_MIN), max);
+}
+
+// Draggable separator between nav and body. Pointer capture keeps the drag
+// alive over app iframes (which otherwise swallow pointermove). Width is not
+// persisted: it resets when Settings reopens. Re-clamps on container resize.
+function NavDivider({ width, onWidth, container }) {
+  useEffect(() => {
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => {
+      const total = container.getBoundingClientRect().width;
+      if (total > 0) onWidth((w) => clampNav(w, total));
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [container, onWidth]);
+
+  const onPointerDown = (e) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    el.setPointerCapture?.(e.pointerId);
+    const move = (ev) => {
+      const rect = container?.getBoundingClientRect();
+      if (!rect) return;
+      onWidth(clampNav(ev.clientX - rect.left, rect.width));
+    };
+    const up = (ev) => {
+      el.releasePointerCapture?.(ev.pointerId);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const total = container?.getBoundingClientRect().width || 0;
+    const delta = e.key === 'ArrowLeft' ? -16 : 16;
+    onWidth((w) => (total ? clampNav(w + delta, total) : Math.max(NAV_MIN, w + delta)));
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize settings menu"
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={NAV_MIN}
+      tabIndex={0}
+      data-testid="settings-divider"
+      onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
+      className="w-1 shrink-0 cursor-col-resize bg-[var(--color-border)] hover:bg-[var(--color-accent)]/50 focus:bg-[var(--color-accent)]/50 outline-none touch-none"
+    />
+  );
+}
+
 // initialTarget: optional {selection: {group, key}, nonce} — a caller (e.g.
 // VpnNav's "Open VPN settings") wants to land directly on a section instead
 // of the default. `nonce` matters because this component mounts once per
@@ -123,8 +191,11 @@ function BackChevron() {
 // identical, which is what makes the effect below fire again.
 export default function SettingsPanelNew({ initialTarget } = {}) {
   const [expanded, setExpanded] = useState({ general: true, apps: true });
-  const [selection, setSelection] = useState(() => initialTarget?.selection || DEFAULT_SELECTION);
+  const [rawSelection, setSelection] = useState(() => initialTarget?.selection || DEFAULT_SELECTION);
   const [apps, setApps] = useState([]);
+  const [appsLoaded, setAppsLoaded] = useState(false);
+  const [navWidth, setNavWidth] = useState(NAV_DEFAULT);
+  const [containerEl, setContainerEl] = useState(null);
   const [appsError, setAppsError] = useState(null);
   const [query, setQuery] = useState('');
   const isNarrow = useIsNarrow();
@@ -148,7 +219,7 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
   useEffect(() => {
     let alive = true;
     const load = () => listInstalledApps()
-      .then((d) => { if (alive) { setApps((d || []).filter((a) => a.has_config)); setAppsError(null); } })
+      .then((d) => { if (alive) { setApps((d || []).filter((a) => a.has_config)); setAppsError(null); setAppsLoaded(true); } })
       .catch((e) => { if (alive) setAppsError(String(e.message || e)); });
     load();
     // Install/uninstall/update elsewhere re-lists the Apps group in place.
@@ -165,12 +236,18 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
     setDetailOpen(true);
   };
 
+  // Valid-or-About: a removed topic, an uninstalled app or junk opens About.
+  const selection = useMemo(
+    () => resolveSelection(rawSelection, GENERAL_KEYS, apps, appsLoaded),
+    [rawSelection, apps, appsLoaded]
+  );
+
   const selectedApp = useMemo(
     () => (selection.group === 'apps' ? apps.find((a) => a.slug === selection.key) : null),
     [selection, apps]
   );
   const selectedSection = useMemo(
-    () => (selection.group === 'general' ? GENERAL_SECTIONS.find((s) => s.key === selection.key) : null),
+    () => (selection.group === 'general' ? ALL_SECTIONS.find((s) => s.key === selection.key) : null),
     [selection]
   );
 
@@ -183,7 +260,7 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
   // fetched apps, so this only recomputes when the app list changes — not on
   // every keystroke. Match provenance (the "Matches X" hint) is query-
   // dependent and computed below, per keystroke, against this index.
-  const settingsIndex = useMemo(() => buildSettingsIndex(GENERAL_SECTIONS, apps), [apps]);
+  const settingsIndex = useMemo(() => buildSettingsIndex(ALL_SECTIONS, apps), [apps]);
 
   const searching = query.trim().length > 0;
 
@@ -204,6 +281,7 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
   const visibleSections = searching
     ? GENERAL_SECTIONS.filter((s) => matchHints.has(`general:${s.key}`))
     : GENERAL_SECTIONS;
+  const aboutVisible = !searching || matchHints.has('general:about');
   const visibleApps = searching ? apps.filter((a) => matchHints.has(`apps:${a.slug}`)) : apps;
 
   // Auto-expand both groups while searching so a match is never hidden behind
@@ -213,15 +291,16 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
   // writing `expanded` directly, untouched by search.
   const effectiveExpanded = searching ? { general: true, apps: true } : expanded;
 
-  const noResults = searching && visibleSections.length === 0 && visibleApps.length === 0;
+  const noResults = searching && !aboutVisible && visibleSections.length === 0 && visibleApps.length === 0;
 
   const nav = (
     <div
       className={
         isNarrow
           ? 'w-full h-full flex flex-col bg-[var(--color-bg-primary)]'
-          : 'w-56 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-bg-header)] flex flex-col'
+          : 'shrink-0 bg-[var(--color-bg-header)] flex flex-col'
       }
+      style={isNarrow ? undefined : { width: navWidth }}
     >
       <div className="shrink-0 p-2 border-b border-[var(--color-border)]">
         <input
@@ -234,6 +313,25 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
         />
       </div>
       <div className="flex-1 overflow-y-auto py-2">
+        {aboutVisible && (
+          <button
+            onClick={() => select('general', 'about')}
+            className={`w-full flex items-center gap-2 px-3 ${rowPad} ${rowText} font-medium text-left transition-colors ${
+              !isNarrow && selection.group === 'general' && selection.key === 'about'
+                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5 active:bg-white/10'
+            }`}
+          >
+            <span className="flex-1 truncate">{ABOUT_SECTION.label}</span>
+            {searching && matchHints.get('general:about') && (
+              <span data-testid="settings-search-hint" className="text-[9px] italic text-[var(--color-text-muted)] shrink-0">
+                {matchHints.get('general:about')}
+              </span>
+            )}
+            {isNarrow && <span className="text-[var(--color-text-muted)] shrink-0 rotate-180"><BackChevron /></span>}
+          </button>
+        )}
+
         {/* General group — hidden entirely (not just collapsed) when a search
             is active and nothing in it matches (A10). */}
         {(!searching || visibleSections.length > 0) && (
@@ -362,9 +460,6 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
             (selectedSection.key === 'tcp-proxy' && <TcpProxyTab />) ||
             (selectedSection.key === 'workspace-vpn' && <VpnTab />) ||
             (selectedSection.key === 'local-dns' && <LocalDnsTab />) ||
-            (selectedSection.key === 'proxy' && <ProxyTab />) ||
-            (selectedSection.key === 'mcp' && <McpServersTab />) ||
-            (selectedSection.key === 'feed-subscriber' && <FeedSubscriberTab />) ||
             (selectedSection.key === 'backup' && <BackupTab />)
           )}
           {selection.group === 'apps' && selectedApp && (
@@ -395,8 +490,9 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
   // Wide: nav and content side by side — the original layout, untouched.
   if (!isNarrow) {
     return (
-      <div className="h-full flex bg-[var(--color-bg-primary)] overflow-hidden">
+      <div ref={setContainerEl} className="h-full flex bg-[var(--color-bg-primary)] overflow-hidden">
         {nav}
+        <NavDivider width={navWidth} onWidth={setNavWidth} container={containerEl} />
         {content}
       </div>
     );

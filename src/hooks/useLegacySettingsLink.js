@@ -7,11 +7,8 @@ const LEGACY_TABS = new Map([
   ['tcp-proxy', 'tcp-proxy'],
   ['vpn', 'workspace-vpn'],
   ['local-dns', 'local-dns'],
-  ['proxy', 'proxy'],
-  ['feed-subscriber', 'feed-subscriber'],
   ['backup', 'backup'],
   ['skills', 'skills'],
-  ['mcp', 'mcp'],
 ]);
 
 const LEGACY_PREFIX = '#settings/';
