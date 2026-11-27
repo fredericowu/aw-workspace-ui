@@ -163,19 +163,23 @@ function UpdatePanel({ slug, cloud, desktop, desktopLoading }) {
       setPhase({ s: 'running' });
       try {
         await updateCloudWorkspace(slug, { force });
-        const target = w.latest;
+        // The backend re-resolves "latest" and verifies the install before it
+        // returns, so the installed version may be newer than the w.latest this
+        // page loaded. Confirm by "the running version changed", and report it.
+        const before = w.current;
         const deadline = Date.now() + 5 * 60_000;
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 4000));
           try {
-            if ((await fetchHealthVersion()) === target) { setPhase({ s: 'done', version: target }); return; }
+            const now = await fetchHealthVersion();
+            if (now && now !== before) { setPhase({ s: 'done', version: now }); return; }
           } catch { /* restarting */ }
         }
         setPhase({ s: 'unconfirmed' });
       } catch (e) {
         if (e.status === 409 && e.body?.error === 'uncommitted_host_edits') {
           setPhase({ s: 'idle' });
-          setConfirm({ force: true, files: e.body.files || [] });
+          setConfirm({ force: true, files: e.body.files || [], total: e.body.dirty_count, truncated: !!e.body.truncated });
         } else if (e.status === 403) setPhase({ s: 'error', msg: 'Requires workspace owner or admin' });
         else if (e.status === 503) setPhase({ s: 'error', msg: 'The workspace host is offline' });
         else setPhase({ s: 'error', msg: e.message });
@@ -185,8 +189,10 @@ function UpdatePanel({ slug, cloud, desktop, desktopLoading }) {
     return (
       <div className="text-sm">
         <p>Current {w.current}, latest {w.latest}.</p>
-        <button className="mt-2 px-3 py-1 rounded border" disabled={phase.s === 'running'}
-          onClick={() => setConfirm({ force: false })}>Update to {w.latest}</button>
+        {phase.s !== 'done' && (
+          <button className="mt-2 px-3 py-1 rounded border" disabled={phase.s === 'running'}
+            onClick={() => setConfirm({ force: false })}>Update to {w.latest}</button>
+        )}
         {confirm && (
           <div role="dialog" aria-label="Confirm update" className="mt-2 p-3 border rounded">
             <p>
@@ -197,6 +203,13 @@ function UpdatePanel({ slug, cloud, desktop, desktopLoading }) {
               <div>
                 <p className="mt-2">The host has uncommitted edits that will be discarded (a recoverable backup is written first):</p>
                 <ul className="list-disc ml-5">{(confirm.files || []).slice(0, 10).map((f) => <li key={f}>{f}</li>)}</ul>
+                {(() => {
+                  const total = Math.max(confirm.total || 0, (confirm.files || []).length);
+                  const omitted = total - Math.min(10, (confirm.files || []).length);
+                  return omitted > 0 || confirm.truncated
+                    ? <p className="mt-1">{omitted > 0 ? `${omitted} more file${omitted === 1 ? '' : 's'} not listed` : 'More files not listed'}; all uncommitted changes will be discarded.</p>
+                    : null;
+                })()}
               </div>
             )}
             <button className="mt-2 mr-2 px-3 py-1 rounded border" onClick={() => run(confirm.force)}>
@@ -205,7 +218,7 @@ function UpdatePanel({ slug, cloud, desktop, desktopLoading }) {
             <button className="mt-2 px-3 py-1 rounded border" onClick={() => setConfirm(null)}>Cancel</button>
           </div>
         )}
-        {phase.s === 'running' && <p className="mt-2">Updating… waiting for the workspace to report {w.latest}.</p>}
+        {phase.s === 'running' && <p className="mt-2">Updating… waiting for the workspace to report a new version.</p>}
         {phase.s === 'done' && <p className="mt-2">Updated: now running {phase.version}.</p>}
         {phase.s === 'unconfirmed' && <p className="mt-2">Outcome not confirmed. <ManageLink slug={slug} /></p>}
         {phase.s === 'error' && <p className="mt-2">Update failed: {phase.msg}. <ManageLink slug={slug} /></p>}
