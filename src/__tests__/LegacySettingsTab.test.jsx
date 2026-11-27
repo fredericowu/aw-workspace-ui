@@ -7,7 +7,7 @@ vi.mock('../apps/appsApi', () => ({ listInstalledApps: vi.fn().mockResolvedValue
 
 import LegacySettingsTab from '../components/LegacySettingsTab';
 
-const reply = (status, body) => Promise.resolve({ status, ok: status >= 200 && status < 300, json: () => Promise.resolve(body) });
+const reply = (status, body, raw) => Promise.resolve({ status, ok: status >= 200 && status < 300, json: () => Promise.resolve(body), text: () => Promise.resolve(raw ?? JSON.stringify(body)) });
 
 // A fake backend: rows keyed by URL; `mode` picks the response shape.
 function backend({ mode, rows }) {
@@ -131,6 +131,31 @@ describe('LegacySettingsTab: aw-backend', () => {
     fireEvent.click(btn);
     expect(onNavigate).toHaveBeenCalledWith('general', 'aw');
     expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+  });
+});
+
+describe('LegacySettingsTab: number safety and in-flight edits', () => {
+  it('a document with an unsafe integer cannot be saved', async () => {
+    apiFetch.mockImplementation(() => reply(200, { key: 'mcp', value: { id: 9007199254740992, l: 'a' } }, '{"key":"mcp","value":{"id":9007199254740993,"l":"a"}}'));
+    render(<LegacySettingsTab />);
+    await screen.findByTestId('legacy-mcp-lossy');
+    fireEvent.change(area('mcp'), { target: { value: '{"id":1,"l":"b"}' } });
+    expect(saveBtn('mcp').disabled).toBe(true);
+  });
+
+  it('the textarea is disabled while a save is in flight', async () => {
+    const rows = { mcp: { a: 1 } };
+    backend({ mode: 'workspace', rows });
+    render(<LegacySettingsTab />);
+    await waitFor(() => expect(area('mcp').value).toContain('"a"'));
+    const inner = apiFetch.getMockImplementation();
+    let release;
+    apiFetch.mockImplementation((u, o = {}) => (o.method === 'PUT' ? new Promise((r) => { release = () => r(inner(u, o)); }) : inner(u, o)));
+    fireEvent.change(area('mcp'), { target: { value: '{"a":2}' } });
+    fireEvent.click(saveBtn('mcp'));
+    await waitFor(() => expect(area('mcp').disabled).toBe(true));
+    release();
+    await waitFor(() => expect(area('mcp').disabled).toBe(false));
   });
 });
 

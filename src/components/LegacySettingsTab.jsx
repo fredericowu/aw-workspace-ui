@@ -18,8 +18,14 @@ const SPECS = Object.freeze({
 
 async function readRow(spec) {
   const res = await apiFetch(spec.path);
-  const body = await res.json().catch(() => null);
-  return classifyGet(spec.key, res.status, body);
+  const raw = await res.text().catch(() => '');
+  let body;
+  try { body = JSON.parse(raw); } catch { body = null; }
+  const c = classifyGet(spec.key, res.status, body);
+  // Integers beyond 2^53 do not survive JSON.parse/stringify; saving would
+  // silently rewrite them, so such a document is shown read-only.
+  c.lossy = (raw.match(/-?\d{16,}/g) || []).some((m) => !Number.isSafeInteger(Number(m)));
+  return c;
 }
 
 function LegacyEditor({ spec, onNavigate, mcpToolsInstalled }) {
@@ -87,7 +93,7 @@ function LegacyEditor({ spec, onNavigate, mcpToolsInstalled }) {
   const invalid = !parsed.ok ? parsed.error : guard;
   const baseline = loadedSnap === 'unset' ? canonical({}) : loadedSnap;
   const dirty = parsed.ok && canonical(parsed.value) !== baseline;
-  const canSave = !saving && !invalid && dirty;
+  const canSave = !saving && !invalid && dirty && !cls.lossy;
 
   const save = async () => {
     if (!canSave) return;
@@ -123,6 +129,11 @@ function LegacyEditor({ spec, onNavigate, mcpToolsInstalled }) {
       <h4 className="text-[13px] font-semibold">{spec.title}</h4>
       <p className="text-[11px] text-[var(--color-text-muted)]">{spec.path} · answered by the {backendLabel}</p>
       <p className="text-[12px] my-1" data-testid={`legacy-${spec.key}-state`}>{describeState(kind, spec.key, cls)}</p>
+      {cls.lossy && (
+        <p className="text-[11px] text-[var(--color-danger)] mb-1" data-testid={`legacy-${spec.key}-lossy`}>
+          This document contains integers larger than 2^53 that cannot be saved without changing them. Saving is disabled.
+        </p>
+      )}
       {kind === 'workspace' && spec.key === 'mcp' && (
         <p className="text-[11px] text-[var(--color-text-muted)] mb-1">
           This is not the MCP Tools configuration and does not add or remove gateway upstreams.
@@ -142,6 +153,7 @@ function LegacyEditor({ spec, onNavigate, mcpToolsInstalled }) {
         className="mcpgw-json"
         value={text}
         spellCheck="false"
+        disabled={saving}
         onChange={(e) => setText(e.target.value)}
       />
       <div className="appcfg-actions">
