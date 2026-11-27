@@ -31,7 +31,6 @@ import { installApiBaseShims } from './apiBase'
 import { initApiKey } from './auth'
 
 import App from './App.jsx'
-import BootStatusChip from './components/BootStatusChip.jsx'
 import { startViewdbg } from './lib/viewdbgClient'
 import { installKbdModeSweep } from './lib/keyboardMode'
 import { initOtel } from './otel.js'
@@ -71,6 +70,5 @@ installApiBaseShims()
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
-    <BootStatusChip />
   </StrictMode>,
 )

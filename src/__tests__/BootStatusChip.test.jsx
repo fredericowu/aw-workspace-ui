@@ -48,4 +48,24 @@ describe('BootStatusChip', () => {
     await flush();
     expect(screen.getByTestId('boot-status-chip').textContent).toMatch(/failed/);
   });
+
+  it('keeps polling after a failed poll and ignores a stale poll after a terminal frame', async () => {
+    h.apiFetch.mockResolvedValue(ok({ phase: 'reconciling', boot_id: 'b', total: 4, loaded: 1 }));
+    render(<BootStatusChip />);
+    await flush();
+    h.apiFetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    expect(screen.getByTestId('boot-status-chip').textContent).toBe('Setting up apps 1/4');
+    h.apiFetch.mockResolvedValue(ok({ phase: 'reconciling', boot_id: 'b', total: 4, loaded: 3 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    expect(screen.getByTestId('boot-status-chip').textContent).toBe('Setting up apps 3/4');
+
+    act(() => h.socket.onFrame({ type: 'boot_progress', phase: 'done', boot_id: 'b', total: 4, loaded: 4 }));
+    expect(screen.queryByTestId('boot-status-chip')).toBeNull();
+    // a poll captured before the terminal frame arrives late
+    let late;
+    h.apiFetch.mockImplementation(() => new Promise((r) => { late = r; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(late).toBeUndefined(); // no further polling once done
+  });
 });

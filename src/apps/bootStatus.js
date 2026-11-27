@@ -20,6 +20,10 @@ export function startBootStatus(onChange, { pollMs = POLL_MS } = {}) {
 
   const apply = (s) => {
     if (stopped || !s || typeof s.phase !== 'string') return;
+    // A poll that was in flight when the terminal frame landed must not
+    // revive a finished pass.
+    if (last && last.phase !== 'reconciling' && s.phase === 'reconciling'
+        && last.boot_id && last.boot_id === s.boot_id) return;
     last = s;
     onChange(s);
     schedule();
@@ -34,7 +38,7 @@ export function startBootStatus(onChange, { pollMs = POLL_MS } = {}) {
   async function fetchNow() {
     try {
       const res = await apiFetch(URL_PATH);
-      if (!res.ok) return; // 401 pre-login, 404 older core: stay hidden
+      if (!res.ok) return; // 401 pre-login, 404 older core: stay hidden (finally still reschedules)
       apply(await res.json());
       if (!release && !stopped) {
         release = createSharedSocket({
@@ -42,7 +46,10 @@ export function startBootStatus(onChange, { pollMs = POLL_MS } = {}) {
           onFrame: (f) => { if (f?.type === 'boot_progress') apply(f); },
         }).retain();
       }
-    } catch { /* transient: the next trigger retries */ }
+    } catch { /* transient: keep the previous snapshot */ } finally {
+      // A failed poll must not end polling: a follower worker gets no frames.
+      schedule();
+    }
   }
 
   fetchNow();
