@@ -21,6 +21,7 @@ import VpnsTab from './VpnsTab';
 import RemoteHostsTab from './RemoteHostsTab';
 import ObservabilityTab from './ObservabilityTab';
 import SkillsSection from './SkillsSection';
+import AboutTab from './AboutTab';
 import AppConfigBody from './AppConfigBody';
 import AppIcon from './AppIcon';
 import ErrorBoundary from './ErrorBoundary';
@@ -53,6 +54,7 @@ const GENERAL_SECTIONS = [
   { key: 'proxy', label: 'Cookies', description: 'Manage proxy cookies.' },
   { key: 'mcp', label: 'MCP Servers', description: 'Configure workspace MCP servers.' },
   { key: 'skills', label: 'Skills', description: 'Author and manage native and app-contributed skills.' },
+  { key: 'about', label: 'About', description: 'Workspace version, update, and machine resources.' },
 ];
 
 function ChevronDown({ open }) {
@@ -355,6 +357,7 @@ export default function SettingsPanelNew({ initialTarget } = {}) {
             )) ||
             (selectedSection.key === 'observability' && <ObservabilityTab />) ||
             (selectedSection.key === 'skills' && <SkillsSection />) ||
+            (selectedSection.key === 'about' && <AboutTab />) ||
             (selectedSection.key === 'aw' && <AwConfigTab />) ||
             (selectedSection.key === 'tcp-proxy' && <TcpProxyTab />) ||
             (selectedSection.key === 'workspace-vpn' && <VpnTab />) ||
